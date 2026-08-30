@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "saqa-professional-framework"
+version = "2.0.0"
+description = "Evidence-first, reproducible QA automation and certification framework"
+requires-python = ">=3.11"
+dependencies = ["httpx>=0.27,<1"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<9", "pytest-cov>=6,<7"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/saqa"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
