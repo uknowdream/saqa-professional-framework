@@ -19,14 +19,14 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e '.[test]'
+pip install -e .
 ```
 
 On Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
-pip install -e '.[test]'
+pip install -e .
 ```
 
 ### Run the self-check
@@ -37,19 +37,19 @@ pytest -q
 
 The self-check validates framework behavior and certification/evidence rules. It is not a claim that external browsers, Docker, mobile devices, Jira, or a real application target are available.
 
-## API Validation
+## API Quick Start
 
-SAQA includes a dependency-light HTTP validation layer for deterministic API checks:
+SAQA includes a deterministic HTTP client for safe API assertions:
 
 ```python
-from saqa.api import assert_json_fields, request
+from saqa.api_client import assert_json_fields, request
 
-response = request('http://127.0.0.1:3000/api/Products/1')
+response = request("GET", "http://127.0.0.1:3000/api/Products/1")
 assert response.status_code == 200
-assert_json_fields(response, ('id', 'name'))
+assert_json_fields(response, ("id", "name"))
 ```
 
-The API client records status code, headers, response body, elapsed time, and transport errors. It does not automatically retry non-idempotent methods.
+The client records status, headers, response body, elapsed time, and transport errors. It does not automatically retry mutating requests.
 
 ## Recommended Target Strategy
 
