@@ -48,3 +48,39 @@ jobs:
         run: |
           ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
             --exclude-dir=.git --exclude='*.zip'
+
+  target-policy:
+    name: Target authorization policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e '.[test]'
+      - name: Validate target policy
+        run: python -m pytest tests/test_target_registry.py
+
+  browser-matrix:
+    name: Browser readiness (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e '.[test]'
+      - name: Install Playwright
+        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install selected browser
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Browser smoke
+        env:
+          SAQA_BROWSER: ${{ matrix.browser }}
+        run: python -m saqa.browser_smoke
