@@ -19,14 +19,14 @@
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e '.[test]'
 ```
 
 On Windows PowerShell:
 
 ```powershell
 .venv\Scripts\Activate.ps1
-pip install -e .
+pip install -e '.[test]'
 ```
 
 ### Run the self-check
@@ -42,9 +42,9 @@ The self-check validates framework behavior and certification/evidence rules. It
 SAQA includes a deterministic HTTP client for safe API assertions:
 
 ```python
-from saqa.api_client import assert_json_fields, request
+from saqa.api import assert_json_fields, request
 
-response = request("GET", "http://127.0.0.1:3000/api/Products/1")
+response = request("http://127.0.0.1:3000/api/Products/1")
 assert response.status_code == 200
 assert_json_fields(response, ("id", "name"))
 ```
@@ -71,7 +71,7 @@ SAQA reports each capability independently:
 | API | HTTP contracts, schema, auth, negative cases |
 | Database | data integrity and persistence validation |
 | Security | safe authorized security checks |
-| Accessibility | WCAG-oriented automated checks |
+| Accessibility | accessibility automation |
 | Performance | latency, throughput and regression thresholds |
 | Cross-Browser | Chromium, Firefox and WebKit |
 | Mobile | responsive/mobile-web and native readiness |
@@ -94,32 +94,7 @@ A certification gate must fail closed when mandatory evidence is missing, stale,
 
 ## Documentation
 
-Full user and engineering documentation lives under `docs/`:
-
-- `GETTING-STARTED.md` — installation and first run
-- `USER-MANUAL.md` — complete user workflow
-- `QA-MANUAL.md` — QA execution methodology
-- `ARCHITECTURE.md` — framework architecture
-- `CONFIGURATION.md` — configuration reference
-- `TESTING-GUIDE.md` — writing and organizing tests
-- `WEB-TESTING.md` — web automation
-- `API-TESTING.md` — API automation
-- `DATABASE-TESTING.md` — database validation
-- `SECURITY-TESTING.md` — authorized security testing
-- `ACCESSIBILITY.md` — accessibility automation
-- `PERFORMANCE.md` — performance testing
-- `MOBILE-TESTING.md` — mobile readiness
-- `CROSS-BROWSER.md` — browser matrix
-- `DOCKER.md` — reproducible target containers
-- `CI-CD.md` — GitHub Actions
-- `ALLURE.md` — reporting
-- `JIRA.md` — defect integration
-- `EVIDENCE.md` — evidence integrity
-- `FLAKY-TESTING.md` — flaky detection
-- `SECURITY-BENCHMARKS.md` — Juice Shop/WebGoat
-- `CERTIFICATION.md` — quality gates
-- `TROUBLESHOOTING.md` — diagnostics
-- `FAQ.md` — common questions
+Full user and engineering documentation lives under `docs/`.
 
 ## Engineering Workflow
 
