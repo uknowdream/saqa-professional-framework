@@ -1,0 +1,50 @@
+name: SAQA CI
+
+on:
+  push:
+    branches: [main, 'saqa/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python-quality:
+    name: Python quality
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e '.[test]'
+      - name: Compile
+        run: python -m compileall -q src tests
+      - name: Tests
+        run: python -m pytest --cov=saqa --cov-report=term-missing
+      - name: Optimized-mode tests
+        run: python -O -m pytest
+
+  dependency-and-security:
+    name: Dependency and secret hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install audit tooling
+        run: python -m pip install pip-audit
+      - name: Dependency audit
+        run: pip-audit
+      - name: Secret pattern scan
+        run: |
+          ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
+            --exclude-dir=.git --exclude='*.zip'
