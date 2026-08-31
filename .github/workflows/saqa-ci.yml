@@ -31,11 +31,22 @@ jobs:
       - name: Compile
         run: python -m compileall -q src tests
       - name: Tests
-        run: python -m pytest --cov=saqa --cov-report=term-missing
+        run: python -m pytest --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+      - name: Generate and verify evidence
+        run: python -m saqa.ci_evidence
       - name: Optimized-mode compile and import
         run: |
           python -O -m compileall -q src tests
           python -O -c "import saqa; from saqa import Evidence, ResultStatus; assert Evidence and ResultStatus"
+      - name: Upload test and evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-python-${{ matrix.python }}
+          path: |
+            artifacts/
+          if-no-files-found: warn
+          retention-days: 14
 
   dependency-and-security:
     name: Dependency and secret hygiene
