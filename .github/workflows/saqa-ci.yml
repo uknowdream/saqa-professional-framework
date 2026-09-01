@@ -103,3 +103,22 @@ jobs:
         env:
           SAQA_BROWSER: ${{ matrix.browser }}
         run: python -m saqa.browser_smoke
+
+  docker-target-smoke:
+    name: Docker authorized target smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate Docker Compose definition
+        run: docker compose -f docker-compose.qa-targets.yml config
+      - name: Start and validate local OWASP targets
+        run: bash scripts/qa_target_smoke.sh
+      - name: Upload target evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-docker-target-smoke
+          path: artifacts/targets/
+          if-no-files-found: warn
+          retention-days: 14
