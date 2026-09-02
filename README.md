@@ -30,7 +30,6 @@ The framework focuses on:
 | API Testing | REST, status codes, headers, JSON, schema, response time |
 | Mobile Automation | Maestro-oriented mobile test architecture |
 | BDD | Gherkin feature/scenario structure |
-| Test Design | EP, BVA, Decision Table, State Transition, Error Guessing |
 | Reporting | Allure-compatible reporting architecture |
 | CI/CD | GitHub Actions quality gates |
 | Engineering | Modular utilities, reusable fixtures, clean test structure |
@@ -248,4 +247,4 @@ If this framework helps your QA journey, consider giving the repository a ⭐ an
 
 ### ⭐ Starstruck goal
 
-This project is intentionally being developed as a genuinely useful open-source QA resource. GitHub's Starstruck achievement is triggered when a repository created by the account reaches the required star milestone; the first published milestone is **16 stars on a single repository**. citeturn0search0turn0search3
+This project is intentionally being developed as a genuinely useful open-source QA resource. GitHub's Starstruck achievement is triggered when a repository created by the account reaches the required star milestone; the first published milestone is **16 stars on a single repository**.
