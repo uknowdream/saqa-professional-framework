@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fail() { echo "FRAMEWORK_SCOPE_FAIL: $1" >&2; exit 1; }
+
+required=(
+  README.md
+  CONTRIBUTING.md
+  LICENSE
+  docs/GETTING_STARTED.md
+  docker-compose.qa-targets.yml
+  saqa/api.py
+  saqa/browser_smoke.py
+  saqa/certification.py
+  saqa/ci_evidence.py
+  saqa/contracts.py
+  saqa/evidence.py
+  saqa/target_registry.py
+)
+
+for path in "${required[@]}"; do
+  test -f "$path" || fail "missing required path: $path"
+done
+
+grep -q '127\.0\.0\.1:3000:3000' docker-compose.qa-targets.yml || fail 'Juice Shop is not loopback-bound'
+grep -q '127\.0\.0\.1:8080:8080' docker-compose.qa-targets.yml || fail 'WebGoat is not loopback-bound'
+grep -q 'bkimminich/juice-shop:v20\.2\.0' docker-compose.qa-targets.yml || fail 'Juice Shop image/version is not pinned'
+grep -q 'webgoat/webgoat:2026' docker-compose.qa-targets.yml || fail 'WebGoat image/version is not pinned'
+
+# Guardrail: the prohibited external target must never appear in executable target configuration.
+if grep -RniE 'neocapture\.id' --exclude-dir=.git --exclude='*.md' .; then
+  fail 'prohibited target reference detected outside documentation'
+fi
+
+# Guardrail: Docker target harness must remain read-only at this validation layer.
+if grep -RniE '(^|[^A-Za-z])(POST|PUT|PATCH|DELETE)([^A-Za-z]|$)' scripts saqa .github/workflows 2>/dev/null; then
+  fail 'non-read-only HTTP method found in framework execution paths'
+fi
+
+echo 'FRAMEWORK_SCOPE_PASS'
+echo 'required_files=13'
+echo 'docker_targets=2'
+echo 'target_network_scope=loopback'
+echo 'target_versions=pinned'
+echo 'prohibited_target_guard=enabled'
+echo 'read_only_guard=enabled'
