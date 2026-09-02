@@ -1,0 +1,31 @@
+name: Framework Integrity
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  integrity:
+    name: Validate framework structure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f README.md
+          test -f CONTRIBUTING.md
+          test -f LICENSE
+          test -f docs/GETTING_STARTED.md
+          test -f SAQA-Professional-Framework-v1.1.zip
+          grep -q "QA Automation" README.md
+          grep -q "Playwright" README.md
+          grep -q "API" README.md
+          grep -q "Mobile" README.md
+          echo "SAQA framework integrity check passed."
