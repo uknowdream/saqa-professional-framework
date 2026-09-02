@@ -8,7 +8,7 @@ on:
 
 jobs:
   integrity:
-    name: Validate framework structure
+    name: Validate framework structure and safety
     runs-on: ubuntu-latest
 
     steps:
@@ -29,3 +29,10 @@ jobs:
           grep -q "API" README.md
           grep -q "Mobile" README.md
           echo "SAQA framework integrity check passed."
+
+      - name: Validate framework scope and safety guardrails
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/validate_framework_scope.sh
+          ./scripts/validate_framework_scope.sh
