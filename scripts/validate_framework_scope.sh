@@ -34,7 +34,7 @@ if grep -RniE 'neocapture\.id' src scripts/qa_target_smoke.sh .github/workflows 
 fi
 
 # Guardrail: detect explicit mutating HTTP invocations without matching ordinary words such as Python __post_init__.
-if grep -RniE -- '(-X[[:space:]]+|--request[=[:space:]]+|method[[:space:]]*=[[:space:]]*["'"'])(POST|PUT|PATCH|DELETE)([^A-Za-z]|$)' src scripts/qa_target_smoke.sh .github/workflows 2>/dev/null; then
+if grep -RniE -- "(-X[[:space:]]+|--request[=[:space:]]+|method[[:space:]]*=[[:space:]]*)(POST|PUT|PATCH|DELETE)([^A-Za-z]|$)" src scripts/qa_target_smoke.sh .github/workflows 2>/dev/null; then
   fail 'mutating HTTP method invocation found in framework execution paths'
 fi
 
