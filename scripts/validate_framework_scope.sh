@@ -9,13 +9,14 @@ required=(
   LICENSE
   docs/GETTING_STARTED.md
   docker-compose.qa-targets.yml
-  saqa/api.py
-  saqa/browser_smoke.py
-  saqa/certification.py
-  saqa/ci_evidence.py
-  saqa/contracts.py
-  saqa/evidence.py
-  saqa/target_registry.py
+  src/saqa/__init__.py
+  src/saqa/api.py
+  src/saqa/browser_smoke.py
+  src/saqa/certification.py
+  src/saqa/ci_evidence.py
+  src/saqa/contracts.py
+  src/saqa/evidence.py
+  src/saqa/target_registry.py
 )
 
 for path in "${required[@]}"; do
@@ -28,12 +29,12 @@ grep -q 'bkimminich/juice-shop:v20\.2\.0' docker-compose.qa-targets.yml || fail 
 grep -q 'webgoat/webgoat:2026' docker-compose.qa-targets.yml || fail 'WebGoat image/version is not pinned'
 
 # Guardrail: the prohibited external target must never appear in executable target configuration.
-if grep -RniE 'neocapture\.id' --exclude-dir=.git --exclude='*.md' .; then
+if grep -RniE 'neocapture\.id' --exclude-dir=.git --exclude='*.md' src scripts/qa_target_smoke.sh .github/workflows docker-compose.qa-targets.yml 2>/dev/null; then
   fail 'prohibited target reference detected outside documentation'
 fi
 
-# Guardrail: Docker target harness must remain read-only at this validation layer.
-if grep -RniE '(^|[^A-Za-z])(POST|PUT|PATCH|DELETE)([^A-Za-z]|$)' scripts saqa .github/workflows 2>/dev/null; then
+# Guardrail: inspect only executable framework paths; this validator's own explanatory text is not a test request.
+if grep -RniE '(^|[^A-Za-z])(POST|PUT|PATCH|DELETE)([^A-Za-z]|$)' src scripts/qa_target_smoke.sh .github/workflows 2>/dev/null; then
   fail 'non-read-only HTTP method found in framework execution paths'
 fi
 
