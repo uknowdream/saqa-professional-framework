@@ -107,9 +107,16 @@ jobs:
   docker-target-smoke:
     name: Docker authorized target smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install Playwright
+        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
       - name: Validate Docker Compose definition
         run: docker compose -f docker-compose.qa-targets.yml config
       - name: Start and validate local OWASP targets
