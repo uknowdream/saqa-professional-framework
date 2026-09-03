@@ -114,6 +114,11 @@ jobs:
         run: docker compose -f docker-compose.qa-targets.yml config
       - name: Start and validate local OWASP targets
         run: bash scripts/qa_target_smoke.sh
+      - name: Run Juice Shop API contract smoke
+        env:
+          SAQA_API_BASE_URL: http://127.0.0.1:3000
+          SAQA_ARTIFACT_DIR: artifacts/targets
+        run: python scripts/api_contract_smoke.py
       - name: Upload target evidence
         if: always()
         uses: actions/upload-artifact@v6
