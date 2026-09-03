@@ -44,6 +44,8 @@ wait_http "juice-shop-web" "http://127.0.0.1:3000/" 60
 wait_http "juice-shop-api" "http://127.0.0.1:3000/rest/products/search?q=apple" 60
 wait_http "webgoat-web" "http://127.0.0.1:8080/WebGoat/" 90
 
+python scripts/api_contract_smoke.py
+
 python - <<'PY'
 import json, os, platform, subprocess, time
 from pathlib import Path
