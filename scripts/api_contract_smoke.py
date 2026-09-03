@@ -7,6 +7,10 @@ import sys
 import time
 from pathlib import Path
 
+# Keep this executable script runnable directly from a clean Docker checkout.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT / "src"))
+
 from saqa.api import request
 from saqa.api_contract import validate_json_contract
 
