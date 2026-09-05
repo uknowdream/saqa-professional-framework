@@ -20,7 +20,6 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 
 docker compose -f "$COMPOSE_FILE" config >/dev/null
-
 docker compose -f "$COMPOSE_FILE" pull --quiet
 docker compose -f "$COMPOSE_FILE" up -d
 
@@ -31,10 +30,10 @@ wait_http() {
   local status=""
 
   # Containerized targets can briefly reset/close connections while the
-  # application server is starting. Treat those as transient readiness
-  # failures and keep the bounded retry loop quiet and deterministic.
+  # application server is starting. Follow safe GET redirects and treat
+  # transport failures/redirects as transient until the final response is 2xx.
   while (( attempt <= max_attempts )); do
-    status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
+    status="$(curl --silent --location --output /dev/null --write-out '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
     if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
       printf '%s:PASS (attempt %d/%d, HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status"
       return 0
