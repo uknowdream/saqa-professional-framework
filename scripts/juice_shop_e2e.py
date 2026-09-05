@@ -9,23 +9,29 @@ from playwright.sync_api import sync_playwright
 
 BASE_URL = os.getenv("SAQA_JUICE_SHOP_URL", "http://127.0.0.1:3000")
 ARTIFACT_DIR = Path(os.getenv("SAQA_ARTIFACT_DIR", "artifacts/targets"))
+BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
+SUPPORTED_BROWSERS = {"chromium", "firefox", "webkit"}
 
 
 def main() -> int:
     if not BASE_URL.startswith("http://127.0.0.1:"):
         raise SystemExit("Juice Shop E2E is restricted to loopback HTTP targets")
+    if BROWSER not in SUPPORTED_BROWSERS:
+        raise SystemExit(f"unsupported SAQA_BROWSER: {BROWSER!r}")
 
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     evidence = {
-        "schema": "saqa.juice-shop-e2e.v1",
+        "schema": "saqa.juice-shop-e2e.v2",
         "target": BASE_URL,
+        "browser": BROWSER,
         "http_methods": ["GET"],
         "destructive_actions": False,
     }
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser_type = getattr(p, BROWSER)
+        browser = browser_type.launch(headless=True)
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30_000)
         page.locator("app-root").wait_for(state="attached", timeout=15_000)
@@ -52,7 +58,7 @@ def main() -> int:
         )
         browser.close()
 
-    path = ARTIFACT_DIR / "juice-shop-e2e.json"
+    path = ARTIFACT_DIR / f"juice-shop-e2e-{BROWSER}.json"
     path.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(evidence, indent=2, sort_keys=True))
     return 0
