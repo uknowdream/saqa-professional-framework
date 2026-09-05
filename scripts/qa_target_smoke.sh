@@ -27,15 +27,29 @@ docker compose -f "$COMPOSE_FILE" up -d
 wait_http() {
   local name="$1" url="$2" max_attempts="${3:-60}"
   local attempt=1
+  local delay=2
+  local status=""
+
+  # Containerized targets can briefly reset/close connections while the
+  # application server is starting. Treat those as transient readiness
+  # failures and keep the bounded retry loop quiet and deterministic.
   while (( attempt <= max_attempts )); do
-    if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null; then
-      printf '%s\n' "$name:PASS"
+    status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
+    if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+      printf '%s:PASS (attempt %d/%d, HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status"
       return 0
     fi
-    sleep 2
+
+    if (( attempt < max_attempts )); then
+      sleep "$delay"
+    fi
     ((attempt++))
   done
-  printf '%s\n' "$name:FAIL"
+
+  printf '%s:FAIL (after %d attempts, last HTTP result: %s)\n' "$name" "$max_attempts" "${status:-no-response}" >&2
+  echo "--- $name container diagnostics ---" >&2
+  docker compose -f "$COMPOSE_FILE" ps >&2 || true
+  docker compose -f "$COMPOSE_FILE" logs --tail=80 >&2 || true
   return 1
 }
 
