@@ -8,15 +8,17 @@ on:
 permissions:
   contents: read
 
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+
 jobs:
-  jira-cloud-readonly:
-    name: Jira Cloud read-only verification
+  jira-cloud-sync:
+    name: Jira Cloud verification and QA backlog sync
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
-      JIRA_BASE_URL: https://dreamedx.atlassian.net
-      JIRA_EMAIL: teukusaiful7@gmail.com
-      JIRA_PROJECT_KEY: QA
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
     steps:
       - uses: actions/checkout@v6
@@ -33,5 +35,7 @@ jobs:
             exit 1
           fi
           echo "JIRA_API_TOKEN: configured (value hidden)"
-      - name: Verify Jira project access (read-only)
+      - name: Verify Jira project access
         run: bash scripts/verify_jira_ci.sh
+      - name: Bootstrap QA work items
+        run: python scripts/bootstrap_jira_ci.py
