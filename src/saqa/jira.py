@@ -64,7 +64,7 @@ class JiraClient:
         return JiraProjectResult(str(payload.get("key", "")), str(payload.get("name", "")), str(payload.get("projectTypeKey", "")))
     def find_bootstrap_issues(self) -> dict[str, JiraIssueResult]:
         """Return existing SAQA bootstrap work items, keyed by exact summary."""
-        response = self._client.get("/rest/api/3/search", params={
+        response = self._client.get("/rest/api/3/search/jql", params={
             "jql": f"project = {self.config.project_key} AND labels = saqa-bootstrap",
             "maxResults": 100,
             "fields": "summary",
