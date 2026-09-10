@@ -152,10 +152,48 @@ jobs:
         if: always()
         run: docker stop saqa-juice-shop || true
 
+  juice-shop-api-smoke:
+    name: Juice Shop API quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Start Juice Shop
+        run: docker run --detach --rm --name saqa-juice-shop-api -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+      - name: Wait for Juice Shop
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs saqa-juice-shop-api
+          exit 1
+      - name: Run read-only API smoke
+        run: python scripts/juice_shop_api_smoke.py
+      - name: Upload API evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: juice-shop-api-smoke
+          path: artifacts/targets/juice-shop-api.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop Juice Shop
+        if: always()
+        run: docker stop saqa-juice-shop-api || true
+
   evidence-aggregation:
     name: Canonical evidence aggregation
     runs-on: ubuntu-latest
-    needs: [juice-shop-e2e-matrix]
+    needs: [juice-shop-e2e-matrix, juice-shop-api-smoke]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -166,7 +204,7 @@ jobs:
       - name: Download Juice Shop evidence
         uses: actions/download-artifact@v6
         with:
-          pattern: juice-shop-e2e-*
+          pattern: juice-shop-*
           path: artifacts/executions
           merge-multiple: true
       - name: Aggregate and verify canonical manifest
