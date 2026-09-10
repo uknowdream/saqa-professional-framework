@@ -8,8 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from playwright.sync_api import sync_playwright
-
 BASE_URL = os.getenv("SAQA_WEBGOAT_URL", "http://127.0.0.1:8080/WebGoat/")
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
@@ -23,13 +21,17 @@ def validate_target(url: str) -> None:
 
 
 def main() -> None:
+    # Keep Playwright an execution-only dependency: unit/contract tests can import
+    # this module without requiring browser tooling to be installed.
+    from playwright.sync_api import sync_playwright
+
     validate_target(BASE_URL)
     if BROWSER not in ALLOWED_BROWSERS:
         raise ValueError(f"unsupported browser: {BROWSER}")
 
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.webgoat-e2e.v1",
+        "schema": "saqa.webgoat-e2e.v2",
         "test_id": f"webgoat.e2e.{BROWSER}.smoke",
         "target": BASE_URL,
         "browser": BROWSER,
@@ -50,16 +52,24 @@ def main() -> None:
                 if response is None or response.status >= 400:
                     raise RuntimeError(f"WebGoat page load failed: HTTP {response.status if response else 'none'}")
                 page.wait_for_load_state("networkidle", timeout=30_000)
-                title = page.title()
+                title = page.title().strip()
+                final_url = page.url
                 body_text = page.locator("body").inner_text().strip()
-                if "webgoat" not in title.lower():
+                parsed_final = urlparse(final_url)
+                if parsed_final.hostname not in {"127.0.0.1", "localhost"}:
+                    raise AssertionError(f"unexpected final host: {parsed_final.hostname!r}")
+                if "/WebGoat" not in parsed_final.path:
+                    raise AssertionError(f"unexpected final path: {parsed_final.path!r}")
+                # The current WebGoat image intentionally lands on its login page;
+                # "Login Page" is therefore a valid application entry state.
+                if not title or title.lower() not in {"login page", "webgoat"}:
                     raise AssertionError(f"unexpected page title: {title!r}")
                 if not body_text:
                     raise AssertionError("WebGoat page body is empty")
                 evidence["status"] = "PASS"
                 evidence["details"] = {
                     "title": title,
-                    "final_url": page.url,
+                    "final_url": final_url,
                     "http_status": response.status,
                     "body_text_nonempty": True,
                     "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
