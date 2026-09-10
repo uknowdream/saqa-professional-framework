@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -22,11 +23,13 @@ def main() -> int:
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     evidence = {
-        "schema": "saqa.juice-shop-e2e.v2",
+        "schema": "saqa.juice-shop-e2e.v3",
+        "test_id": f"juice-shop.e2e.{BROWSER}.smoke",
         "target": BASE_URL,
         "browser": BROWSER,
         "http_methods": ["GET"],
         "destructive_actions": False,
+        "observed_at": datetime.now(timezone.utc).isoformat(),
     }
 
     with sync_playwright() as p:
@@ -50,10 +53,12 @@ def main() -> int:
         evidence.update(
             {
                 "status": "PASS",
-                "title": title,
-                "final_url": page.url,
-                "body_text_nonempty": True,
-                "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
+                "details": {
+                    "title": title,
+                    "final_url": page.url,
+                    "body_text_nonempty": True,
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
+                },
             }
         )
         browser.close()
