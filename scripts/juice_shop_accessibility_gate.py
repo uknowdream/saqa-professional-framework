@@ -28,7 +28,7 @@ def main() -> None:
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.juice-shop-accessibility.v1",
+        "schema": "saqa.juice-shop-accessibility.v2",
         "test_id": f"juice-shop.accessibility-readiness.{BROWSER}",
         "status": "FAIL",
         "target": BASE_URL,
@@ -43,55 +43,98 @@ def main() -> None:
         with sync_playwright() as playwright:
             browser_type = getattr(playwright, BROWSER)
             browser = browser_type.launch(headless=True)
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
-            page.locator("app-root").wait_for(state="attached", timeout=15000)
-            page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
+            try:
+                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
+                page.locator("app-root").wait_for(state="attached", timeout=15000)
+                page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
 
-            metrics = page.evaluate(
-                """() => {
-                    const images = [...document.querySelectorAll('img')];
-                    const controls = [...document.querySelectorAll('button, [role="button"], input, select, textarea')];
-                    const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')];
-                    const landmarks = [...document.querySelectorAll('main, nav, header, footer, aside')];
-                    const unnamedControls = controls.filter(el => {
-                      if (el.hasAttribute('disabled')) return false;
-                      const aria = (el.getAttribute('aria-label') || el.getAttribute('aria-labelledby') || '').trim();
-                      const text = (el.innerText || el.value || el.getAttribute('title') || '').trim();
-                      return !aria && !text;
-                    });
-                    const missingAlt = images.filter(img => !img.hasAttribute('alt'));
-                    return {
-                      lang_present: !!(document.documentElement.getAttribute('lang') || '').trim(),
-                      title_present: !!(document.title || '').trim(),
-                      image_count: images.length,
-                      images_missing_alt: missingAlt.length,
-                      interactive_control_count: controls.length,
-                      unnamed_interactive_controls: unnamedControls.length,
-                      heading_count: headings.length,
-                      landmark_count: landmarks.length,
-                    };
-                }"""
-            )
-            evidence["details"] = {
-                "status_code": response.status if response else None,
-                **metrics,
-            }
-            if not response or response.status < 200 or response.status >= 400:
-                raise AssertionError(f"expected successful page response, got {response.status if response else None}")
-            failures = []
-            if not metrics["lang_present"]:
-                failures.append("document language is missing")
-            if not metrics["title_present"]:
-                failures.append("document title is missing")
-            if metrics["images_missing_alt"]:
-                failures.append(f"{metrics['images_missing_alt']} image(s) lack an alt attribute")
-            if metrics["unnamed_interactive_controls"]:
-                failures.append(f"{metrics['unnamed_interactive_controls']} interactive control(s) lack an accessible name")
-            if failures:
-                raise AssertionError("; ".join(failures))
-            evidence["status"] = "PASS"
-            browser.close()
+                metrics = page.evaluate(
+                    """() => {
+                        const text = el => (el?.textContent || '').replace(/\\s+/g, ' ').trim();
+                        const referencedText = el => {
+                          const ids = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean);
+                          return ids.map(id => document.getElementById(id)).map(text).filter(Boolean).join(' ');
+                        };
+                        const associatedLabel = el => {
+                          if (el.id) {
+                            const label = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+                            if (label) return text(label);
+                          }
+                          const parentLabel = el.closest('label');
+                          return parentLabel ? text(parentLabel) : '';
+                        };
+                        const isRendered = el => {
+                          if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;
+                          const style = getComputedStyle(el);
+                          return style.display !== 'none' && style.visibility !== 'hidden';
+                        };
+                        const accessibleName = el => {
+                          const ariaLabel = (el.getAttribute('aria-label') || '').trim();
+                          if (ariaLabel) return ariaLabel;
+                          const labelledBy = referencedText(el);
+                          if (labelledBy) return labelledBy;
+                          const label = associatedLabel(el);
+                          if (label) return label;
+                          const title = (el.getAttribute('title') || '').trim();
+                          if (title) return title;
+                          const tag = el.tagName.toLowerCase();
+                          const type = (el.getAttribute('type') || '').toLowerCase();
+                          if ((tag === 'input' && ['submit', 'reset', 'button', 'image'].includes(type))) {
+                            const value = (el.getAttribute('value') || '').trim();
+                            if (value) return value;
+                            if (type === 'image') return (el.getAttribute('alt') || '').trim();
+                          }
+                          if (['button', 'a'].includes(tag) || el.getAttribute('role') === 'button' || el.getAttribute('role') === 'link') {
+                            return text(el);
+                          }
+                          return '';
+                        };
+                        const images = [...document.querySelectorAll('img')].filter(isRendered);
+                        const controls = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="menuitem"]')].filter(isRendered);
+                        const unnamedControls = controls.filter(el => !accessibleName(el)).map(el => ({
+                          tag: el.tagName.toLowerCase(),
+                          id: el.id || '',
+                          role: el.getAttribute('role') || '',
+                          type: el.getAttribute('type') || '',
+                          snippet: el.outerHTML.slice(0, 300)
+                        }));
+                        const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter(isRendered);
+                        const landmarks = [...document.querySelectorAll('main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"]')].filter(isRendered);
+                        const missingAlt = images.filter(img => !img.hasAttribute('alt'));
+                        return {
+                          lang_present: !!(document.documentElement.getAttribute('lang') || '').trim(),
+                          title_present: !!(document.title || '').trim(),
+                          image_count: images.length,
+                          images_missing_alt: missingAlt.length,
+                          interactive_control_count: controls.length,
+                          unnamed_interactive_controls: unnamedControls.length,
+                          unnamed_control_details: unnamedControls,
+                          heading_count: headings.length,
+                          landmark_count: landmarks.length,
+                        };
+                    }"""
+                )
+                evidence["details"] = {
+                    "status_code": response.status if response else None,
+                    **metrics,
+                }
+                if not response or response.status < 200 or response.status >= 400:
+                    raise AssertionError(f"expected successful page response, got {response.status if response else None}")
+                failures = []
+                if not metrics["lang_present"]:
+                    failures.append("document language is missing")
+                if not metrics["title_present"]:
+                    failures.append("document title is missing")
+                if metrics["images_missing_alt"]:
+                    failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack an alt attribute")
+                if metrics["unnamed_interactive_controls"]:
+                    failures.append(f"{metrics['unnamed_interactive_controls']} rendered interactive control(s) lack an accessible name")
+                if failures:
+                    raise AssertionError("; ".join(failures))
+                evidence["status"] = "PASS"
+            finally:
+                browser.close()
     except Exception as exc:
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
         OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
