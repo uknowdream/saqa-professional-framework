@@ -16,5 +16,13 @@ def test_unknown_status_is_rejected_at_evidence_boundary():
 
 
 def test_certification_never_certifies_empty_evidence():
-    result = certify([])
+    result = certify([], ["web"])
     assert result.status == "UNVERIFIED"
+    assert result.certified is False
+    assert result.missing_capabilities == ("web",)
+
+
+def test_certification_never_certifies_without_mandatory_capabilities():
+    result = certify([], [])
+    assert result.status == "UNVERIFIED"
+    assert result.certified is False
