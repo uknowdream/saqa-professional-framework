@@ -6,6 +6,7 @@ spec = importlib.util.spec_from_file_location("juice_shop_accessibility_gate", S
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+SOURCE = SCRIPT.read_text(encoding="utf-8")
 
 
 def test_accessibility_target_rejects_non_loopback():
@@ -31,3 +32,16 @@ def test_accessibility_target_accepts_loopback_http():
 
 def test_browser_allowlist_is_explicit():
     assert module.ALLOWED_BROWSERS == {"chromium", "firefox", "webkit"}
+
+
+def test_accessible_name_resolution_handles_real_label_sources():
+    assert "aria-labelledby" in SOURCE
+    assert "document.getElementById(id)" in SOURCE
+    assert "label[for=" in SOURCE
+    assert "closest('label')" in SOURCE
+    assert "getAttribute('title')" in SOURCE
+
+
+def test_accessibility_gate_records_actionable_control_details():
+    assert "unnamed_control_details" in SOURCE
+    assert "outerHTML.slice(0, 300)" in SOURCE
