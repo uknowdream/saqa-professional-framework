@@ -46,7 +46,8 @@ def main() -> None:
             browser = browser_type.launch(headless=True)
             page = browser.new_page(viewport={"width": 390, "height": 844}, device_scale_factor=1)
             response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
-            page.locator("app-root").wait_for(timeout=15000)
+            page.locator("app-root").wait_for(state="attached", timeout=15000)
+            page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
             title = page.title()
             body_text = page.locator("body").inner_text().strip()
             horizontal_overflow = page.evaluate(
