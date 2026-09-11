@@ -78,7 +78,11 @@ jobs:
         with:
           pattern: 'juice-shop-accessibility-*'
           path: artifacts/executions
-          merge-multiple: true
+          merge-multiple: false
+      - name: Verify browser evidence set
+        run: |
+          count=$(find artifacts/executions -type f -name 'juice-shop-accessibility.json' | wc -l)
+          test "$count" -eq 3 || { echo "expected 3 browser evidence files, found $count"; find artifacts/executions -type f -print; exit 1; }
       - name: Aggregate and verify accessibility manifest
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('accessibility manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/accessibility-evidence-manifest.json')))"
       - name: Upload accessibility canonical evidence

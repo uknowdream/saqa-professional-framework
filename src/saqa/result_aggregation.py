@@ -12,7 +12,10 @@ REQUIRED = {"test_id", "status", "target"}
 
 def load_results(directory: Path) -> list[EvidenceRecord]:
     records: list[EvidenceRecord] = []
-    for path in sorted(directory.glob("*.json")):
+    # Evidence downloads may preserve one directory per artifact. Recurse so
+    # canonical aggregation cannot silently lose browser results because two
+    # artifacts contain the same relative filename.
+    for path in sorted(directory.rglob("*.json")):
         if path.name in {"evidence-manifest.json", "run-metadata.json"}:
             continue
         payload: Any = json.loads(path.read_text(encoding="utf-8"))
