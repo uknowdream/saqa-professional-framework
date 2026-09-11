@@ -64,6 +64,7 @@ jobs:
   accessibility-canonical:
     name: Accessibility canonical evidence aggregation
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs: [accessibility-matrix]
     steps:
       - uses: actions/checkout@v6
@@ -81,6 +82,7 @@ jobs:
       - name: Aggregate and verify accessibility manifest
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('accessibility manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/accessibility-evidence-manifest.json')))"
       - name: Upload accessibility canonical evidence
+        if: always()
         uses: actions/upload-artifact@v6
         with:
           name: saqa-accessibility-canonical-evidence
