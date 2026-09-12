@@ -11,12 +11,20 @@ BASE_URL = os.getenv("SAQA_A11Y_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 OUTPUT = Path("artifacts/targets/juice-shop-accessibility.json")
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
+AXE_CORE_PATH = Path(os.getenv("SAQA_AXE_CORE_PATH", "node_modules/axe-core/axe.min.js"))
+AXE_RULES = ["aria-input-field-name", "button-name", "link-name", "label"]
 
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
     if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
         raise ValueError("accessibility target must be local HTTP loopback only")
+
+
+def _load_axe_source() -> str:
+    if not AXE_CORE_PATH.is_file():
+        raise FileNotFoundError(f"axe-core oracle not found: {AXE_CORE_PATH}")
+    return AXE_CORE_PATH.read_text(encoding="utf-8")
 
 
 def main() -> None:
@@ -26,9 +34,10 @@ def main() -> None:
 
     from playwright.sync_api import sync_playwright
 
+    axe_source = _load_axe_source()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.juice-shop-accessibility.v2",
+        "schema": "saqa.juice-shop-accessibility.v3",
         "test_id": f"juice-shop.accessibility-readiness.{BROWSER}",
         "status": "FAIL",
         "target": BASE_URL,
@@ -97,6 +106,8 @@ def main() -> None:
                           id: el.id || '',
                           role: el.getAttribute('role') || '',
                           type: el.getAttribute('type') || '',
+                          tab_index: el.tabIndex,
+                          aria_hidden: el.getAttribute('aria-hidden') || '',
                           snippet: el.outerHTML.slice(0, 300)
                         }));
                         const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter(isRendered);
@@ -121,6 +132,29 @@ def main() -> None:
                 }
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
+
+                page.add_script_tag(content=axe_source)
+                oracle = page.evaluate(
+                    """async rules => {
+                      const result = await axe.run(document, { runOnly: { type: 'rule', values: rules } });
+                      return {
+                        violations: result.violations.map(v => ({
+                          id: v.id,
+                          impact: v.impact,
+                          help: v.help,
+                          nodes: v.nodes.map(n => ({ target: n.target, html: n.html.slice(0, 300), failure_summary: n.failureSummary }))
+                        }))
+                      };
+                    }""",
+                    AXE_RULES,
+                )
+                evidence["details"]["independent_oracle"] = {
+                    "engine": "axe-core",
+                    "rules": AXE_RULES,
+                    "violation_count": len(oracle["violations"]),
+                    "violations": oracle["violations"],
+                }
+
                 failures = []
                 if not metrics["lang_present"]:
                     failures.append("document language is missing")
@@ -128,8 +162,21 @@ def main() -> None:
                     failures.append("document title is missing")
                 if metrics["images_missing_alt"]:
                     failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack an alt attribute")
-                if metrics["unnamed_interactive_controls"]:
-                    failures.append(f"{metrics['unnamed_interactive_controls']} rendered interactive control(s) lack an accessible name")
+                if oracle["violations"]:
+                    failures.append(f"axe-core found {len(oracle['violations'])} selected accessibility rule violation(s)")
+
+                # A DOM heuristic finding without an independent oracle finding is
+                # retained as diagnostic evidence rather than being silently ignored.
+                # This prevents a false green while allowing triage of non-user-facing
+                # controls (for example, framework internals with tabindex=-1).
+                if metrics["unnamed_interactive_controls"] and not oracle["violations"]:
+                    evidence["details"]["heuristic_disposition"] = "INCONCLUSIVE"
+                    failures.append(
+                        f"{metrics['unnamed_interactive_controls']} DOM-heuristic unnamed control(s) lack independent oracle confirmation"
+                    )
+                elif oracle["violations"]:
+                    evidence["details"]["heuristic_disposition"] = "CONFIRMED_ORACLE"
+
                 if failures:
                     raise AssertionError("; ".join(failures))
                 evidence["status"] = "PASS"
