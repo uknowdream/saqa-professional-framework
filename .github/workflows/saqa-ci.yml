@@ -68,6 +68,25 @@ jobs:
           ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
             --exclude-dir=.git --exclude='*.zip'
 
+  database-quality:
+    name: Isolated database quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Run isolated database quality gate
+        run: python scripts/database_quality_gate.py
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-database-quality
+          path: artifacts/targets/database-quality.json
+          if-no-files-found: error
+          retention-days: 14
+
   target-policy:
     name: Target authorization policy
     runs-on: ubuntu-latest
@@ -130,9 +149,7 @@ jobs:
       - name: Wait for Juice Shop
         run: |
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
-              exit 0
-            fi
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
             sleep 2
           done
           docker logs saqa-juice-shop
@@ -170,9 +187,7 @@ jobs:
       - name: Wait for Juice Shop
         run: |
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
-              exit 0
-            fi
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
             sleep 2
           done
           docker logs saqa-juice-shop-api
@@ -208,9 +223,7 @@ jobs:
       - name: Wait for Juice Shop
         run: |
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
-              exit 0
-            fi
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
             sleep 2
           done
           docker logs saqa-juice-shop-performance
@@ -254,9 +267,7 @@ jobs:
       - name: Wait for WebGoat
         run: |
           for attempt in {1..45}; do
-            if curl --location --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/WebGoat/ >/dev/null; then
-              exit 0
-            fi
+            if curl --location --fail --silent --show-error --max-time 5 http://127.0.0.1:8080/WebGoat/ >/dev/null; then exit 0; fi
             sleep 2
           done
           docker logs saqa-webgoat
