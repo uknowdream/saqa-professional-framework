@@ -20,6 +20,7 @@ The framework treats automation as an engineering system: tests produce reproduc
 | Accessibility | Read-only accessibility readiness checks and browser matrix |
 | Performance | Deterministic response-time/performance gates |
 | Security | Target authorization, dependency/secret hygiene, safe regression foundations |
+| Database | Isolated SQLite constraint, FK, aggregation, parameterization and rollback gate |
 | Docker | Reproducible local/containerized authorized targets |
 | BDD | Gherkin feature/scenario structure |
 | Evidence | JSON evidence, SHA-256 manifests, canonical aggregation |
@@ -27,115 +28,60 @@ The framework treats automation as an engineering system: tests produce reproduc
 | Jira | Project access/bootstrap and integration foundation |
 | Certification | Evidence-based certification semantics |
 
-## 🏗️ Target Architecture
-
-```text
-SAQA Professional Framework
-│
-├── Web Automation
-│   ├── Page Object Model
-│   ├── Fixtures
-│   ├── Test Data
-│   └── UI Assertions
-│
-├── API Automation
-│   ├── Request Clients
-│   ├── Contract Validation
-│   ├── Schema Validation
-│   └── Performance Assertions
-│
-├── Mobile Readiness
-│   └── Cross-browser/device-oriented checks
-│
-├── Accessibility
-│   └── Read-only browser accessibility gates
-│
-├── BDD
-│   └── Gherkin Features
-│
-├── Evidence
-│   ├── Execution JSON
-│   ├── Canonical manifests
-│   └── SHA-256 integrity verification
-│
-├── Integrations
-│   ├── Jira
-│   └── Allure-compatible reporting architecture
-│
-└── CI/CD
-    └── GitHub Actions
-```
-
 ## 🚀 Quick Start Tutorial
 
 ### 1. Prerequisites
-
-Recommended local tooling:
 
 - Python **3.11+**
 - Git
 - Docker Engine/Desktop
 - Playwright-compatible browser dependencies
-- Optional: Node.js when using additional JavaScript-based tooling
-
-Clone the repository and enter it:
+- Optional Node.js for additional JavaScript tooling
 
 ```bash
 git clone https://github.com/uknowdream/saqa-professional-framework.git
 cd saqa-professional-framework
-```
-
-Create a virtual environment:
-
-```bash
 python -m venv .venv
 ```
 
-Activate it on Linux/macOS:
+Linux/macOS:
 
 ```bash
 source .venv/bin/activate
 ```
 
-Activate it on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
-.venv\\Scripts\\Activate.ps1
+.venv\Scripts\Activate.ps1
 ```
 
-Install the project and test dependencies:
+Install the framework and test dependencies:
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -e ".[test]"
 ```
 
-### 2. Run the framework unit/regression suite
+### 2. Run unit/regression tests
 
 ```bash
 python -m pytest
-```
-
-With coverage:
-
-```bash
 python -m pytest --cov=saqa --cov-report=term-missing
 ```
 
 ### 3. Run safe Juice Shop Web E2E locally
 
-SAQA uses a reproducible local OWASP Juice Shop container for reference testing.
-
-Start the authorized local target:
+Start the pinned local OWASP Juice Shop target:
 
 ```bash
 docker run --detach --rm --name saqa-juice-shop -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
 ```
 
-Install Playwright and the browser you want:
+Use the same Playwright version as CI for reproducibility:
 
 ```bash
-python -m pip install "playwright>=1.50,<2"
+python -m pip install "playwright==1.62.0"
 python -m playwright install chromium
 ```
 
@@ -145,14 +91,14 @@ Run the read-only E2E smoke:
 python scripts/juice_shop_e2e.py
 ```
 
-For another browser:
+Other browsers:
 
 ```bash
 SAQA_BROWSER=firefox python scripts/juice_shop_e2e.py
 SAQA_BROWSER=webkit python scripts/juice_shop_e2e.py
 ```
 
-Stop the local target when finished:
+Stop the target:
 
 ```bash
 docker stop saqa-juice-shop
@@ -160,15 +106,40 @@ docker stop saqa-juice-shop
 
 ### 4. Run the Juice Shop API smoke
 
-Start the same local target if it is not running, then execute:
+With the same local target running:
 
 ```bash
 python scripts/juice_shop_api_smoke.py
 ```
 
-The reference API test is GET-only and validates HTTP status, JSON structure, and a response-time budget. Evidence is written under `artifacts/targets/`.
+The reference API check is GET-only and validates status, JSON structure, and response-time budget. Evidence is written under `artifacts/targets/`.
 
-### 5. Run the accessibility readiness gate
+### 5. Run the database quality gate
+
+The database gate is deliberately isolated: it uses SQLite `:memory:` only and does not touch an external or persistent database.
+
+```bash
+python scripts/database_quality_gate.py
+```
+
+The gate validates:
+
+- foreign-key enforcement;
+- `PRIMARY KEY`, `UNIQUE`, `NOT NULL`, and `CHECK` constraints;
+- parameterized SQL access;
+- deterministic aggregation;
+- transaction rollback behavior;
+- savepoint isolation for expected constraint failures.
+
+Successful evidence is emitted to:
+
+```text
+artifacts/targets/database-quality.json
+```
+
+The constraint probes use savepoints so an expected `IntegrityError` cannot roll back unrelated fixture state. The regression suite also verifies that this isolation preserves previously inserted rows.
+
+### 6. Run the accessibility readiness gate
 
 Start Juice Shop on `127.0.0.1:3000`, install the selected Playwright browser, then:
 
@@ -178,9 +149,9 @@ SAQA_BROWSER=firefox python scripts/juice_shop_accessibility_gate.py
 SAQA_BROWSER=webkit python scripts/juice_shop_accessibility_gate.py
 ```
 
-The gate is intentionally restricted to local HTTP loopback targets and performs read-only browser validation. A failure must be investigated; do **not** weaken the assertion simply to obtain a green build.
+The gate is restricted to local HTTP loopback targets and performs read-only browser validation. A failure must be investigated; do not weaken the assertion merely to obtain a green build.
 
-### 6. Understand evidence
+### 7. Understand evidence
 
 Typical evidence contains:
 
@@ -196,39 +167,11 @@ observed_at
 details
 ```
 
-A professional result must be traceable to the target, execution, environment, and evidence. Canonical aggregation verifies the evidence manifest before it is accepted.
-
-### 7. Run the framework in CI
-
-Recommended execution order:
-
-```text
-Static / compile checks
-        ↓
-Unit / regression tests
-        ↓
-API smoke
-        ↓
-Web E2E
-        ↓
-Performance
-        ↓
-Accessibility
-        ↓
-Cross-browser / mobile readiness
-        ↓
-Evidence aggregation
-        ↓
-Quality gate
-        ↓
-Certification decision
-```
-
-GitHub Actions performs the authoritative CI execution. Do not interpret a queued or in-progress job as PASS.
+Canonical aggregation verifies evidence before acceptance. SHA-256 manifests provide tamper-evident integrity metadata for the collected JSON evidence.
 
 ## 🔐 Safety Rules
 
-SAQA reference targets are authorized, reproducible, and local/containerized whenever possible.
+Reference targets are authorized, reproducible, and local/containerized whenever possible.
 
 **Allowed reference targets:**
 
@@ -238,26 +181,14 @@ SAQA reference targets are authorized, reproducible, and local/containerized whe
 
 **Never:**
 
-- point the reference tests at an unauthorized third-party system;
+- point reference tests at an unauthorized third-party system;
 - run destructive POST/PUT/PATCH/DELETE scenarios against reference targets unless a dedicated isolated fixture explicitly requires them;
 - place credentials, API tokens, passwords, or private keys in source code or test artifacts;
-- convert a genuine quality failure into a PASS by weakening or bypassing the assertion.
+- convert a genuine quality failure into PASS by weakening or bypassing an assertion.
 
 ## 🚦 Quality Strategy
 
 SAQA treats automation as an engineering system rather than a collection of scripts.
-
-### Test pyramid
-
-```text
-              /\\
-             /E2E\\          Small number
-            /----\\
-           / API  \\         Fast feedback
-          /--------\\
-         /   Unit   \\       Large coverage
-        /------------\\
-```
 
 Recommended execution order:
 
@@ -267,15 +198,13 @@ Recommended execution order:
 4. Web smoke tests
 5. Regression suite
 6. Cross-browser / mobile flows
-7. Accessibility / performance / security gates
+7. Accessibility / performance / security / database gates
 8. Evidence aggregation
 9. Release certification
 
 ## 🌐 Web & API Automation
 
 The framework supports Playwright-based automation with reusable fixtures and Page Object Model design.
-
-Example structure:
 
 ```text
 src/
@@ -300,7 +229,7 @@ SAQA incorporates classic black-box techniques before automation begins:
 - **State Transition** — validate behavior across application states.
 - **Error Guessing** — target failure-prone scenarios using engineering experience.
 
-Automation should encode meaningful risk coverage — not simply maximize the number of scripts.
+Automation should encode meaningful risk coverage, not simply maximize script count.
 
 ## 🔌 API Validation Checklist
 
@@ -320,37 +249,15 @@ For REST APIs, validate at minimum:
 
 ## 📱 Mobile Automation / Readiness
 
-Mobile-oriented scenarios can be organized around Maestro-style declarative flows:
-
-```text
-mobile/
-├── login.yaml
-├── checkout.yaml
-├── profile.yaml
-└── regression/
-```
-
-The current reference CI also validates mobile-oriented readiness across Chromium, Firefox, and WebKit and aggregates its evidence.
+Mobile-oriented scenarios can be organized around Maestro-style declarative flows. The current CI also validates mobile-oriented readiness across Chromium, Firefox, and WebKit and aggregates its evidence.
 
 ## ♿ Accessibility
 
-Accessibility is treated as a quality gate, not as a cosmetic check.
+Current readiness checks include document language/title, image `alt`, accessible-name candidates, headings, landmarks, and control-level diagnostics.
 
-Current readiness checks include:
-
-- document language
-- document title
-- rendered image `alt` presence
-- accessible-name candidates for interactive controls
-- headings
-- landmarks
-- control-level diagnostic evidence
-
-The current gate is a **readiness heuristic**, not a claim of complete WCAG conformance. For certification-grade WCAG assessment, use an independent accessibility oracle such as axe-core and correlate its findings with SAQA evidence.
+The current gate is a **readiness heuristic**, not a claim of complete WCAG conformance. Certification-grade assessment should add an independent accessibility oracle such as axe-core and correlate its findings with SAQA evidence.
 
 ## 🧠 BDD / Gherkin
-
-Example:
 
 ```gherkin
 Feature: User login
@@ -375,11 +282,9 @@ A professional execution should answer:
 - What evidence proves the result?
 - Which defect or requirement is affected?
 
-SAQA uses structured evidence and canonical manifests with SHA-256 integrity verification. Individual failure artifacts should be preserved even when a quality gate fails.
+Individual failure artifacts should be preserved even when a quality gate fails.
 
 ## ⚙️ CI/CD Quality Gate
-
-A mature pipeline should fail when critical quality conditions are not met.
 
 ```text
 Push / Pull Request
@@ -390,7 +295,7 @@ Unit / API / Web
         ↓
 Cross-browser / Mobile
         ↓
-Accessibility / Performance / Security
+Accessibility / Performance / Security / Database
         ↓
 Evidence Aggregation
         ↓
@@ -399,9 +304,7 @@ Quality Gate
 Certification
 ```
 
-### GitHub Actions
-
-The CI uses explicit authorized targets and browser matrices. Important statuses are:
+Important result semantics:
 
 - `PASS` — verified successful execution
 - `FAIL` — verified quality or framework failure
@@ -413,7 +316,7 @@ Never treat `QUEUED` or `IN_PROGRESS` as PASS.
 
 ## 🧾 Certification Rules
 
-Certification follows a fail-closed principle:
+Certification is fail-closed:
 
 ```text
 No evidence
@@ -423,73 +326,34 @@ UNVERIFIED
 NOT CERTIFIED
 ```
 
-Likewise, a mandatory capability with FAIL, BLOCKED, or UNVERIFIED evidence cannot produce a certification PASS.
-
-This prevents false release certification caused by missing evidence.
+A mandatory capability with FAIL, BLOCKED, or UNVERIFIED evidence cannot produce a certification PASS.
 
 ## 🔗 Jira / Allure Integration
 
-Jira integration provides the foundation for project access and bootstrap work items. The intended traceability chain is:
+The intended traceability chain is:
 
 ```text
-Test Case
-   ↓
-Executor
-   ↓
-Result
-   ↓
-Evidence
-   ↓
-Defect / Requirement
-   ↓
-Jira / Allure
-   ↓
-Release Certification
+Test Case → Executor → Result → Evidence → Defect / Requirement → Jira / Allure → Release Certification
 ```
 
 Do not place Jira tokens or credentials in README files, source code, commits, or test artifacts. Store secrets in the CI secret manager.
 
 ## 🐳 Docker Targets
 
-Reference target images:
-
 ```text
 OWASP Juice Shop: bkimminich/juice-shop:v20.2.0
 OWASP WebGoat:    webgoat/webgoat:2026
 ```
 
-Use loopback bindings for local testing whenever possible. Pinning versions makes runs reproducible and makes evidence easier to audit.
+Use loopback bindings for local testing whenever possible. Pin versions to improve reproducibility and auditability.
 
 ## 🧪 Flaky-Test Engineering
 
-A mature implementation should distinguish:
-
-```text
-PASS → PASS → PASS
-        = stable PASS
-
-PASS → FAIL → PASS
-        = flaky candidate
-
-FAIL → FAIL → FAIL
-        = stable failure
-```
-
-Flaky detection must not silently hide failures. A quarantined test should remain visible and traceable with its reason and history.
+A mature implementation distinguishes stable PASS, flaky candidates, and stable failures. Flaky detection must never silently hide failures; quarantined tests remain visible and traceable with their reason and history.
 
 ## 🛡️ Safe Adversarial Testing
 
-Adversarial testing should be performed only against isolated authorized targets such as local Juice Shop/WebGoat containers.
-
-Useful safe categories include:
-
-- malformed input handling
-- boundary values
-- invalid JSON/API contract cases
-- missing/extra fields
-- unexpected state transitions
-- safe header/configuration checks
-- resilience and deterministic retry behavior
+Useful safe categories on isolated authorized targets include malformed-input handling, boundary values, invalid API contract cases, missing/extra fields, unexpected state transitions, safe header/configuration checks, and deterministic retry/resilience behavior.
 
 Do not turn the framework into an unrestricted external scanner.
 
@@ -504,12 +368,12 @@ Do not turn the framework into an unrestricted external scanner.
 - [x] Multi-browser CI matrices
 - [x] Performance quality gate
 - [x] Accessibility readiness gate
+- [x] Database quality gate
 - [x] Canonical evidence aggregation
 - [x] Evidence integrity verification
 - [x] Certification fail-closed semantics
 - [x] Jira integration foundation
 - [ ] Independent axe-core accessibility oracle
-- [ ] Database quality gate
 - [ ] Advanced application security regression
 - [ ] Advanced API contract/property testing
 - [ ] Flaky-test intelligence
@@ -540,11 +404,3 @@ MIT License — see [LICENSE](LICENSE).
 
 **T. Saiful Bahri**  
 Quality Assurance Engineer | Software Engineer
-
-If this framework helps your QA journey, consider giving the repository a ⭐ and sharing it with another QA engineer.
-
----
-
-### ⭐ Starstruck goal
-
-This project is intentionally being developed as a genuinely useful open-source QA resource. GitHub's Starstruck achievement is triggered when a repository created by the account reaches the required star milestone; the first published milestone is **16 stars on a single repository**.
