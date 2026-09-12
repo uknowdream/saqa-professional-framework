@@ -45,3 +45,16 @@ def test_accessible_name_resolution_handles_real_label_sources():
 def test_accessibility_gate_records_actionable_control_details():
     assert "unnamed_control_details" in SOURCE
     assert "outerHTML.slice(0, 300)" in SOURCE
+    assert "tab_index" in SOURCE
+
+
+def test_independent_accessibility_oracle_is_required():
+    assert module.AXE_RULES == ["aria-input-field-name", "button-name", "link-name", "label"]
+    assert "axe-core" in SOURCE
+    assert "CONFIRMED_ORACLE" in SOURCE
+    assert "INCONCLUSIVE" in SOURCE
+
+
+def test_accessibility_oracle_path_is_explicitly_configurable():
+    assert "SAQA_AXE_CORE_PATH" in SOURCE
+    assert "node_modules/axe-core/axe.min.js" in SOURCE
