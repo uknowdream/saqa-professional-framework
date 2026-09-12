@@ -13,11 +13,23 @@ import time
 from pathlib import Path
 
 
+def _expect_integrity_error(conn: sqlite3.Connection, sql: str, params: tuple[object, ...], message: str) -> None:
+    try:
+        conn.execute(sql, params)
+    except sqlite3.IntegrityError:
+        conn.rollback()
+    else:
+        conn.rollback()
+        raise AssertionError(message)
+
+
 def run() -> dict[str, object]:
     started = time.perf_counter()
     conn = sqlite3.connect(":memory:")
     try:
         conn.execute("PRAGMA foreign_keys = ON")
+        fk_enabled = conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert fk_enabled
         conn.executescript(
             """
             CREATE TABLE teams (
@@ -34,6 +46,18 @@ def run() -> dict[str, object]:
             """
         )
         conn.execute("INSERT INTO teams(id, name) VALUES (?, ?)", (1, "SAQA"))
+        _expect_integrity_error(
+            conn,
+            "INSERT INTO teams(id, name) VALUES (?, ?)",
+            (2, "SAQA"),
+            "UNIQUE constraint was not rejected",
+        )
+        _expect_integrity_error(
+            conn,
+            "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
+            (1, None, 1),
+            "NOT NULL constraint was not rejected",
+        )
         conn.executemany(
             "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
             [(1, "PASS", 120.5), (1, "PASS", 140.0), (1, "FAIL", 310.25)],
@@ -44,25 +68,32 @@ def run() -> dict[str, object]:
         ).fetchone()
         assert row == (3, 570.75, 190.25)
 
-        try:
-            conn.execute("INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)", (999, "PASS", 1))
-        except sqlite3.IntegrityError:
-            pass
-        else:
-            raise AssertionError("foreign-key violation was not rejected")
-
-        try:
-            with conn:
-                conn.execute("INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)", (1, "INVALID", 1))
-        except sqlite3.IntegrityError:
-            pass
-        else:
-            raise AssertionError("CHECK constraint was not rejected")
+        _expect_integrity_error(
+            conn,
+            "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
+            (999, "PASS", 1),
+            "foreign-key violation was not rejected",
+        )
+        _expect_integrity_error(
+            conn,
+            "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
+            (1, "INVALID", 1),
+            "CHECK constraint was not rejected",
+        )
+        _expect_integrity_error(
+            conn,
+            "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
+            (1, "PASS", -1),
+            "duration CHECK constraint was not rejected",
+        )
 
         before = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
         try:
             with conn:
-                conn.execute("INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)", (1, "PASS", 50))
+                conn.execute(
+                    "INSERT INTO test_runs(team_id, status, duration_ms) VALUES (?, ?, ?)",
+                    (1, "PASS", 50),
+                )
                 raise RuntimeError("intentional rollback probe")
         except RuntimeError:
             pass
