@@ -11,6 +11,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SAQA_PLAYWRIGHT_VERSION: '1.62.0'
 
 jobs:
   python-quality:
@@ -95,8 +96,8 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install -e '.[test]'
-      - name: Install Playwright
-        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Browser smoke
@@ -120,8 +121,8 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install -e '.[test]'
-      - name: Install Playwright
-        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start Juice Shop
@@ -244,8 +245,8 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install -e '.[test]'
-      - name: Install Playwright
-        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start WebGoat
@@ -322,8 +323,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install Playwright
-        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
       - name: Validate Docker Compose definition
