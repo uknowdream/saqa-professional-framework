@@ -96,6 +96,9 @@ def run() -> dict[str, object]:
             "duration CHECK constraint was not rejected",
         )
 
+        # Commit the known-good fixture first. The transaction rollback probe
+        # must prove isolation of the probe transaction, not erase setup data.
+        conn.commit()
         before = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
         try:
             with conn:
