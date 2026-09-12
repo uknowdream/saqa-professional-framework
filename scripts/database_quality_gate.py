@@ -13,13 +13,22 @@ import time
 from pathlib import Path
 
 
-def _expect_integrity_error(conn: sqlite3.Connection, sql: str, params: tuple[object, ...], message: str) -> None:
+def _expect_integrity_error(
+    conn: sqlite3.Connection,
+    sql: str,
+    params: tuple[object, ...],
+    message: str,
+) -> None:
+    """Assert a constraint failure without rolling back unrelated setup data."""
+    conn.execute("SAVEPOINT constraint_probe")
     try:
         conn.execute(sql, params)
     except sqlite3.IntegrityError:
-        conn.rollback()
+        conn.execute("ROLLBACK TO constraint_probe")
+        conn.execute("RELEASE constraint_probe")
     else:
-        conn.rollback()
+        conn.execute("ROLLBACK TO constraint_probe")
+        conn.execute("RELEASE constraint_probe")
         raise AssertionError(message)
 
 
