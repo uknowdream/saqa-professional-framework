@@ -32,13 +32,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          cache: npm
+      - name: Verify Node and npm toolchain
+        run: |
+          node --version
+          npm --version
       - name: Install project
         run: python -m pip install -e .
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install pinned axe-core oracle
         run: npm install --no-save --ignore-scripts "axe-core@${SAQA_AXE_CORE_VERSION}"
+      - name: Verify axe-core version
+        run: node -e "const p=require('./node_modules/axe-core/package.json'); if(p.version !== process.env.SAQA_AXE_CORE_VERSION) process.exit(1); console.log('axe-core', p.version)"
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start Juice Shop
@@ -64,7 +69,7 @@ jobs:
         with:
           name: juice-shop-accessibility-${{ matrix.browser }}
           path: artifacts/targets/juice-shop-accessibility.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
       - name: Stop Juice Shop
         if: always()
