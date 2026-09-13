@@ -28,13 +28,11 @@ def _load_axe_source() -> str:
 
 
 def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]], oracle_violation_count: int) -> str:
-    """Classify heuristic-only findings without silently converting uncertainty to green."""
+    """Classify heuristic findings without inferring a false positive from focusability alone."""
     if not unnamed_controls:
         return "NONE"
     if oracle_violation_count:
         return "CONFIRMED_ORACLE"
-    if all(int(control.get("tab_index", 0)) < 0 for control in unnamed_controls):
-        return "FALSE_POSITIVE"
     return "INCONCLUSIVE"
 
 
