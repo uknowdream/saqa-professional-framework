@@ -27,6 +27,17 @@ def _load_axe_source() -> str:
     return AXE_CORE_PATH.read_text(encoding="utf-8")
 
 
+def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]], oracle_violation_count: int) -> str:
+    """Classify heuristic-only findings without silently converting uncertainty to green."""
+    if not unnamed_controls:
+        return "NONE"
+    if oracle_violation_count:
+        return "CONFIRMED_ORACLE"
+    if all(int(control.get("tab_index", 0)) < 0 for control in unnamed_controls):
+        return "FALSE_POSITIVE"
+    return "INCONCLUSIVE"
+
+
 def main() -> None:
     _assert_loopback_http(BASE_URL)
     if BROWSER not in ALLOWED_BROWSERS:
@@ -37,7 +48,7 @@ def main() -> None:
     axe_source = _load_axe_source()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.juice-shop-accessibility.v3",
+        "schema": "saqa.juice-shop-accessibility.v4",
         "test_id": f"juice-shop.accessibility-readiness.{BROWSER}",
         "status": "FAIL",
         "target": BASE_URL,
@@ -155,6 +166,12 @@ def main() -> None:
                     "violations": oracle["violations"],
                 }
 
+                heuristic_disposition = _classify_heuristic_finding(
+                    metrics["unnamed_control_details"],
+                    len(oracle["violations"]),
+                )
+                evidence["details"]["heuristic_disposition"] = heuristic_disposition
+
                 failures = []
                 if not metrics["lang_present"]:
                     failures.append("document language is missing")
@@ -164,18 +181,10 @@ def main() -> None:
                     failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack an alt attribute")
                 if oracle["violations"]:
                     failures.append(f"axe-core found {len(oracle['violations'])} selected accessibility rule violation(s)")
-
-                # A DOM heuristic finding without an independent oracle finding is
-                # retained as diagnostic evidence rather than being silently ignored.
-                # This prevents a false green while allowing triage of non-user-facing
-                # controls (for example, framework internals with tabindex=-1).
-                if metrics["unnamed_interactive_controls"] and not oracle["violations"]:
-                    evidence["details"]["heuristic_disposition"] = "INCONCLUSIVE"
+                if heuristic_disposition == "INCONCLUSIVE":
                     failures.append(
                         f"{metrics['unnamed_interactive_controls']} DOM-heuristic unnamed control(s) lack independent oracle confirmation"
                     )
-                elif oracle["violations"]:
-                    evidence["details"]["heuristic_disposition"] = "CONFIRMED_ORACLE"
 
                 if failures:
                     raise AssertionError("; ".join(failures))
