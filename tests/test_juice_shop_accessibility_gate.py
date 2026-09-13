@@ -52,7 +52,15 @@ def test_independent_accessibility_oracle_is_required():
     assert module.AXE_RULES == ["aria-input-field-name", "button-name", "link-name", "label"]
     assert "axe-core" in SOURCE
     assert "CONFIRMED_ORACLE" in SOURCE
+    assert "FALSE_POSITIVE" in SOURCE
     assert "INCONCLUSIVE" in SOURCE
+
+
+def test_heuristic_classification_is_fail_closed_for_actionable_controls():
+    assert module._classify_heuristic_finding([], 0) == "NONE"
+    assert module._classify_heuristic_finding([{"tab_index": -1}], 0) == "FALSE_POSITIVE"
+    assert module._classify_heuristic_finding([{"tab_index": 0}], 0) == "INCONCLUSIVE"
+    assert module._classify_heuristic_finding([{"tab_index": -1}], 1) == "CONFIRMED_ORACLE"
 
 
 def test_accessibility_oracle_path_is_explicitly_configurable():
