@@ -17,7 +17,7 @@ The framework treats automation as an engineering system: tests produce reproduc
 | Web Automation | Playwright, selectors, fixtures, POM, E2E smoke/regression |
 | API Testing | REST, status codes, headers, JSON, schema, response-time gates |
 | Mobile Readiness | Browser/device-oriented readiness matrix and canonical evidence |
-| Accessibility | Read-only accessibility readiness checks and browser matrix |
+| Accessibility | Read-only accessibility readiness checks, axe-core oracle, browser matrix |
 | Performance | Deterministic response-time/performance gates |
 | Security | Target authorization, dependency/secret hygiene, safe regression foundations |
 | Database | Isolated SQLite constraint, FK, aggregation, parameterization and rollback gate |
@@ -141,15 +141,25 @@ The constraint probes use savepoints so an expected `IntegrityError` cannot roll
 
 ### 6. Run the accessibility readiness gate
 
-Start Juice Shop on `127.0.0.1:3000`, install the selected Playwright browser, then:
+Start Juice Shop on `127.0.0.1:3000`. The CI workflow installs Node.js 22, pinned axe-core `4.10.2`, and pinned Playwright `1.62.0` before running the gate.
+
+For local execution, install the same oracle dependency and browser:
 
 ```bash
-SAQA_BROWSER=chromium python scripts/juice_shop_accessibility_gate.py
-SAQA_BROWSER=firefox python scripts/juice_shop_accessibility_gate.py
-SAQA_BROWSER=webkit python scripts/juice_shop_accessibility_gate.py
+npm install --no-save --ignore-scripts "axe-core@4.10.2"
+python -m pip install "playwright==1.62.0"
+python -m playwright install chromium
 ```
 
-The gate is restricted to local HTTP loopback targets and performs read-only browser validation. A failure must be investigated; do not weaken the assertion merely to obtain a green build.
+Then:
+
+```bash
+SAQA_BROWSER=chromium SAQA_AXE_CORE_PATH=node_modules/axe-core/axe.min.js python scripts/juice_shop_accessibility_gate.py
+SAQA_BROWSER=firefox SAQA_AXE_CORE_PATH=node_modules/axe-core/axe.min.js python scripts/juice_shop_accessibility_gate.py
+SAQA_BROWSER=webkit SAQA_AXE_CORE_PATH=node_modules/axe-core/axe.min.js python scripts/juice_shop_accessibility_gate.py
+```
+
+The gate is restricted to local HTTP loopback targets and performs read-only browser validation. The DOM heuristic is correlated with an independent axe-core oracle. An unnamed control without oracle confirmation remains `INCONCLUSIVE` and therefore fails closed; focusability alone is not treated as proof of a false positive. A failure must be investigated rather than weakened merely to obtain a green build.
 
 ### 7. Understand evidence
 
@@ -253,9 +263,16 @@ Mobile-oriented scenarios can be organized around Maestro-style declarative flow
 
 ## ♿ Accessibility
 
-Current readiness checks include document language/title, image `alt`, accessible-name candidates, headings, landmarks, and control-level diagnostics.
+Current readiness checks include document language/title, image `alt`, accessible-name candidates, headings, landmarks, and control-level diagnostics. An independent **axe-core 4.10.2** oracle runs the selected rules `aria-input-field-name`, `button-name`, `link-name`, and `label` across the browser matrix.
 
-The current gate is a **readiness heuristic**, not a claim of complete WCAG conformance. Certification-grade assessment should add an independent accessibility oracle such as axe-core and correlate its findings with SAQA evidence.
+The framework keeps heuristic findings even when the oracle reports no violation. Classification is explicit:
+
+- `NONE` — no heuristic finding;
+- `CONFIRMED_ORACLE` — heuristic finding has independent oracle confirmation;
+- `INCONCLUSIVE` — heuristic finding lacks independent oracle confirmation;
+- future `FALSE_POSITIVE` decisions require explicit evidence beyond `tabindex` or focusability alone.
+
+The gate is a **readiness assessment**, not a claim of complete WCAG conformance. Certification-grade assessment should expand oracle coverage and correlate additional accessibility-tree evidence.
 
 ## 🧠 BDD / Gherkin
 
@@ -368,12 +385,12 @@ Do not turn the framework into an unrestricted external scanner.
 - [x] Multi-browser CI matrices
 - [x] Performance quality gate
 - [x] Accessibility readiness gate
+- [x] Independent axe-core accessibility oracle implementation
 - [x] Database quality gate
 - [x] Canonical evidence aggregation
 - [x] Evidence integrity verification
 - [x] Certification fail-closed semantics
 - [x] Jira integration foundation
-- [ ] Independent axe-core accessibility oracle
 - [ ] Advanced application security regression
 - [ ] Advanced API contract/property testing
 - [ ] Flaky-test intelligence
