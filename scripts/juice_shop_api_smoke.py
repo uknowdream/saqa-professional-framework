@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from saqa.api import ApiResponse, assert_json_contract
+
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
 OUTPUT = Path("artifacts/targets/juice-shop-api.json")
@@ -36,20 +38,34 @@ def main() -> None:
     content_type = response.headers.get("content-type", "")
     if "application/json" not in content_type.lower():
         raise AssertionError(f"expected JSON response, got {content_type!r}")
-    payload = response.json()
-    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
-        raise AssertionError("expected JSON object with list-valued 'data'")
+
+    contract_response = ApiResponse(
+        status_code=response.status_code,
+        headers=response.headers,
+        body=response.content,
+        elapsed_ms=elapsed_ms,
+    )
+    assert_json_contract(
+        contract_response,
+        required_fields=("data",),
+        field_types={"data": list},
+    )
     if elapsed_ms > LATENCY_BUDGET_MS:
         raise AssertionError(f"response exceeded {LATENCY_BUDGET_MS} ms budget: {elapsed_ms} ms")
 
+    payload = contract_response.json()
     evidence = {
-        "schema": "saqa.juice-shop-api.v1",
+        "schema": "saqa.juice-shop-api.v2",
         "test_id": "juice-shop.api.products-search",
         "status": "PASS",
         "target": BASE_URL,
         "http_methods": ["GET"],
         "destructive_actions": False,
         "observed_at": observed_at,
+        "contract": {
+            "required_fields": ["data"],
+            "field_types": {"data": "list"},
+        },
         "details": {
             "endpoint": ENDPOINT,
             "status_code": response.status_code,
