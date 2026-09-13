@@ -84,6 +84,60 @@ def request(
 
 def assert_json_fields(response: ApiResponse, fields: tuple[str, ...]) -> None:
     """Raise AssertionError when the response is not JSON or misses fields."""
+    payload = _json_object(response)
+    missing = [field for field in fields if field not in payload]
+    if missing:
+        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+
+
+def assert_json_contract(
+    response: ApiResponse,
+    *,
+    required_fields: tuple[str, ...] = (),
+    field_types: Mapping[str, type | tuple[type, ...]] | None = None,
+    list_item_types: Mapping[str, type | tuple[type, ...]] | None = None,
+) -> None:
+    """Validate a small deterministic JSON object contract.
+
+    The contract intentionally avoids a schema dependency: required fields,
+    Python-compatible JSON types, and list item types cover the stable API
+    invariants needed by the local Juice Shop smoke while remaining portable.
+    ``bool`` is treated distinctly from ``int`` to avoid JSON type ambiguity.
+    """
+    payload = _json_object(response)
+    required = tuple(required_fields)
+    missing = [field for field in required if field not in payload]
+    if missing:
+        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+
+    for field, expected in (field_types or {}).items():
+        if field not in payload:
+            raise AssertionError(f"missing JSON field for type check: {field}")
+        if not _json_type_matches(payload[field], expected):
+            raise AssertionError(
+                f"JSON field {field!r} has type {type(payload[field]).__name__}, "
+                f"expected {_type_names(expected)}"
+            )
+
+    for field, expected in (list_item_types or {}).items():
+        if field not in payload:
+            raise AssertionError(f"missing JSON list field: {field}")
+        value = payload[field]
+        if not isinstance(value, list):
+            raise AssertionError(f"JSON field {field!r} must be a list")
+        invalid_index = next(
+            (index for index, item in enumerate(value) if not _json_type_matches(item, expected)),
+            None,
+        )
+        if invalid_index is not None:
+            item = value[invalid_index]
+            raise AssertionError(
+                f"JSON list field {field!r} item {invalid_index} has type "
+                f"{type(item).__name__}, expected {_type_names(expected)}"
+            )
+
+
+def _json_object(response: ApiResponse) -> dict[str, Any]:
     if response.error:
         raise AssertionError(response.error)
     try:
@@ -92,6 +146,19 @@ def assert_json_fields(response: ApiResponse, fields: tuple[str, ...]) -> None:
         raise AssertionError("response body is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise AssertionError("expected a JSON object")
-    missing = [field for field in fields if field not in payload]
-    if missing:
-        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+    return payload
+
+
+def _json_type_matches(value: Any, expected: type | tuple[type, ...]) -> bool:
+    expected_types = expected if isinstance(expected, tuple) else (expected,)
+    for expected_type in expected_types:
+        if expected_type is int and isinstance(value, bool):
+            continue
+        if isinstance(value, expected_type):
+            return True
+    return False
+
+
+def _type_names(expected: type | tuple[type, ...]) -> str:
+    expected_types = expected if isinstance(expected, tuple) else (expected,)
+    return " or ".join(item.__name__ for item in expected_types)
