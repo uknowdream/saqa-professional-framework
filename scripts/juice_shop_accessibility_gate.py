@@ -28,7 +28,7 @@ def _load_axe_source() -> str:
 
 
 def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]], oracle_violation_count: int) -> str:
-    """Classify heuristic findings without inferring a false positive from focusability alone."""
+    """Classify user-operable heuristic findings without inferring a false positive from focusability alone."""
     if not unnamed_controls:
         return "NONE"
     if oracle_violation_count:
@@ -46,7 +46,7 @@ def main() -> None:
     axe_source = _load_axe_source()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.juice-shop-accessibility.v4",
+        "schema": "saqa.juice-shop-accessibility.v5",
         "test_id": f"juice-shop.accessibility-readiness.{BROWSER}",
         "status": "FAIL",
         "target": BASE_URL,
@@ -85,7 +85,24 @@ def main() -> None:
                         const isRendered = el => {
                           if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;
                           const style = getComputedStyle(el);
-                          return style.display !== 'none' && style.visibility !== 'hidden';
+                          const rect = el.getBoundingClientRect();
+                          return style.display !== 'none' &&
+                                 style.visibility !== 'hidden' &&
+                                 Number(style.opacity) !== 0 &&
+                                 rect.width > 0 &&
+                                 rect.height > 0;
+                        };
+                        const isUserOperable = el => {
+                          if (!isRendered(el) || el.disabled) return false;
+                          const style = getComputedStyle(el);
+                          if (style.pointerEvents === 'none') return false;
+                          const tag = el.tagName.toLowerCase();
+                          const type = (el.getAttribute('type') || '').toLowerCase();
+                          const role = (el.getAttribute('role') || '').toLowerCase();
+                          if (tag === 'input' && type === 'hidden') return false;
+                          if (el.tabIndex >= 0) return true;
+                          if (['button', 'a'].includes(tag) || ['button', 'link', 'checkbox', 'radio', 'switch', 'combobox', 'textbox', 'menuitem'].includes(role)) return true;
+                          return false;
                         };
                         const accessibleName = el => {
                           const ariaLabel = (el.getAttribute('aria-label') || '').trim();
@@ -109,7 +126,8 @@ def main() -> None:
                           return '';
                         };
                         const images = [...document.querySelectorAll('img')].filter(isRendered);
-                        const controls = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="menuitem"]')].filter(isRendered);
+                        const allControls = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="menuitem"]')].filter(isRendered);
+                        const controls = allControls.filter(isUserOperable);
                         const unnamedControls = controls.filter(el => !accessibleName(el)).map(el => ({
                           tag: el.tagName.toLowerCase(),
                           id: el.id || '',
@@ -117,6 +135,14 @@ def main() -> None:
                           type: el.getAttribute('type') || '',
                           tab_index: el.tabIndex,
                           aria_hidden: el.getAttribute('aria-hidden') || '',
+                          snippet: el.outerHTML.slice(0, 300)
+                        }));
+                        const programmaticOnlyUnnamedControls = allControls.filter(el => !isUserOperable(el) && !accessibleName(el)).map(el => ({
+                          tag: el.tagName.toLowerCase(),
+                          id: el.id || '',
+                          role: el.getAttribute('role') || '',
+                          type: el.getAttribute('type') || '',
+                          tab_index: el.tabIndex,
                           snippet: el.outerHTML.slice(0, 300)
                         }));
                         const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter(isRendered);
@@ -130,6 +156,7 @@ def main() -> None:
                           interactive_control_count: controls.length,
                           unnamed_interactive_controls: unnamedControls.length,
                           unnamed_control_details: unnamedControls,
+                          programmatic_only_unnamed_controls: programmaticOnlyUnnamedControls,
                           heading_count: headings.length,
                           landmark_count: landmarks.length,
                         };
@@ -181,7 +208,7 @@ def main() -> None:
                     failures.append(f"axe-core found {len(oracle['violations'])} selected accessibility rule violation(s)")
                 if heuristic_disposition == "INCONCLUSIVE":
                     failures.append(
-                        f"{metrics['unnamed_interactive_controls']} DOM-heuristic unnamed control(s) lack independent oracle confirmation"
+                        f"{metrics['unnamed_interactive_controls']} user-operable DOM-heuristic unnamed control(s) lack independent oracle confirmation"
                     )
 
                 if failures:
