@@ -96,12 +96,14 @@ def assert_json_contract(
     required_fields: tuple[str, ...] = (),
     field_types: Mapping[str, type | tuple[type, ...]] | None = None,
     list_item_types: Mapping[str, type | tuple[type, ...]] | None = None,
+    list_min_items: Mapping[str, int] | None = None,
+    list_max_items: Mapping[str, int] | None = None,
 ) -> None:
-    """Validate a small deterministic JSON object contract.
+    """Validate a deterministic JSON object contract.
 
     The contract intentionally avoids a schema dependency: required fields,
-    Python-compatible JSON types, and list item types cover the stable API
-    invariants needed by the local Juice Shop smoke while remaining portable.
+    strict Python-compatible JSON types, list item types, and optional list
+    cardinality invariants cover stable API contracts while remaining portable.
     ``bool`` is treated distinctly from ``int`` to avoid JSON type ambiguity.
     """
     payload = _json_object(response)
@@ -136,6 +138,24 @@ def assert_json_contract(
                 f"{type(item).__name__}, expected {_type_names(expected)}"
             )
 
+    for field, minimum in (list_min_items or {}).items():
+        if minimum < 0:
+            raise ValueError(f"minimum list size for {field!r} cannot be negative")
+        value = _require_list(payload, field)
+        if len(value) < minimum:
+            raise AssertionError(
+                f"JSON list field {field!r} has {len(value)} item(s), expected at least {minimum}"
+            )
+
+    for field, maximum in (list_max_items or {}).items():
+        if maximum < 0:
+            raise ValueError(f"maximum list size for {field!r} cannot be negative")
+        value = _require_list(payload, field)
+        if len(value) > maximum:
+            raise AssertionError(
+                f"JSON list field {field!r} has {len(value)} item(s), expected at most {maximum}"
+            )
+
 
 def _json_object(response: ApiResponse) -> dict[str, Any]:
     if response.error:
@@ -147,6 +167,15 @@ def _json_object(response: ApiResponse) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise AssertionError("expected a JSON object")
     return payload
+
+
+def _require_list(payload: dict[str, Any], field: str) -> list[Any]:
+    if field not in payload:
+        raise AssertionError(f"missing JSON list field: {field}")
+    value = payload[field]
+    if not isinstance(value, list):
+        raise AssertionError(f"JSON field {field!r} must be a list")
+    return value
 
 
 def _json_type_matches(value: Any, expected: type | tuple[type, ...]) -> bool:
