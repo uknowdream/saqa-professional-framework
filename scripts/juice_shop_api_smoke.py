@@ -49,13 +49,14 @@ def main() -> None:
         contract_response,
         required_fields=("data",),
         field_types={"data": list},
+        list_min_items={"data": 1},
     )
     if elapsed_ms > LATENCY_BUDGET_MS:
         raise AssertionError(f"response exceeded {LATENCY_BUDGET_MS} ms budget: {elapsed_ms} ms")
 
     payload = contract_response.json()
     evidence = {
-        "schema": "saqa.juice-shop-api.v2",
+        "schema": "saqa.juice-shop-api.v3",
         "test_id": "juice-shop.api.products-search",
         "status": "PASS",
         "target": BASE_URL,
@@ -65,6 +66,7 @@ def main() -> None:
         "contract": {
             "required_fields": ["data"],
             "field_types": {"data": "list"},
+            "list_min_items": {"data": 1},
         },
         "details": {
             "endpoint": ENDPOINT,
