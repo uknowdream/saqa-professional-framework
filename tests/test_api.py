@@ -55,3 +55,26 @@ def test_json_contract_rejects_wrong_list_item_type():
     response = ApiResponse(200, {}, b'{"data":["ok",3]}', 1.0)
     with pytest.raises(AssertionError, match="item 1 has type int"):
         assert_json_contract(response, list_item_types={"data": str})
+
+
+def test_json_contract_accepts_list_minimum_and_maximum():
+    response = ApiResponse(200, {}, b'{"data":["ok","qa"]}', 1.0)
+    assert_json_contract(response, list_min_items={"data": 1}, list_max_items={"data": 2})
+
+
+def test_json_contract_rejects_list_below_minimum():
+    response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
+    with pytest.raises(AssertionError, match="expected at least 1"):
+        assert_json_contract(response, list_min_items={"data": 1})
+
+
+def test_json_contract_rejects_list_above_maximum():
+    response = ApiResponse(200, {}, b'{"data":[1,2,3]}', 1.0)
+    with pytest.raises(AssertionError, match="expected at most 2"):
+        assert_json_contract(response, list_max_items={"data": 2})
+
+
+def test_json_contract_rejects_negative_cardinality_configuration():
+    response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
+    with pytest.raises(ValueError, match="cannot be negative"):
+        assert_json_contract(response, list_min_items={"data": -1})
