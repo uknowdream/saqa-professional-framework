@@ -17,18 +17,26 @@ def test_aggregate_multiple_executor_results(tmp_path: Path) -> None:
     )
     records = load_results(tmp_path)
     assert [r.test_id for r in records] == ["API-001", "WEB-001"]
-    manifest = tmp_path / "manifest.json"
+    manifest = tmp_path.parent / f"{tmp_path.name}-manifest.json"
     digest = aggregate(tmp_path, manifest)
     assert len(digest) == 64
     assert verify_manifest(manifest)
+    digest_again = aggregate(tmp_path, manifest)
+    assert digest_again == digest
 
 
 def test_aggregate_rejects_empty_directory(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="no execution results"):
-        aggregate(tmp_path, tmp_path / "manifest.json")
+        aggregate(tmp_path, tmp_path.parent / "empty-manifest.json")
 
 
 def test_aggregate_rejects_invalid_result(tmp_path: Path) -> None:
     (tmp_path / "bad.json").write_text('{"status":"PASS"}', encoding="utf-8")
     with pytest.raises(ValueError, match="missing required fields"):
+        load_results(tmp_path)
+
+
+def test_aggregate_rejects_scalar_json(tmp_path: Path) -> None:
+    (tmp_path / "scalar.json").write_text("null", encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid result envelope"):
         load_results(tmp_path)
