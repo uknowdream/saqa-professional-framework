@@ -1,17 +1,11 @@
 #!/usr/bin/env python3
-"""Evaluate a deterministic release certification from GitHub Actions evidence.
-
-The gate is intentionally fail-closed: a release can be CERTIFIED only when
-all mandatory domains have a verified PASS result. Missing, pending, blocked,
-or unknown evidence cannot become PASS.
-"""
+"""Evaluate a deterministic release certification from GitHub Actions evidence."""
 from __future__ import annotations
 
 import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-
 
 MANDATORY = (
     "SAQA CI",
@@ -37,6 +31,7 @@ def normalize_runs(raw: object) -> list[dict[str, str]]:
             "status": str(item.get("status", "")),
             "conclusion": str(item.get("conclusion") or ""),
             "head_sha": str(item.get("head_sha", "")),
+            "head_branch": str(item.get("head_branch", "")),
             "run_id": str(item.get("id", "")),
             "url": str(item.get("html_url", "")),
         }
@@ -60,23 +55,26 @@ def result(run: dict[str, str] | None) -> str:
 
 
 def decide(results: dict[str, str]) -> Decision:
-    if any(value == "FAIL" for value in results.values()):
+    if any(results.get(name) == "FAIL" for name in MANDATORY):
         return Decision("NOT_CERTIFIED", "A mandatory quality domain failed.")
-    if any(value == "BLOCKED" for value in results.values()):
+    if any(results.get(name) == "BLOCKED" for name in MANDATORY):
         return Decision("NOT_CERTIFIED", "A mandatory quality domain is blocked.")
-    if any(value == "PENDING" for value in results.values()):
+    if any(results.get(name) == "PENDING" for name in MANDATORY):
         return Decision("NOT_CERTIFIED", "Mandatory evidence is still pending.")
-    if any(value != "PASS" for value in results.values()):
+    if any(results.get(name) != "PASS" for name in MANDATORY):
         return Decision("NOT_CERTIFIED", "Mandatory evidence is missing or unverified.")
     return Decision("CERTIFIED", "All mandatory quality domains have verified PASS evidence.")
 
 
 def main() -> int:
     path = Path(os.environ.get("SAQA_RUNS_JSON", ""))
-    if not path.exists():
+    if not path.is_file():
         raise SystemExit("SAQA_RUNS_JSON must point to a GitHub Actions runs JSON file")
     sha = os.environ["SAQA_HEAD_SHA"]
-    runs = [r for r in normalize_runs(json.loads(path.read_text(encoding="utf-8"))) if r["head_sha"] == sha]
+    runs = [
+        r for r in normalize_runs(json.loads(path.read_text(encoding="utf-8")))
+        if r["head_sha"] == sha and r["head_branch"] == "main"
+    ]
 
     latest: dict[str, dict[str, str]] = {}
     for run in runs:
@@ -89,8 +87,9 @@ def main() -> int:
     results = {name: result(latest.get(name)) for name in MANDATORY}
     decision = decide(results)
     payload = {
-        "schema": "saqa.release-certification.v1",
+        "schema": "saqa.release-certification.v2",
         "head_sha": sha,
+        "required_branch": "main",
         "status": decision.status,
         "reason": decision.reason,
         "mandatory_domains": results,
