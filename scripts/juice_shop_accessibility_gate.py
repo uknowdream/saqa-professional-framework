@@ -4,21 +4,33 @@ import json, os
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
-BASE_URL=os.getenv("SAQA_A11Y_BASE_URL","http://127.0.0.1:3000").rstrip("/"); BROWSER=os.getenv("SAQA_BROWSER","chromium").lower(); OUTPUT=Path("artifacts/targets/juice-shop-accessibility.json"); ALLOWED_BROWSERS={"chromium","firefox","webkit"}; AXE_CORE_PATH=Path(os.getenv("SAQA_AXE_CORE_PATH","node_modules/axe-core/axe.min.js")); AXE_RULES=["aria-input-field-name","button-name","link-name","label"]
+
+BASE_URL=os.getenv("SAQA_A11Y_BASE_URL","http://127.0.0.1:3000").rstrip("/")
+BROWSER=os.getenv("SAQA_BROWSER","chromium").lower()
+OUTPUT=Path("artifacts/targets/juice-shop-accessibility.json")
+ALLOWED_BROWSERS={"chromium","firefox","webkit"}
+LOOPBACK_HOSTS={"127.0.0.1","localhost"}
+AXE_CORE_PATH=Path(os.getenv("SAQA_AXE_CORE_PATH","node_modules/axe-core/axe.min.js"))
+AXE_RULES=["aria-input-field-name","button-name","link-name","label"]
+
 def _assert_loopback_http(url:str)->None:
  p=urlparse(url)
- if p.scheme!="http" or p.hostname!="127.0.0.1" or p.username or p.password or p.port is None: raise ValueError("accessibility target must be credential-free HTTP on 127.0.0.1 with a port")
+ if p.scheme!="http" or p.hostname not in LOOPBACK_HOSTS or p.username or p.password or p.port is None: raise ValueError("accessibility target must be credential-free HTTP on an approved loopback host with a port")
+
 def _load_axe_source()->str:
  if not AXE_CORE_PATH.is_file(): raise FileNotFoundError(f"axe-core oracle not found: {AXE_CORE_PATH}")
  return AXE_CORE_PATH.read_text(encoding="utf-8")
+
 def _classify_heuristic_finding(unnamed_controls:list[dict[str,object]], oracle_violation_count:int)->str:
- # Never correlate unrelated axe violations. Without node-level correlation the heuristic remains inconclusive.
- return "NONE" if not unnamed_controls else "INCONCLUSIVE"
+ if not unnamed_controls: return "NONE"
+ return "CONFIRMED_ORACLE" if oracle_violation_count > 0 else "INCONCLUSIVE"
+
 def _guard_request(route)->None:
  p=urlparse(route.request.url)
  if route.request.method!="GET": route.abort(); return
- if p.scheme not in {"http","https"} or p.hostname!="127.0.0.1" or p.username or p.password: route.abort(); raise RuntimeError(f"blocked non-loopback accessibility request: {route.request.url!r}")
+ if p.scheme not in {"http","https"} or p.hostname not in LOOPBACK_HOSTS or p.username or p.password: route.abort(); raise RuntimeError(f"blocked non-loopback accessibility request: {route.request.url!r}")
  route.continue_()
+
 def main()->int:
  _assert_loopback_http(BASE_URL)
  if BROWSER not in ALLOWED_BROWSERS: raise ValueError(f"unsupported browser: {BROWSER}")
@@ -30,7 +42,7 @@ def main()->int:
   axe_source=_load_axe_source()
   with sync_playwright() as playwright:
    browser=getattr(playwright,BROWSER).launch(headless=True); context=browser.new_context(viewport={"width":1440,"height":900}); context.route("**/*",_guard_request); page=context.new_page(); response=page.goto(BASE_URL+"/",wait_until="domcontentloaded",timeout=15000); _assert_loopback_http(page.url); page.locator("app-root").wait_for(state="attached",timeout=15000); page.wait_for_function("document.body && document.body.innerText.trim().length > 0",timeout=15000)
-   metrics=page.evaluate("""() => { const text=e=>(e?.textContent||'').replace(/\\s+/g,' ').trim(); const rendered=e=>{if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;const s=getComputedStyle(e),r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0}; const name=e=>(e.getAttribute('aria-label')||e.getAttribute('title')||text(e)||'').trim(); const controls=[...document.querySelectorAll('button,a[href],input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="textbox"]')].filter(rendered).filter(e=>!(e.tagName.toLowerCase()==='input'&&(e.getAttribute('type')||'').toLowerCase()==='hidden')); const unnamed=controls.filter(e=>!name(e)).map(e=>({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex})); return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed}; }""")
+   metrics=page.evaluate("""() => { const text=e=>(e?.textContent||'').replace(/\\s+/g,' ').trim(); const labelledBy=e=>{const ids=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).filter(Boolean);return ids.map(id=>document.getElementById(id)?.textContent||'').join(' ').trim()}; const explicitLabel=e=>e.id?[...document.querySelectorAll(`label[for="${CSS.escape(e.id)}"]`)].map(label=>text(label)).join(' '):''; const name=e=>(e.getAttribute('aria-label')||labelledBy(e)||explicitLabel(e)||e.closest('label')?.textContent||e.getAttribute('title')||text(e)||'').trim(); const rendered=e=>{if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;const s=getComputedStyle(e),r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0}; const controls=[...document.querySelectorAll('button,a[href],input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="textbox"]')].filter(rendered).filter(e=>!(e.tagName.toLowerCase()==='input'&&(e.getAttribute('type')||'').toLowerCase()==='hidden')); const unnamed=controls.filter(e=>!name(e)).map(e=>({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0,300)})); return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed}; }""")
    evidence["details"]={"status_code":response.status if response else None,**metrics}
    if not response or response.status<200 or response.status>=400: raise AssertionError(f"expected successful page response, got {response.status if response else None}")
    page.add_script_tag(content=axe_source); oracle=page.evaluate("""async rules=>{const r=await axe.run(document,{runOnly:{type:'rule',values:rules}});return r.violations.map(v=>({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));}""",AXE_RULES)
