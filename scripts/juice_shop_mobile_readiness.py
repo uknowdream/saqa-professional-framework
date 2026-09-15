@@ -11,12 +11,13 @@ BASE_URL = os.getenv("SAQA_MOBILE_BASE_URL", "http://127.0.0.1:3000").rstrip("/"
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 OUTPUT = Path("artifacts/targets/juice-shop-mobile-readiness.json")
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
-        raise ValueError("mobile target must be credential-free HTTP on 127.0.0.1 with a port")
+    if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password or parsed.port is None:
+        raise ValueError("mobile target must be credential-free HTTP on an approved loopback host with a port")
 
 
 def _guard_request(route) -> None:
@@ -24,7 +25,7 @@ def _guard_request(route) -> None:
     if route.request.method != "GET":
         route.abort()
         return
-    if parsed.scheme not in {"http", "https"} or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password:
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password:
         route.abort()
         raise RuntimeError(f"blocked non-loopback mobile request: {route.request.url!r}")
     route.continue_()
