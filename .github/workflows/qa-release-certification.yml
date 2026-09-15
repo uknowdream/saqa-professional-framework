@@ -45,16 +45,31 @@ jobs:
           echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
           runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
           ready=true
+          mkdir -p artifacts
           for workflow in "SAQA CI" "SAQA Accessibility" "SAQA Mobile Readiness"; do
-            count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .status == "completed")] | length' <<< "$runs")"
+            count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .head_branch == "main" and .status == "completed")] | length' <<< "$runs")"
             if [ "$count" -lt 1 ]; then
               ready=false
-              echo "$workflow: not completed for $SHA"
+              echo "$workflow: not completed for main/$SHA"
             else
-              echo "$workflow: completed for $SHA"
+              echo "$workflow: completed for main/$SHA"
             fi
           done
+          if [ "$ready" = true ]; then
+            reason="All mandatory domains completed on main."
+          else
+            reason="One or more mandatory domains are not yet completed on main; certification is not available."
+          fi
+          jq -n --arg sha "$SHA" --arg status "${ready}" --arg reason "$reason" '{schema:"saqa.release-readiness.v1",head_sha:$sha,required_branch:"main",ready:($status == "true"),status:(if $status == "true" then "READY" else "NOT_CERTIFIED" end),reason:$reason}' > artifacts/release-readiness.json
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
+      - name: Upload readiness decision
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-release-readiness-${{ steps.check.outputs.head_sha }}
+          path: artifacts/release-readiness.json
+          if-no-files-found: error
+          retention-days: 30
 
   certify:
     name: Evaluate release certification
@@ -72,10 +87,7 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Collect exact-commit workflow evidence
-        run: |
-          gh api \
-            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" \
-            --jq '.workflow_runs' > "$RUNNER_TEMP/saqa-runs.json"
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/saqa-runs.json"
       - name: Evaluate certification
         env:
           SAQA_RUNS_JSON: ${{ runner.temp }}/saqa-runs.json
