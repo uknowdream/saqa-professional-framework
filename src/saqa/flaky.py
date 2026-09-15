@@ -1,23 +1,15 @@
-"""Deterministic flakiness analysis for ordered execution histories.
-
-The analyzer is intentionally pure: it never reruns tests and never labels a
-single failure as flaky. A test is classified as FLAKY only when the observed
-history contains both PASS and FAIL outcomes and therefore demonstrates
-instability across executions.
-"""
+"""Deterministic flakiness analysis for ordered execution histories."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-
-_ALLOWED = {"PASS", "FAIL", "SKIP", "BLOCKED", "UNVERIFIED"}
+_ALLOWED = {"PASS", "FAIL", "SKIP", "BLOCKED", "UNVERIFIED", "N/A", "NOT_APPLICABLE"}
 
 
 @dataclass(frozen=True)
 class FlakyAnalysis:
     """Auditable classification of one test execution history."""
-
     status: str
     executions: int
     pass_count: int
@@ -31,19 +23,8 @@ class FlakyAnalysis:
 
 
 def analyze_history(statuses: Sequence[str] | Iterable[str]) -> FlakyAnalysis:
-    """Classify an execution history without inventing retries or outcomes.
-
-    Rules:
-    - fewer than two observations: INSUFFICIENT_DATA;
-    - PASS + FAIL in the same history: FLAKY;
-    - only PASS: STABLE_PASS;
-    - only FAIL: STABLE_FAIL;
-    - otherwise: NON_TERMINAL.
-
-    Unknown statuses are rejected so CI evidence cannot silently corrupt the
-    classification model.
-    """
-    normalized = [str(status).upper() for status in statuses]
+    """Classify an execution history without inventing retries or outcomes."""
+    normalized = [str(getattr(status, "value", status)).upper() for status in statuses]
     unknown = sorted(set(normalized) - _ALLOWED)
     if unknown:
         raise ValueError(f"unsupported execution status(es): {', '.join(unknown)}")
@@ -64,11 +45,4 @@ def analyze_history(statuses: Sequence[str] | Iterable[str]) -> FlakyAnalysis:
     else:
         classification = "NON_TERMINAL"
 
-    return FlakyAnalysis(
-        status=classification,
-        executions=len(normalized),
-        pass_count=passes,
-        fail_count=fails,
-        other_count=other,
-        transition_count=transitions,
-    )
+    return FlakyAnalysis(classification, len(normalized), passes, fails, other, transitions)
