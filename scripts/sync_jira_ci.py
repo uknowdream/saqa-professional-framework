@@ -85,12 +85,16 @@ def normalize_runs(raw: Any) -> list[RunSummary]:
 
 
 def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
-    matched = [j for j in jobs if any(pattern.casefold() in str(j.get("name", "")).casefold() for pattern in patterns)]
+    matched = [
+        job
+        for job in jobs
+        if any(pattern.casefold() in str(job.get("name", "")).casefold() for pattern in patterns)
+    ]
     if not matched:
         return "UNVERIFIED"
-    if any(j.get("status") != "completed" for j in matched):
+    if any(job.get("status") != "completed" for job in matched):
         return "PENDING"
-    conclusions = {str(j.get("conclusion") or "") for j in matched}
+    conclusions = {str(job.get("conclusion") or "") for job in matched}
     if conclusions == {"success"}:
         return "PASS"
     if conclusions & {"failure", "timed_out"}:
@@ -122,7 +126,13 @@ def transition_targets(result: str) -> tuple[str, ...]:
 
 def sync_issue(client: JiraClient, key: str, result: str, body: str, marker: str) -> None:
     state = client.get_issue_state(key)
-    status_labels = {"saqa-ci-pass", "saqa-ci-fail", "saqa-ci-blocked", "saqa-ci-pending", "saqa-ci-unverified"}
+    status_labels = {
+        "saqa-ci-pass",
+        "saqa-ci-fail",
+        "saqa-ci-blocked",
+        "saqa-ci-pending",
+        "saqa-ci-unverified",
+    }
     client.update_labels(
         key,
         add=("saqa-automation", run_label(result)),
@@ -130,7 +140,10 @@ def sync_issue(client: JiraClient, key: str, result: str, body: str, marker: str
     )
     added = client.add_comment_once(key, body, marker)
     transitioned = client.transition_to_any(key, transition_targets(result))
-    print(f"JIRA {key}: result={result} comment={'added' if added else 'exists'} transition={transitioned or 'unchanged'}")
+    print(
+        f"JIRA {key}: result={result} comment={'added' if added else 'exists'} "
+        f"transition={transitioned or 'unchanged'}"
+    )
 
 
 def main() -> None:
@@ -147,7 +160,6 @@ def main() -> None:
     jobs = load_json(os.environ.get("JIRA_JOBS_JSON"), [])
     all_runs = normalize_runs(load_json(os.environ.get("JIRA_ALL_RUNS_JSON"), []))
 
-    overall = "UNVERIFIED"
     current_results = {item.name: item.result for item in all_runs if item.head_sha == run.head_sha}
     relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
     if any(value == "FAIL" for value in relevant):
@@ -158,21 +170,32 @@ def main() -> None:
         overall = "PASS"
     elif any(value == "PENDING" for value in relevant):
         overall = "PENDING"
+    else:
+        overall = "UNVERIFIED"
 
-    domain_results = {
-        "QA-1": run.result,
-        "QA-2": job_result(jobs, ("Juice Shop", "WebGoat")) if run.name == "SAQA CI" else run.result,
-        "QA-3": run.result,
-        "QA-4": job_result(jobs, ("Juice Shop API",)) if run.name == "SAQA CI" else run.result,
-        "QA-5": job_result(jobs, ("Dependency & secret hygiene", "Target authorization", "Docker authorized")) if run.name == "SAQA CI" else run.result,
-        "QA-6": run.result if run.name == "SAQA Accessibility" else "UNVERIFIED",
-        "QA-7": job_result(jobs, ("Juice Shop performance",)) if run.name == "SAQA CI" else "UNVERIFIED",
-        "QA-8": job_result(jobs, ("Canonical evidence aggregation",)) if run.name == "SAQA CI" else run.result,
-        "QA-9": overall,
-    }
+    if run.name == "SAQA CI":
+        domain_results = {
+            "QA-1": "PASS",
+            "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")),
+            "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")),
+            "QA-4": job_result(jobs, ("Juice Shop API",)),
+            "QA-5": job_result(
+                jobs,
+                ("Dependency & secret hygiene", "Target authorization policy", "Docker authorized target smoke"),
+            ),
+            "QA-7": job_result(jobs, ("Juice Shop performance",)),
+            "QA-8": job_result(jobs, ("Canonical evidence aggregation",)),
+            "QA-9": overall,
+        }
+    elif run.name == "SAQA Accessibility":
+        domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-6": run.result, "QA-9": overall}
+    elif run.name == "SAQA Mobile Readiness":
+        domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
+    else:
+        domain_results = {"QA-1": "PASS", "QA-9": overall}
 
     workflow_body = (
-        f"SAQA automated CI synchronization\n"
+        "SAQA automated CI synchronization\n"
         f"Workflow: {run.name}\n"
         f"Run: #{run.run_number} ({run.run_id})\n"
         f"Result: {run.result}\n"
@@ -180,7 +203,7 @@ def main() -> None:
         f"Branch: {run.branch}\n"
         f"URL: {run.url}\n"
         f"Certification aggregate for {run.head_sha}: {overall}\n"
-        f"No PASS is inferred when evidence is missing."
+        "No PASS is inferred when evidence is missing."
     )
 
     with JiraClient(JiraConfig.from_env()) as client:
@@ -190,10 +213,14 @@ def main() -> None:
         if missing:
             raise RuntimeError("Jira bootstrap items missing: " + ", ".join(missing))
         for key, result in domain_results.items():
-            if result == "UNVERIFIED" and key != "QA-9":
-                continue
             marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
-            sync_issue(client, key, result, f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}", marker)
+            sync_issue(
+                client,
+                key,
+                result,
+                f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
+                marker,
+            )
 
 
 if __name__ == "__main__":
