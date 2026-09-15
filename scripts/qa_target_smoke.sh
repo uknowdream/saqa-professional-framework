@@ -29,14 +29,18 @@ wait_http() {
   local delay=2
   local status=""
 
-  # Containerized targets can briefly reset/close connections while the
-  # application server is starting. Follow safe GET redirects and treat
-  # transport failures/redirects as transient until the final response is 2xx.
+  # Safety invariant: do not follow redirects. A redirect is observable
+  # evidence that the configured target is not the exact endpoint being tested.
   while (( attempt <= max_attempts )); do
-    status="$(curl --silent --location --output /dev/null --write-out '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
+    status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 "$url" 2>/dev/null || true)"
     if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
       printf '%s:PASS (attempt %d/%d, HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status"
       return 0
+    fi
+
+    if [[ "$status" =~ ^3[0-9][0-9]$ ]]; then
+      printf '%s:FAIL (unsafe redirect response HTTP %s; redirects are never followed)\n' "$name" "$status" >&2
+      return 1
     fi
 
     if (( attempt < max_attempts )); then
@@ -68,11 +72,12 @@ out = Path(os.environ.get("SAQA_ARTIFACT_DIR", "artifacts/targets"))
 out.mkdir(parents=True, exist_ok=True)
 compose = os.environ.get("SAQA_COMPOSE_FILE", "docker-compose.qa-targets.yml")
 result = {
-    "schema": "saqa.target-smoke.v1",
+    "schema": "saqa.target-smoke.v2",
     "timestamp_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     "compose_file": compose,
     "targets": ["owasp-juice-shop", "owasp-webgoat"],
     "http_methods": ["GET"],
+    "redirects_followed": False,
     "destructive_actions": False,
     "runner": platform.platform(),
 }
