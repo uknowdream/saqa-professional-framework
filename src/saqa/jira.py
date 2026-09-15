@@ -89,6 +89,29 @@ class JiraClient:
             str(payload.get("projectTypeKey", "")),
         )
 
+    def find_project_issues(self, max_results: int = 1000) -> dict[str, JiraIssueResult]:
+        """Return project issues keyed by exact summary for deterministic management."""
+        response = self._client.get(
+            "/rest/api/3/search/jql",
+            params={
+                "jql": f"project = {self.config.project_key}",
+                "maxResults": max_results,
+                "fields": "summary",
+            },
+        )
+        self._raise_for_auth(response, "authentication")
+        response.raise_for_status()
+        issues = response.json().get("issues", [])
+        return {
+            str(i["fields"]["summary"]): JiraIssueResult(
+                str(i["key"]),
+                str(i["id"]),
+                f"{self.config.base_url}/browse/{i['key']}",
+            )
+            for i in issues
+            if i.get("key") and i.get("fields", {}).get("summary")
+        }
+
     def find_bootstrap_issues(self) -> dict[str, JiraIssueResult]:
         """Return existing SAQA bootstrap work items, keyed by exact summary."""
         response = self._client.get(
@@ -197,13 +220,13 @@ class JiraClient:
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         wanted = {status.casefold() for status in target_statuses}
+        current = self.get_issue_state(issue_key).status
         for transition in response.json().get("transitions", []):
             name = str(transition.get("name", ""))
             if name.casefold() in wanted:
-                transition_id = str(transition["id"])
-                current = self.get_issue_state(issue_key).status
                 if current.casefold() == name.casefold():
                     return name
+                transition_id = str(transition["id"])
                 transition_response = self._client.post(
                     f"/rest/api/3/issue/{issue_key}/transitions",
                     json={"transition": {"id": transition_id}},
