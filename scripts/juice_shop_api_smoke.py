@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from saqa.api import ApiResponse, assert_json_contract
+from saqa.api import ApiResponse, assert_json_contract, assert_json_list_cardinality
 
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
@@ -45,18 +45,21 @@ def main() -> None:
         body=response.content,
         elapsed_ms=elapsed_ms,
     )
+    # Structural contract: response shape and types are universal API rules.
     assert_json_contract(
         contract_response,
         required_fields=("data",),
         field_types={"data": list},
-        list_min_items={"data": 1},
     )
+    # Fixture/data expectation: this pinned Juice Shop query is expected to
+    # return at least one seeded product, but that is not a universal schema rule.
+    assert_json_list_cardinality(contract_response, field="data", minimum=1)
     if elapsed_ms > LATENCY_BUDGET_MS:
         raise AssertionError(f"response exceeded {LATENCY_BUDGET_MS} ms budget: {elapsed_ms} ms")
 
     payload = contract_response.json()
     evidence = {
-        "schema": "saqa.juice-shop-api.v3",
+        "schema": "saqa.juice-shop-api.v4",
         "test_id": "juice-shop.api.products-search",
         "status": "PASS",
         "target": BASE_URL,
@@ -66,7 +69,11 @@ def main() -> None:
         "contract": {
             "required_fields": ["data"],
             "field_types": {"data": "list"},
-            "list_min_items": {"data": 1},
+        },
+        "data_expectations": {
+            "field": "data",
+            "minimum_items": 1,
+            "kind": "seeded_fixture_expectation",
         },
         "details": {
             "endpoint": ENDPOINT,
