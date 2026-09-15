@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: jira-nightly-reconciliation
+  group: jira-qa-sync
   cancel-in-progress: false
 
 env:
@@ -32,8 +32,12 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Verify Jira secret
-        run: test -n "$JIRA_API_TOKEN"
+        run: |
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ACTION REQUIRED: GitHub secret JIRA_API_TOKEN is missing or unavailable."
+            exit 1
+          fi
       - name: Install project
         run: python -m pip install -e .
-      - name: Reconcile latest main evidence
+      - name: Reconcile latest common main evidence
         run: python scripts/reconcile_jira.py
