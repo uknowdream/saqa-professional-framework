@@ -6,6 +6,7 @@ retry non-idempotent methods automatically.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
@@ -28,6 +29,11 @@ class ApiResponse:
     @property
     def ok(self) -> bool:
         return 200 <= self.status_code < 400 and self.error is None
+
+    @property
+    def sha256(self) -> str:
+        """Return a deterministic digest of the exact observed response body."""
+        return hashlib.sha256(self.body).hexdigest()
 
 
 def request(
