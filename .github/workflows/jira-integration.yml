@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: jira-bootstrap
+  cancel-in-progress: false
+
 env:
   JIRA_BASE_URL: https://dreamedx.atlassian.net
   JIRA_EMAIL: teukusaiful7@gmail.com
