@@ -17,8 +17,8 @@ AXE_RULES = ["aria-input-field-name", "button-name", "link-name", "label"]
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
-        raise ValueError("accessibility target must be local HTTP loopback only")
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
+        raise ValueError("accessibility target must be credential-free HTTP on 127.0.0.1 with a port")
 
 
 def _load_axe_source() -> str:
@@ -36,6 +36,17 @@ def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]], oracl
     return "INCONCLUSIVE"
 
 
+def _guard_request(route) -> None:
+    parsed = urlparse(route.request.url)
+    if route.request.method != "GET":
+        route.abort()
+        return
+    if parsed.scheme not in {"http", "https"} or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password:
+        route.abort()
+        raise RuntimeError(f"blocked non-loopback accessibility request: {route.request.url!r}")
+    route.continue_()
+
+
 def main() -> None:
     _assert_loopback_http(BASE_URL)
     if BROWSER not in ALLOWED_BROWSERS:
@@ -43,27 +54,31 @@ def main() -> None:
 
     from playwright.sync_api import sync_playwright
 
-    axe_source = _load_axe_source()
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
-        "schema": "saqa.juice-shop-accessibility.v5",
+        "schema": "saqa.juice-shop-accessibility.v6",
         "test_id": f"juice-shop.accessibility-readiness.{BROWSER}",
         "status": "FAIL",
         "target": BASE_URL,
         "browser": BROWSER,
         "http_methods": ["GET"],
+        "redirects_followed": "guarded",
         "destructive_actions": False,
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "details": {},
     }
 
     try:
+        axe_source = _load_axe_source()
         with sync_playwright() as playwright:
             browser_type = getattr(playwright, BROWSER)
             browser = browser_type.launch(headless=True)
             try:
-                page = browser.new_page(viewport={"width": 1440, "height": 900})
+                context = browser.new_context(viewport={"width": 1440, "height": 900})
+                context.route("**/*", _guard_request)
+                page = context.new_page()
                 response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
+                _assert_loopback_http(page.url)
                 page.locator("app-root").wait_for(state="attached", timeout=15000)
                 page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
 
@@ -86,11 +101,7 @@ def main() -> None:
                           if (el.getAttribute('aria-hidden') === 'true' || el.hidden) return false;
                           const style = getComputedStyle(el);
                           const rect = el.getBoundingClientRect();
-                          return style.display !== 'none' &&
-                                 style.visibility !== 'hidden' &&
-                                 Number(style.opacity) !== 0 &&
-                                 rect.width > 0 &&
-                                 rect.height > 0;
+                          return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) !== 0 && rect.width > 0 && rect.height > 0;
                         };
                         const isUserOperable = el => {
                           if (!isRendered(el) || el.disabled) return false;
@@ -101,8 +112,7 @@ def main() -> None:
                           const role = (el.getAttribute('role') || '').toLowerCase();
                           if (tag === 'input' && type === 'hidden') return false;
                           if (el.tabIndex >= 0) return true;
-                          if (['button', 'a'].includes(tag) || ['button', 'link', 'checkbox', 'radio', 'switch', 'combobox', 'textbox', 'menuitem'].includes(role)) return true;
-                          return false;
+                          return ['button', 'a'].includes(tag) || ['button', 'link', 'checkbox', 'radio', 'switch', 'combobox', 'textbox', 'menuitem'].includes(role);
                         };
                         const accessibleName = el => {
                           const ariaLabel = (el.getAttribute('aria-label') || '').trim();
@@ -115,57 +125,26 @@ def main() -> None:
                           if (title) return title;
                           const tag = el.tagName.toLowerCase();
                           const type = (el.getAttribute('type') || '').toLowerCase();
-                          if ((tag === 'input' && ['submit', 'reset', 'button', 'image'].includes(type))) {
+                          if (tag === 'input' && ['submit', 'reset', 'button', 'image'].includes(type)) {
                             const value = (el.getAttribute('value') || '').trim();
                             if (value) return value;
                             if (type === 'image') return (el.getAttribute('alt') || '').trim();
                           }
-                          if (['button', 'a'].includes(tag) || el.getAttribute('role') === 'button' || el.getAttribute('role') === 'link') {
-                            return text(el);
-                          }
+                          if (['button', 'a'].includes(tag) || el.getAttribute('role') === 'button' || el.getAttribute('role') === 'link') return text(el);
                           return '';
                         };
                         const images = [...document.querySelectorAll('img')].filter(isRendered);
                         const allControls = [...document.querySelectorAll('button, a[href], input, select, textarea, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="textbox"], [role="menuitem"]')].filter(isRendered);
                         const controls = allControls.filter(isUserOperable);
-                        const unnamedControls = controls.filter(el => !accessibleName(el)).map(el => ({
-                          tag: el.tagName.toLowerCase(),
-                          id: el.id || '',
-                          role: el.getAttribute('role') || '',
-                          type: el.getAttribute('type') || '',
-                          tab_index: el.tabIndex,
-                          aria_hidden: el.getAttribute('aria-hidden') || '',
-                          snippet: el.outerHTML.slice(0, 300)
-                        }));
-                        const programmaticOnlyUnnamedControls = allControls.filter(el => !isUserOperable(el) && !accessibleName(el)).map(el => ({
-                          tag: el.tagName.toLowerCase(),
-                          id: el.id || '',
-                          role: el.getAttribute('role') || '',
-                          type: el.getAttribute('type') || '',
-                          tab_index: el.tabIndex,
-                          snippet: el.outerHTML.slice(0, 300)
-                        }));
+                        const unnamedControls = controls.filter(el => !accessibleName(el)).map(el => ({tag: el.tagName.toLowerCase(), id: el.id || '', role: el.getAttribute('role') || '', type: el.getAttribute('type') || '', tab_index: el.tabIndex, aria_hidden: el.getAttribute('aria-hidden') || '', snippet: el.outerHTML.slice(0, 300)}));
+                        const programmaticOnlyUnnamedControls = allControls.filter(el => !isUserOperable(el) && !accessibleName(el)).map(el => ({tag: el.tagName.toLowerCase(), id: el.id || '', role: el.getAttribute('role') || '', type: el.getAttribute('type') || '', tab_index: el.tabIndex, snippet: el.outerHTML.slice(0, 300)}));
                         const headings = [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].filter(isRendered);
                         const landmarks = [...document.querySelectorAll('main, nav, header, footer, aside, [role="main"], [role="navigation"], [role="banner"], [role="contentinfo"]')].filter(isRendered);
                         const missingAlt = images.filter(img => !img.hasAttribute('alt'));
-                        return {
-                          lang_present: !!(document.documentElement.getAttribute('lang') || '').trim(),
-                          title_present: !!(document.title || '').trim(),
-                          image_count: images.length,
-                          images_missing_alt: missingAlt.length,
-                          interactive_control_count: controls.length,
-                          unnamed_interactive_controls: unnamedControls.length,
-                          unnamed_control_details: unnamedControls,
-                          programmatic_only_unnamed_controls: programmaticOnlyUnnamedControls,
-                          heading_count: headings.length,
-                          landmark_count: landmarks.length,
-                        };
+                        return {lang_present: !!(document.documentElement.getAttribute('lang') || '').trim(), title_present: !!(document.title || '').trim(), image_count: images.length, images_missing_alt: missingAlt.length, interactive_control_count: controls.length, unnamed_interactive_controls: unnamedControls.length, unnamed_control_details: unnamedControls, programmatic_only_unnamed_controls: programmaticOnlyUnnamedControls, heading_count: headings.length, landmark_count: landmarks.length};
                     }"""
                 )
-                evidence["details"] = {
-                    "status_code": response.status if response else None,
-                    **metrics,
-                }
+                evidence["details"] = {"status_code": response.status if response else None, **metrics}
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
 
@@ -173,28 +152,12 @@ def main() -> None:
                 oracle = page.evaluate(
                     """async rules => {
                       const result = await axe.run(document, { runOnly: { type: 'rule', values: rules } });
-                      return {
-                        violations: result.violations.map(v => ({
-                          id: v.id,
-                          impact: v.impact,
-                          help: v.help,
-                          nodes: v.nodes.map(n => ({ target: n.target, html: n.html.slice(0, 300), failure_summary: n.failureSummary }))
-                        }))
-                      };
+                      return {violations: result.violations.map(v => ({id: v.id, impact: v.impact, help: v.help, nodes: v.nodes.map(n => ({target: n.target, html: n.html.slice(0, 300), failure_summary: n.failureSummary}))}))};
                     }""",
                     AXE_RULES,
                 )
-                evidence["details"]["independent_oracle"] = {
-                    "engine": "axe-core",
-                    "rules": AXE_RULES,
-                    "violation_count": len(oracle["violations"]),
-                    "violations": oracle["violations"],
-                }
-
-                heuristic_disposition = _classify_heuristic_finding(
-                    metrics["unnamed_control_details"],
-                    len(oracle["violations"]),
-                )
+                evidence["details"]["independent_oracle"] = {"engine": "axe-core", "rules": AXE_RULES, "violation_count": len(oracle["violations"]), "violations": oracle["violations"]}
+                heuristic_disposition = _classify_heuristic_finding(metrics["unnamed_control_details"], len(oracle["violations"]))
                 evidence["details"]["heuristic_disposition"] = heuristic_disposition
 
                 failures = []
@@ -207,10 +170,7 @@ def main() -> None:
                 if oracle["violations"]:
                     failures.append(f"axe-core found {len(oracle['violations'])} selected accessibility rule violation(s)")
                 if heuristic_disposition == "INCONCLUSIVE":
-                    failures.append(
-                        f"{metrics['unnamed_interactive_controls']} user-operable DOM-heuristic unnamed control(s) lack independent oracle confirmation"
-                    )
-
+                    failures.append(f"{metrics['unnamed_interactive_controls']} user-operable DOM-heuristic unnamed control(s) lack independent oracle confirmation")
                 if failures:
                     raise AssertionError("; ".join(failures))
                 evidence["status"] = "PASS"
@@ -218,12 +178,12 @@ def main() -> None:
                 browser.close()
     except Exception as exc:
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
-        OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-        raise
+    finally:
+        OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
-    OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps(evidence, indent=2))
+    print(json.dumps(evidence, indent=2, sort_keys=True))
+    return 0 if evidence["status"] == "PASS" else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
