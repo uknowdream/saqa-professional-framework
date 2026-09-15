@@ -46,7 +46,7 @@ jobs:
           runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
           ready=true
           for workflow in "SAQA CI" "SAQA Accessibility" "SAQA Mobile Readiness"; do
-            count="$(jq --arg n "$workflow" '[.[] | select(.name == $n and .head_sha == "'"$SHA"'") | select(.status == "completed")] | length' <<< "$runs")"
+            count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .status == "completed")] | length' <<< "$runs")"
             if [ "$count" -lt 1 ]; then
               ready=false
               echo "$workflow: not completed for $SHA"
@@ -77,6 +77,8 @@ jobs:
             "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" \
             --jq '.workflow_runs' > "$RUNNER_TEMP/saqa-runs.json"
       - name: Evaluate certification
+        env:
+          SAQA_RUNS_JSON: ${{ runner.temp }}/saqa-runs.json
         run: python scripts/qa_release_gate.py
       - name: Upload certification decision
         if: always()
