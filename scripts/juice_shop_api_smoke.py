@@ -16,12 +16,13 @@ BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
 OUTPUT = Path("artifacts/targets/juice-shop-api.json")
 LATENCY_BUDGET_MS = int(os.getenv("SAQA_API_LATENCY_BUDGET_MS", "5000"))
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
-        raise ValueError("API target must be credential-free HTTP on 127.0.0.1 with a port")
+    if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password or parsed.port is None:
+        raise ValueError("API target must be credential-free HTTP on an approved loopback host with a port")
 
 
 def main() -> int:
