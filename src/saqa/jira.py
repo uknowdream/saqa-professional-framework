@@ -112,6 +112,24 @@ class JiraClient:
             if i.get("key") and i.get("fields", {}).get("summary")
         }
 
+    def search_issues(self, jql: str, max_results: int = 100) -> list[JiraIssueResult]:
+        """Search Jira issues using an explicit JQL query."""
+        response = self._client.get(
+            "/rest/api/3/search/jql",
+            params={"jql": jql, "maxResults": max_results, "fields": "summary"},
+        )
+        self._raise_for_auth(response, "authentication")
+        response.raise_for_status()
+        return [
+            JiraIssueResult(
+                str(item["key"]),
+                str(item["id"]),
+                f"{self.config.base_url}/browse/{item['key']}",
+            )
+            for item in response.json().get("issues", [])
+            if item.get("key")
+        ]
+
     def find_bootstrap_issues(self) -> dict[str, JiraIssueResult]:
         """Return existing SAQA bootstrap work items, keyed by exact summary."""
         response = self._client.get(
