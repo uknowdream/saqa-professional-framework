@@ -1,8 +1,6 @@
-name: Jira Integration
+name: Jira Integration Bootstrap
 
 on:
-  push:
-    branches: [main, 'saqa/**']
   workflow_dispatch:
 
 permissions:
@@ -14,8 +12,8 @@ env:
   JIRA_PROJECT_KEY: QA
 
 jobs:
-  jira-cloud-sync:
-    name: Jira Cloud verification and QA backlog sync
+  jira-cloud-bootstrap:
+    name: Jira Cloud verification and QA backlog bootstrap
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
