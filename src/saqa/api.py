@@ -36,6 +36,16 @@ class ApiResponse:
         return hashlib.sha256(self.body).hexdigest()
 
 
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent an API smoke from following a redirect outside its safe target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+
+
 def request(
     url: str,
     *,
@@ -43,12 +53,14 @@ def request(
     headers: Mapping[str, str] | None = None,
     body: Any = None,
     timeout: float = 10.0,
+    follow_redirects: bool = True,
 ) -> ApiResponse:
     """Execute one bounded HTTP request and return observable evidence.
 
     GET/HEAD/OPTIONS are the default-safe methods. Callers may explicitly use
     other methods for an authorized test target, but no automatic retry is
-    performed for those methods.
+    performed for those methods. ``follow_redirects=False`` is recommended for
+    target-isolated probes so a local endpoint cannot escape to another host.
     """
     if timeout <= 0 or timeout > 60:
         raise ValueError("timeout must be between 0 and 60 seconds")
@@ -60,8 +72,9 @@ def request(
         request_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)
     started = time.perf_counter()
+    opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with opener(req, timeout=timeout) as response:
             content = response.read()
             return ApiResponse(
                 response.status,
@@ -105,15 +118,19 @@ def assert_json_contract(
     list_min_items: Mapping[str, int] | None = None,
     list_max_items: Mapping[str, int] | None = None,
 ) -> None:
-    """Validate a deterministic structural JSON object contract.
+    """Validate a deterministic structural JSON object contract."""
+    for field, minimum in (list_min_items or {}).items():
+        if minimum < 0:
+            raise ValueError(f"minimum list size for {field!r} cannot be negative")
+        maximum = (list_max_items or {}).get(field)
+        if maximum is not None and maximum < 0:
+            raise ValueError(f"maximum list size for {field!r} cannot be negative")
+        if maximum is not None and minimum > maximum:
+            raise ValueError(f"minimum list size for {field!r} cannot exceed maximum")
+    for field, maximum in (list_max_items or {}).items():
+        if maximum < 0:
+            raise ValueError(f"maximum list size for {field!r} cannot be negative")
 
-    Required fields, strict JSON-compatible field types, list item types, and
-    optional cardinality checks cover stable response contracts while remaining
-    dependency-light. ``bool`` is treated distinctly from ``int``.
-
-    Use :func:`assert_json_list_cardinality` when a cardinality rule represents
-    a target-data/fixture expectation rather than a universal structural rule.
-    """
     payload = _json_object(response)
     required = tuple(required_fields)
     missing = [field for field in required if field not in payload]
@@ -147,8 +164,6 @@ def assert_json_contract(
             )
 
     for field, minimum in (list_min_items or {}).items():
-        if minimum < 0:
-            raise ValueError(f"minimum list size for {field!r} cannot be negative")
         value = _require_list(payload, field)
         if len(value) < minimum:
             raise AssertionError(
@@ -156,8 +171,6 @@ def assert_json_contract(
             )
 
     for field, maximum in (list_max_items or {}).items():
-        if maximum < 0:
-            raise ValueError(f"maximum list size for {field!r} cannot be negative")
         value = _require_list(payload, field)
         if len(value) > maximum:
             raise AssertionError(
@@ -172,11 +185,7 @@ def assert_json_list_cardinality(
     minimum: int | None = None,
     maximum: int | None = None,
 ) -> None:
-    """Validate list cardinality as an explicit data/fixture expectation.
-
-    This keeps seeded-data assumptions separate from universal structural API
-    contract rules while reusing the same deterministic JSON parsing path.
-    """
+    """Validate list cardinality as an explicit data/fixture expectation."""
     if minimum is not None and minimum < 0:
         raise ValueError(f"minimum list size for {field!r} cannot be negative")
     if maximum is not None and maximum < 0:
