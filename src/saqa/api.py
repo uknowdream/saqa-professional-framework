@@ -99,12 +99,14 @@ def assert_json_contract(
     list_min_items: Mapping[str, int] | None = None,
     list_max_items: Mapping[str, int] | None = None,
 ) -> None:
-    """Validate a deterministic JSON object contract.
+    """Validate a deterministic structural JSON object contract.
 
-    The contract intentionally avoids a schema dependency: required fields,
-    strict Python-compatible JSON types, list item types, and optional list
-    cardinality invariants cover stable API contracts while remaining portable.
-    ``bool`` is treated distinctly from ``int`` to avoid JSON type ambiguity.
+    Required fields, strict JSON-compatible field types, list item types, and
+    optional cardinality checks cover stable response contracts while remaining
+    dependency-light. ``bool`` is treated distinctly from ``int``.
+
+    Use :func:`assert_json_list_cardinality` when a cardinality rule represents
+    a target-data/fixture expectation rather than a universal structural rule.
     """
     payload = _json_object(response)
     required = tuple(required_fields)
@@ -155,6 +157,36 @@ def assert_json_contract(
             raise AssertionError(
                 f"JSON list field {field!r} has {len(value)} item(s), expected at most {maximum}"
             )
+
+
+def assert_json_list_cardinality(
+    response: ApiResponse,
+    *,
+    field: str,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> None:
+    """Validate list cardinality as an explicit data/fixture expectation.
+
+    This keeps seeded-data assumptions separate from universal structural API
+    contract rules while reusing the same deterministic JSON parsing path.
+    """
+    if minimum is not None and minimum < 0:
+        raise ValueError(f"minimum list size for {field!r} cannot be negative")
+    if maximum is not None and maximum < 0:
+        raise ValueError(f"maximum list size for {field!r} cannot be negative")
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise ValueError(f"minimum list size for {field!r} cannot exceed maximum")
+    payload = _json_object(response)
+    value = _require_list(payload, field)
+    if minimum is not None and len(value) < minimum:
+        raise AssertionError(
+            f"JSON list field {field!r} has {len(value)} item(s), expected at least {minimum}"
+        )
+    if maximum is not None and len(value) > maximum:
+        raise AssertionError(
+            f"JSON list field {field!r} has {len(value)} item(s), expected at most {maximum}"
+        )
 
 
 def _json_object(response: ApiResponse) -> dict[str, Any]:
