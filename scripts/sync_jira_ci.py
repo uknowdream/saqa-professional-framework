@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Synchronize verified SAQA CI evidence into the Jira QA control plane.
-
-The synchronizer is idempotent and fail-closed. Every workflow run gets a
-stable marker per managed issue, result labels are mutually exclusive, status
-transitions are performed only when Jira exposes an exact matching transition,
-and verified concrete-domain failures create deterministic Jira Bugs without
-duplicating aggregate certification defects.
-"""
+"""Synchronize verified SAQA CI evidence into the Jira QA control plane."""
 from __future__ import annotations
 
 import json
@@ -16,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from saqa.jira import JiraClient, JiraConfig, JiraIssueResult
-
 
 ISSUE_SUMMARIES = {
     "QA-1": "SAQA | Test Management Foundation",
@@ -29,18 +21,11 @@ ISSUE_SUMMARIES = {
     "QA-8": "SAQA | Evidence & Allure Traceability",
     "QA-9": "SAQA | Certification Readiness",
 }
-
 MONITORED_WORKFLOWS = {"SAQA CI", "SAQA Accessibility", "SAQA Mobile Readiness"}
 PASS_CONCLUSIONS = {"success"}
 FAIL_CONCLUSIONS = {"failure", "timed_out"}
 BLOCKED_CONCLUSIONS = {"cancelled", "action_required", "stale"}
-STATUS_LABELS = {
-    "saqa-ci-pass",
-    "saqa-ci-fail",
-    "saqa-ci-blocked",
-    "saqa-ci-pending",
-    "saqa-ci-unverified",
-}
+STATUS_LABELS = {"saqa-ci-pass", "saqa-ci-fail", "saqa-ci-blocked", "saqa-ci-pending", "saqa-ci-unverified"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,28 +61,20 @@ def load_json(path_value: str | None, default: Any) -> Any:
 def normalize_runs(raw: Any) -> list[RunSummary]:
     if isinstance(raw, dict):
         raw = raw.get("workflow_runs", [])
+    if not isinstance(raw, list):
+        return []
     return [
         RunSummary(
-            name=str(item.get("name", "")),
-            run_id=str(item.get("id", "")),
-            run_number=str(item.get("run_number", "")),
-            conclusion=str(item.get("conclusion") or ""),
-            status=str(item.get("status") or ""),
-            head_sha=str(item.get("head_sha", "")),
-            branch=str(item.get("head_branch", "")),
-            url=str(item.get("html_url", "")),
+            name=str(item.get("name", "")), run_id=str(item.get("id", "")), run_number=str(item.get("run_number", "")),
+            conclusion=str(item.get("conclusion") or ""), status=str(item.get("status") or ""),
+            head_sha=str(item.get("head_sha", "")), branch=str(item.get("head_branch", "")), url=str(item.get("html_url", "")),
         )
-        for item in raw
-        if item.get("name") in MONITORED_WORKFLOWS and item.get("id")
+        for item in raw if isinstance(item, dict) and item.get("name") in MONITORED_WORKFLOWS and item.get("id")
     ]
 
 
 def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
-    matched = [
-        job
-        for job in jobs
-        if any(pattern.casefold() in str(job.get("name", "")).casefold() for pattern in patterns)
-    ]
+    matched = [job for job in jobs if any(pattern.casefold() in str(job.get("name", "")).casefold() for pattern in patterns)]
     if not matched:
         return "UNVERIFIED"
     if any(job.get("status") != "completed" for job in matched):
@@ -113,41 +90,31 @@ def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
 
 
 def run_label(result: str) -> str:
-    return {
-        "PASS": "saqa-ci-pass",
-        "FAIL": "saqa-ci-fail",
-        "BLOCKED": "saqa-ci-blocked",
-        "PENDING": "saqa-ci-pending",
-        "UNVERIFIED": "saqa-ci-unverified",
-    }[result]
+    return {"PASS": "saqa-ci-pass", "FAIL": "saqa-ci-fail", "BLOCKED": "saqa-ci-blocked", "PENDING": "saqa-ci-pending", "UNVERIFIED": "saqa-ci-unverified"}[result]
 
 
 def transition_targets(result: str) -> tuple[str, ...]:
-    if result == "PASS":
-        return ("Done", "Closed")
-    if result == "FAIL":
-        return ("In Progress", "Reopened")
-    if result == "BLOCKED":
-        return ("Blocked", "In Progress")
+    if result == "PASS": return ("Done", "Closed")
+    if result == "FAIL": return ("In Progress", "Reopened")
+    if result == "BLOCKED": return ("Blocked", "In Progress")
     return ("In Progress", "Open", "To Do")
 
 
 def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
-    """Find every managed issue by exact summary and self-heal missing items."""
     project_issues = client.find_project_issues()
     managed: dict[str, JiraIssueResult] = {}
     for key, summary in ISSUE_SUMMARIES.items():
         existing = project_issues.get(summary)
         if existing:
             managed[key] = existing
-            client.update_labels(existing.key, add=("saqa-bootstrap", "saqa-automation"))
+            state = client.get_issue_state(existing.key)
+            missing = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
+            if missing:
+                client.update_labels(existing.key, add=missing)
             continue
         created = client.create_task(
             summary=summary,
-            description=(
-                f"SAQA managed QA control-plane item for {key}. "
-                "Its execution state is synchronized automatically from verified GitHub Actions evidence."
-            ),
+            description=f"SAQA managed QA control-plane item for {key}. Its execution state is synchronized automatically from verified GitHub Actions evidence.",
             labels=["saqa-bootstrap", "saqa-automation", "saqa-ci-unverified"],
         )
         managed[key] = created
@@ -155,131 +122,73 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
     return managed
 
 
-def create_failure_bug_once(
-    client: JiraClient,
-    key: str,
-    issue: JiraIssueResult,
-    run: RunSummary,
-    result: str,
-    body: str,
-) -> JiraIssueResult | None:
-    """Create one Bug for a concrete verified failure per domain/run."""
+def create_failure_bug_once(client: JiraClient, key: str, issue: JiraIssueResult, run: RunSummary, result: str, body: str) -> JiraIssueResult | None:
     if result != "FAIL" or key in {"QA-1", "QA-9"}:
         return None
-    summary = f"[SAQA-AUTO] {issue.key} | {run.name} | run {run.run_id}"
+    summary = f"[SAQA-AUTO] {key} | {run.name} | run {run.run_id}"
     existing = client.find_project_issues().get(summary)
     if existing:
-        print(f"JIRA defect exists: {existing.key} for {issue.key} run {run.run_id}")
+        print(f"JIRA defect exists: {existing.key} for {key} run {run.run_id}")
         return existing
-    defect = client.create_bug(
+    return client.create_bug(
         summary=summary,
-        description=(
-            f"Automated defect generated from a verified SAQA quality failure.\n"
-            f"Control issue: {issue.key}\n"
-            f"Workflow: {run.name}\n"
-            f"Run: #{run.run_number} ({run.run_id})\n"
-            f"Commit: {run.head_sha}\n"
-            f"Branch: {run.branch}\n"
-            f"CI URL: {run.url}\n\n"
-            f"Evidence:\n{body}\n"
-            "Classification: AUTOMATED_VERIFIED_FAILURE\n"
-            "Retest is expected on the next qualifying commit."
-        ),
+        description=(f"Automated defect generated from a verified SAQA quality failure.\nControl issue: {issue.key}\nWorkflow: {run.name}\nRun: #{run.run_number} ({run.run_id})\nCommit: {run.head_sha}\nBranch: {run.branch}\nCI URL: {run.url}\n\nEvidence:\n{body}\nClassification: AUTOMATED_VERIFIED_FAILURE\nRetest is expected on the next qualifying commit."),
         labels=["saqa-auto-defect", "saqa-ci-fail", "saqa-automation"],
     )
-    print(f"JIRA defect created: {defect.key} for {issue.key} run {run.run_id}")
-    return defect
 
 
 def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str, body: str, marker: str, run: RunSummary) -> None:
     state = client.get_issue_state(issue.key)
-    client.update_labels(
-        issue.key,
-        add=("saqa-automation", run_label(result)),
-        remove=(label for label in STATUS_LABELS if label in state.labels and label != run_label(result)),
-    )
+    label = run_label(result)
+    remove = tuple(existing for existing in STATUS_LABELS if existing in state.labels and existing != label)
+    add = tuple(label_name for label_name in ("saqa-automation", label) if label_name not in state.labels)
+    if add or remove:
+        client.update_labels(issue.key, add=add, remove=remove)
     added = client.add_comment_once(issue.key, body, marker)
     transitioned = client.transition_to_any(issue.key, transition_targets(result))
     defect = create_failure_bug_once(client, key, issue, run, result, body)
-    print(
-        f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} "
-        f"transition={transitioned or 'unchanged'} defect={defect.key if defect else 'none'}"
-    )
+    print(f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} transition={transitioned or 'unchanged'} defect={defect.key if defect else 'none'}")
 
 
 def main() -> None:
     run = RunSummary(
-        name=os.environ["JIRA_WORKFLOW_NAME"],
-        run_id=os.environ["JIRA_RUN_ID"],
-        run_number=os.environ.get("JIRA_RUN_NUMBER", ""),
-        conclusion=os.environ.get("JIRA_RUN_CONCLUSION", ""),
-        status=os.environ.get("JIRA_RUN_STATUS", ""),
-        head_sha=os.environ["JIRA_HEAD_SHA"],
-        branch=os.environ.get("JIRA_HEAD_BRANCH", ""),
-        url=os.environ.get("JIRA_RUN_URL", ""),
+        name=os.environ["JIRA_WORKFLOW_NAME"], run_id=os.environ["JIRA_RUN_ID"], run_number=os.environ.get("JIRA_RUN_NUMBER", ""),
+        conclusion=os.environ.get("JIRA_RUN_CONCLUSION", ""), status=os.environ.get("JIRA_RUN_STATUS", ""),
+        head_sha=os.environ["JIRA_HEAD_SHA"], branch=os.environ.get("JIRA_HEAD_BRANCH", ""), url=os.environ.get("JIRA_RUN_URL", ""),
     )
+    if run.name not in MONITORED_WORKFLOWS:
+        raise SystemExit(f"Unsupported workflow for Jira synchronization: {run.name}")
+    if run.branch != "main" and not run.branch.startswith("saqa/"):
+        raise SystemExit(f"Unsupported branch for Jira synchronization: {run.branch!r}")
+    if not run.head_sha:
+        raise SystemExit("JIRA_HEAD_SHA is required for deterministic synchronization")
+
     jobs = load_json(os.environ.get("JIRA_JOBS_JSON"), [])
     all_runs = normalize_runs(load_json(os.environ.get("JIRA_ALL_RUNS_JSON"), []))
-
     current_results = {item.name: item.result for item in all_runs if item.head_sha == run.head_sha}
     relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
-    if any(value == "FAIL" for value in relevant):
-        overall = "FAIL"
-    elif any(value == "BLOCKED" for value in relevant):
-        overall = "BLOCKED"
-    elif all(value == "PASS" for value in relevant):
-        overall = "PASS"
-    elif any(value == "PENDING" for value in relevant):
-        overall = "PENDING"
-    else:
-        overall = "UNVERIFIED"
+    if any(value == "FAIL" for value in relevant): overall = "FAIL"
+    elif any(value == "BLOCKED" for value in relevant): overall = "BLOCKED"
+    elif all(value == "PASS" for value in relevant): overall = "PASS"
+    elif any(value == "PENDING" for value in relevant): overall = "PENDING"
+    else: overall = "UNVERIFIED"
 
     if run.name == "SAQA CI":
-        domain_results = {
-            "QA-1": "PASS",
-            "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")),
-            "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")),
-            "QA-4": job_result(jobs, ("Juice Shop API",)),
-            "QA-5": job_result(jobs, ("Dependency & secret hygiene", "Target authorization policy", "Docker authorized target smoke")),
-            "QA-7": job_result(jobs, ("Juice Shop performance",)),
-            "QA-8": job_result(jobs, ("Canonical evidence aggregation",)),
-            "QA-9": overall,
-        }
+        domain_results = {"QA-1": "PASS", "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")), "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")), "QA-4": job_result(jobs, ("Juice Shop API",)), "QA-5": job_result(jobs, ("Dependency & secret hygiene", "Target authorization policy", "Docker authorized target smoke")), "QA-7": job_result(jobs, ("Juice Shop performance",)), "QA-8": job_result(jobs, ("Canonical evidence aggregation",)), "QA-9": overall}
     elif run.name == "SAQA Accessibility":
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-6": run.result, "QA-9": overall}
-    elif run.name == "SAQA Mobile Readiness":
-        domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
     else:
-        domain_results = {"QA-1": "PASS", "QA-9": overall}
+        domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
 
-    workflow_body = (
-        "SAQA automated CI synchronization\n"
-        f"Workflow: {run.name}\n"
-        f"Run: #{run.run_number} ({run.run_id})\n"
-        f"Result: {run.result}\n"
-        f"Commit: {run.head_sha}\n"
-        f"Branch: {run.branch}\n"
-        f"URL: {run.url}\n"
-        f"Certification aggregate for {run.head_sha}: {overall}\n"
-        "No PASS is inferred when evidence is missing."
-    )
-
+    workflow_body = (f"SAQA automated CI synchronization\nWorkflow: {run.name}\nRun: #{run.run_number} ({run.run_id})\nResult: {run.result}\nCommit: {run.head_sha}\nBranch: {run.branch}\nURL: {run.url}\nCertification aggregate for {run.head_sha}: {overall}\nNo PASS is inferred when evidence is missing.")
     with JiraClient(JiraConfig.from_env()) as client:
         project = client.verify_access()
         print(f"JIRA project verified: {project.key} / {project.name}")
         managed = ensure_managed_issues(client)
-        for key, result in domain_results.items():
+        for key, result_value in domain_results.items():
             issue = managed[key]
             marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
-            sync_issue(
-                client,
-                key,
-                issue,
-                result,
-                f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
-                marker,
-                run,
-            )
+            sync_issue(client, key, issue, result_value, f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}", marker, run)
 
 
 if __name__ == "__main__":
