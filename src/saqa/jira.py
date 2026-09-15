@@ -17,12 +17,7 @@ class JiraConfig:
 
     @classmethod
     def from_env(cls) -> "JiraConfig":
-        values = {
-            "base_url": os.getenv("JIRA_BASE_URL", "").strip().rstrip("/"),
-            "email": os.getenv("JIRA_EMAIL", "").strip(),
-            "api_token": os.getenv("JIRA_API_TOKEN", ""),
-            "project_key": os.getenv("JIRA_PROJECT_KEY", "").strip(),
-        }
+        values = {"base_url": os.getenv("JIRA_BASE_URL", "").strip().rstrip("/"), "email": os.getenv("JIRA_EMAIL", "").strip(), "api_token": os.getenv("JIRA_API_TOKEN", ""), "project_key": os.getenv("JIRA_PROJECT_KEY", "").strip()}
         missing = [key for key, value in values.items() if not value]
         if missing:
             raise ValueError("Missing Jira configuration: " + ", ".join(missing))
@@ -57,22 +52,13 @@ class JiraClient:
 
     def __init__(self, config: JiraConfig, timeout: float = 15.0) -> None:
         self.config = config
-        self._client = httpx.Client(
-            base_url=config.base_url,
-            auth=(config.email, config.api_token),
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            timeout=timeout,
-            follow_redirects=False,
-        )
+        self._client = httpx.Client(base_url=config.base_url, auth=(config.email, config.api_token), headers={"Accept": "application/json", "Content-Type": "application/json"}, timeout=timeout, follow_redirects=False)
 
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "JiraClient":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.close()
+    def __enter__(self) -> "JiraClient": return self
+    def __exit__(self, *_: object) -> None: self.close()
 
     def _raise_for_auth(self, response: httpx.Response, action: str) -> None:
         if response.status_code in {401, 403}:
@@ -83,122 +69,72 @@ class JiraClient:
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         payload = response.json()
-        return JiraProjectResult(
-            str(payload.get("key", "")),
-            str(payload.get("name", "")),
-            str(payload.get("projectTypeKey", "")),
-        )
+        return JiraProjectResult(str(payload.get("key", "")), str(payload.get("name", "")), str(payload.get("projectTypeKey", "")))
 
     def find_project_issues(self, max_results: int = 1000) -> dict[str, JiraIssueResult]:
-        """Return project issues keyed by exact summary for deterministic management."""
-        response = self._client.get(
-            "/rest/api/3/search/jql",
-            params={
-                "jql": f"project = {self.config.project_key}",
-                "maxResults": max_results,
-                "fields": "summary,labels",
-            },
-        )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
-        issues = response.json().get("issues", [])
-        return {
-            str(i["fields"]["summary"]): JiraIssueResult(
-                str(i["key"]),
-                str(i["id"]),
-                f"{self.config.base_url}/browse/{i['key']}",
-            )
-            for i in issues
-            if i.get("key") and i.get("fields", {}).get("summary")
-        }
+        """Return all project issues keyed by exact summary; reject ambiguous duplicates."""
+        if max_results <= 0:
+            raise ValueError("max_results must be positive")
+        issues: list[dict[str, Any]] = []
+        next_token: str | None = None
+        while True:
+            params: dict[str, Any] = {"jql": f"project = {self.config.project_key}", "maxResults": min(max_results, 100), "fields": "summary,labels"}
+            if next_token:
+                params["nextPageToken"] = next_token
+            response = self._client.get("/rest/api/3/search/jql", params=params)
+            self._raise_for_auth(response, "authentication")
+            response.raise_for_status()
+            payload = response.json()
+            page = payload.get("issues", []) if isinstance(payload, dict) else []
+            if isinstance(page, list):
+                issues.extend(item for item in page if isinstance(item, dict))
+            if len(issues) >= max_results or not isinstance(payload, dict) or not payload.get("nextPageToken"):
+                break
+            next_token = str(payload["nextPageToken"])
+        result: dict[str, JiraIssueResult] = {}
+        for item in issues[:max_results]:
+            key = str(item.get("key", ""))
+            summary = str(item.get("fields", {}).get("summary", ""))
+            if not key or not summary:
+                continue
+            if summary in result and result[summary].key != key:
+                raise RuntimeError(f"Jira has duplicate managed summary: {summary!r} ({result[summary].key}, {key})")
+            result[summary] = JiraIssueResult(key, str(item.get("id", "")), f"{self.config.base_url}/browse/{key}")
+        return result
 
     def search_issues(self, jql: str, max_results: int = 100) -> list[JiraIssueResult]:
-        """Search Jira issues using an explicit JQL query."""
-        response = self._client.get(
-            "/rest/api/3/search/jql",
-            params={"jql": jql, "maxResults": max_results, "fields": "summary"},
-        )
+        if max_results <= 0:
+            raise ValueError("max_results must be positive")
+        response = self._client.get("/rest/api/3/search/jql", params={"jql": jql, "maxResults": min(max_results, 100), "fields": "summary"})
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
-        return [
-            JiraIssueResult(
-                str(item["key"]),
-                str(item["id"]),
-                f"{self.config.base_url}/browse/{item['key']}",
-            )
-            for item in response.json().get("issues", [])
-            if item.get("key")
-        ]
+        return [JiraIssueResult(str(item["key"]), str(item["id"]), f"{self.config.base_url}/browse/{item['key']}") for item in response.json().get("issues", []) if item.get("key")]
 
     def find_bootstrap_issues(self) -> dict[str, JiraIssueResult]:
-        """Return existing SAQA bootstrap work items, keyed by exact summary."""
-        response = self._client.get(
-            "/rest/api/3/search/jql",
-            params={
-                "jql": f"project = {self.config.project_key} AND labels = saqa-bootstrap",
-                "maxResults": 100,
-                "fields": "summary",
-            },
-        )
+        response = self._client.get("/rest/api/3/search/jql", params={"jql": f"project = {self.config.project_key} AND labels = saqa-bootstrap", "maxResults": 100, "fields": "summary"})
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
-        issues = response.json().get("issues", [])
-        return {
-            str(i["fields"]["summary"]): JiraIssueResult(
-                str(i["key"]),
-                str(i["id"]),
-                f"{self.config.base_url}/browse/{i['key']}",
-            )
-            for i in issues
-            if i.get("key") and i.get("fields", {}).get("summary")
-        }
+        return {str(i["fields"]["summary"]): JiraIssueResult(str(i["key"]), str(i["id"]), f"{self.config.base_url}/browse/{i['key']}") for i in response.json().get("issues", []) if i.get("key") and i.get("fields", {}).get("summary")}
 
     def get_issue_state(self, issue_key: str) -> JiraIssueState:
-        response = self._client.get(
-            f"/rest/api/3/issue/{issue_key}",
-            params={"fields": "status,labels"},
-        )
+        response = self._client.get(f"/rest/api/3/issue/{issue_key}", params={"fields": "status,labels"})
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         fields = response.json().get("fields", {})
         status = fields.get("status") or {}
-        return JiraIssueState(
-            key=issue_key,
-            status=str(status.get("name", "")),
-            labels=tuple(str(label) for label in fields.get("labels", []) or []),
-        )
+        return JiraIssueState(issue_key, str(status.get("name", "")), tuple(str(label) for label in fields.get("labels", []) or []))
 
     def get_issue_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        response = self._client.get(
-            f"/rest/api/3/issue/{issue_key}/comment",
-            params={"maxResults": 100, "orderBy": "-created"},
-        )
+        response = self._client.get(f"/rest/api/3/issue/{issue_key}/comment", params={"maxResults": 100, "orderBy": "-created"})
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         return list(response.json().get("comments", []))
 
-    def create_task(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
-        return self._create_issue("Task", summary, description, labels)
-
-    def create_bug(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
-        """Create a Jira Bug with explicit automation traceability."""
-        return self._create_issue("Bug", summary, description, labels)
+    def create_task(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult: return self._create_issue("Task", summary, description, labels)
+    def create_bug(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult: return self._create_issue("Bug", summary, description, labels)
 
     def _create_issue(self, issue_type: str, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
-        payload: dict[str, Any] = {"fields": {
-            "project": {"key": self.config.project_key},
-            "issuetype": {"name": issue_type},
-            "summary": summary,
-            "description": {
-                "type": "doc",
-                "version": 1,
-                "content": [{
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": description}],
-                }],
-            },
-            "labels": labels,
-        }}
+        payload = {"fields": {"project": {"key": self.config.project_key}, "issuetype": {"name": issue_type}, "summary": summary, "description": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": description}]}]}, "labels": labels}}
         response = self._client.post("/rest/api/3/issue", json=payload)
         self._raise_for_auth(response, "write")
         response.raise_for_status()
@@ -207,39 +143,22 @@ class JiraClient:
         return JiraIssueResult(key, str(result["id"]), f"{self.config.base_url}/browse/{key}")
 
     def update_labels(self, issue_key: str, *, add: Iterable[str] = (), remove: Iterable[str] = ()) -> None:
-        update: dict[str, list[dict[str, str]]] = {"labels": []}
-        for label in add:
-            update["labels"].append({"add": label})
-        for label in remove:
-            update["labels"].append({"remove": label})
-        if not update["labels"]:
-            return
-        response = self._client.put(f"/rest/api/3/issue/{issue_key}", json={"update": update})
+        updates = [{"add": label} for label in add] + [{"remove": label} for label in remove]
+        if not updates: return
+        response = self._client.put(f"/rest/api/3/issue/{issue_key}", json={"update": {"labels": updates}})
         self._raise_for_auth(response, "write")
         response.raise_for_status()
 
     def add_comment_once(self, issue_key: str, body: str, marker: str) -> bool:
-        """Add an ADF comment only if the deterministic marker is not present."""
         for comment in self.get_issue_comments(issue_key):
-            if marker in str(comment):
-                return False
-        payload = {
-            "body": {
-                "type": "doc",
-                "version": 1,
-                "content": [{
-                    "type": "paragraph",
-                    "content": [{"type": "text", "text": body}],
-                }],
-            }
-        }
+            if marker in str(comment): return False
+        payload = {"body": {"type": "doc", "version": 1, "content": [{"type": "paragraph", "content": [{"type": "text", "text": body}]}]}}
         response = self._client.post(f"/rest/api/3/issue/{issue_key}/comment", json=payload)
         self._raise_for_auth(response, "comment")
         response.raise_for_status()
         return True
 
     def transition_to_any(self, issue_key: str, target_statuses: Iterable[str]) -> str | None:
-        """Transition only when Jira exposes an exact matching available status."""
         response = self._client.get(f"/rest/api/3/issue/{issue_key}/transitions")
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
@@ -248,13 +167,8 @@ class JiraClient:
         for transition in response.json().get("transitions", []):
             name = str(transition.get("name", ""))
             if name.casefold() in wanted:
-                if current.casefold() == name.casefold():
-                    return name
-                transition_id = str(transition["id"])
-                transition_response = self._client.post(
-                    f"/rest/api/3/issue/{issue_key}/transitions",
-                    json={"transition": {"id": transition_id}},
-                )
+                if current.casefold() == name.casefold(): return name
+                transition_response = self._client.post(f"/rest/api/3/issue/{issue_key}/transitions", json={"transition": {"id": str(transition["id"])}})
                 self._raise_for_auth(transition_response, "transition write")
                 transition_response.raise_for_status()
                 return name
