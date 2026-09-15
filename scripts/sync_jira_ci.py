@@ -2,10 +2,9 @@
 """Synchronize verified SAQA CI evidence into the Jira QA control plane.
 
 The synchronizer is idempotent and fail-closed. Every workflow run gets a
-stable marker per managed issue, result labels are mutually exclusive, and
-status transitions are performed only when Jira exposes an exact transition.
-Managed QA issues are also self-healed: if an expected issue is missing, the
-integration creates it instead of silently dropping the automation state.
+stable marker per managed issue, result labels are mutually exclusive, status
+transitions are performed only when Jira exposes an exact transition, and
+verified failures create deterministic Jira Bugs without duplication.
 """
 from __future__ import annotations
 
@@ -140,7 +139,6 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
         existing = project_issues.get(summary)
         if existing:
             managed[key] = existing
-            # Existing issues may have lost the management label; restore it.
             client.update_labels(existing.key, add=("saqa-bootstrap", "saqa-automation"))
             continue
         created = client.create_task(
@@ -156,7 +154,42 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
     return managed
 
 
-def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str, body: str, marker: str) -> None:
+def create_failure_bug_once(
+    client: JiraClient,
+    issue: JiraIssueResult,
+    run: RunSummary,
+    result: str,
+    body: str,
+) -> JiraIssueResult | None:
+    """Create exactly one Jira Bug for a verified FAIL result per run/domain."""
+    if result != "FAIL":
+        return None
+    summary = f"[SAQA-AUTO] {issue.key} | {run.name} | run {run.run_id}"
+    existing = client.find_project_issues().get(summary)
+    if existing:
+        print(f"JIRA defect exists: {existing.key} for {issue.key} run {run.run_id}")
+        return existing
+    defect = client.create_bug(
+        summary=summary,
+        description=(
+            f"Automated defect generated from a verified SAQA quality failure.\n"
+            f"Control issue: {issue.key}\n"
+            f"Workflow: {run.name}\n"
+            f"Run: #{run.run_number} ({run.run_id})\n"
+            f"Commit: {run.head_sha}\n"
+            f"Branch: {run.branch}\n"
+            f"CI URL: {run.url}\n\n"
+            f"Evidence:\n{body}\n"
+            "Classification: AUTOMATED_VERIFIED_FAILURE\n"
+            "Retest is expected on the next qualifying commit."
+        ),
+        labels=["saqa-auto-defect", "saqa-ci-fail", "saqa-automation"],
+    )
+    print(f"JIRA defect created: {defect.key} for {issue.key} run {run.run_id}")
+    return defect
+
+
+def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str, body: str, marker: str, run: RunSummary) -> None:
     state = client.get_issue_state(issue.key)
     client.update_labels(
         issue.key,
@@ -165,9 +198,10 @@ def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str
     )
     added = client.add_comment_once(issue.key, body, marker)
     transitioned = client.transition_to_any(issue.key, transition_targets(result))
+    defect = create_failure_bug_once(client, issue, run, result, body)
     print(
         f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} "
-        f"transition={transitioned or 'unchanged'}"
+        f"transition={transitioned or 'unchanged'} defect={defect.key if defect else 'none'}"
     )
 
 
@@ -204,10 +238,7 @@ def main() -> None:
             "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")),
             "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")),
             "QA-4": job_result(jobs, ("Juice Shop API",)),
-            "QA-5": job_result(
-                jobs,
-                ("Dependency & secret hygiene", "Target authorization policy", "Docker authorized target smoke"),
-            ),
+            "QA-5": job_result(jobs, ("Dependency & secret hygiene", "Target authorization policy", "Docker authorized target smoke")),
             "QA-7": job_result(jobs, ("Juice Shop performance",)),
             "QA-8": job_result(jobs, ("Canonical evidence aggregation",)),
             "QA-9": overall,
@@ -245,6 +276,7 @@ def main() -> None:
                 result,
                 f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
                 marker,
+                run,
             )
 
 
