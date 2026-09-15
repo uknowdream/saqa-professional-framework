@@ -59,6 +59,26 @@ def test_jira_create_task_uses_safe_payload_and_returns_issue() -> None:
     assert "secret-token" not in str(seen["payload"])
 
 
+def test_jira_create_bug_uses_bug_issue_type() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.read())
+        return httpx.Response(201, json={"id": "10002", "key": "QA-10"})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        issue = client.create_bug("[SAQA-AUTO] failure", "Verified CI failure", ["saqa-auto-defect"])
+    finally:
+        client.close()
+
+    assert issue.key == "QA-10"
+    assert seen["payload"]["fields"]["issuetype"] == {"name": "Bug"}
+    assert seen["payload"]["fields"]["labels"] == ["saqa-auto-defect"]
+
+
 def test_jira_create_task_rejects_write_authorization_failure() -> None:
     config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
     client = JiraClient(config, timeout=1.0)
