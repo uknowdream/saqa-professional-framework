@@ -1,7 +1,6 @@
 """Deterministic, read-only API smoke for the local OWASP Juice Shop target."""
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import time
@@ -59,7 +58,6 @@ def main() -> None:
         raise AssertionError(f"response exceeded {LATENCY_BUDGET_MS} ms budget: {elapsed_ms} ms")
 
     payload = contract_response.json()
-    body_sha256 = hashlib.sha256(response.content).hexdigest()
     evidence = {
         "schema": "saqa.juice-shop-api.v5",
         "test_id": "juice-shop.api.products-search",
@@ -82,7 +80,7 @@ def main() -> None:
             "status_code": response.status_code,
             "content_type": content_type,
             "response_bytes": len(response.content),
-            "response_sha256": body_sha256,
+            "response_sha256": contract_response.sha256,
             "data_items": len(payload["data"]),
             "elapsed_ms": elapsed_ms,
             "latency_budget_ms": LATENCY_BUDGET_MS,
