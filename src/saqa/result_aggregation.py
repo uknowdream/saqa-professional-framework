@@ -12,25 +12,33 @@ REQUIRED = {"test_id", "status", "target"}
 
 def load_results(directory: Path) -> list[EvidenceRecord]:
     records: list[EvidenceRecord] = []
-    # Evidence downloads may preserve one directory per artifact. Recurse so
-    # canonical aggregation cannot silently lose browser results because two
-    # artifacts contain the same relative filename.
     for path in sorted(directory.rglob("*.json")):
         if path.name in {"evidence-manifest.json", "run-metadata.json"}:
             continue
         payload: Any = json.loads(path.read_text(encoding="utf-8"))
-        items = payload if isinstance(payload, list) else payload.get("results", [payload])
+        if isinstance(payload, list):
+            items = payload
+        elif isinstance(payload, dict):
+            items = payload.get("results", [payload])
+        else:
+            raise ValueError(f"invalid result envelope: {path}")
         if not isinstance(items, list):
             raise ValueError(f"invalid result envelope: {path}")
         for item in items:
             if not isinstance(item, dict) or not REQUIRED.issubset(item):
                 raise ValueError(f"result missing required fields: {path}")
+            details = item.get("details", {})
+            if not isinstance(details, dict):
+                raise ValueError(f"result details must be an object: {path}")
+            status = str(item["status"])
+            if status == "N/A":
+                status = "NOT_APPLICABLE"
             records.append(EvidenceRecord(
                 test_id=str(item["test_id"]),
-                status=str(item["status"]),
+                status=status,
                 observed_at=str(item.get("observed_at", "unknown")),
                 target=str(item["target"]),
-                details=dict(item.get("details", {})),
+                details=dict(details),
             ))
     if not records:
         raise ValueError(f"no execution results found in {directory}")
