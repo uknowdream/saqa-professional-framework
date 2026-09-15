@@ -83,17 +83,17 @@ jobs:
         env:
           RUN_ID: ${{ steps.run.outputs.run_id }}
         run: |
-          gh api --paginate \
+          gh api \
             "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
-            --jq '.jobs[] | {name,status,conclusion,html_url}' > "$RUNNER_TEMP/jira-jobs.json"
+            --jq '.jobs' > "$RUNNER_TEMP/jira-jobs.json"
 
       - name: Collect all relevant workflow runs for exact commit
         env:
           HEAD_SHA: ${{ steps.run.outputs.head_sha }}
         run: |
-          gh api --paginate \
+          gh api \
             "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" \
-            > "$RUNNER_TEMP/jira-runs.json"
+            --jq '.workflow_runs' > "$RUNNER_TEMP/jira-runs.json"
 
       - name: Synchronize Jira QA control plane
         env:
