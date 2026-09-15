@@ -3,8 +3,9 @@
 
 The synchronizer is idempotent and fail-closed. Every workflow run gets a
 stable marker per managed issue, result labels are mutually exclusive, status
-transitions are performed only when Jira exposes an exact transition, and
-verified failures create deterministic Jira Bugs without duplication.
+transitions are performed only when Jira exposes an exact matching transition,
+and verified concrete-domain failures create deterministic Jira Bugs without
+duplicating aggregate certification defects.
 """
 from __future__ import annotations
 
@@ -156,13 +157,14 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
 
 def create_failure_bug_once(
     client: JiraClient,
+    key: str,
     issue: JiraIssueResult,
     run: RunSummary,
     result: str,
     body: str,
 ) -> JiraIssueResult | None:
-    """Create exactly one Jira Bug for a verified FAIL result per run/domain."""
-    if result != "FAIL":
+    """Create one Bug for a concrete verified failure per domain/run."""
+    if result != "FAIL" or key in {"QA-1", "QA-9"}:
         return None
     summary = f"[SAQA-AUTO] {issue.key} | {run.name} | run {run.run_id}"
     existing = client.find_project_issues().get(summary)
@@ -198,7 +200,7 @@ def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str
     )
     added = client.add_comment_once(issue.key, body, marker)
     transitioned = client.transition_to_any(issue.key, transition_targets(result))
-    defect = create_failure_bug_once(client, issue, run, result, body)
+    defect = create_failure_bug_once(client, key, issue, run, result, body)
     print(
         f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} "
         f"transition={transitioned or 'unchanged'} defect={defect.key if defect else 'none'}"
