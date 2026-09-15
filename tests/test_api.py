@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from saqa.api import ApiResponse, assert_json_contract, assert_json_fields
+from saqa.api import ApiResponse, assert_json_contract, assert_json_fields, assert_json_list_cardinality
 
 
 def test_json_field_validation_accepts_expected_object():
@@ -78,3 +78,16 @@ def test_json_contract_rejects_negative_cardinality_configuration():
     response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
     with pytest.raises(ValueError, match="cannot be negative"):
         assert_json_contract(response, list_min_items={"data": -1})
+
+
+def test_json_list_cardinality_is_separate_from_structural_contract():
+    response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
+    assert_json_contract(response, required_fields=("data",), field_types={"data": list})
+    with pytest.raises(AssertionError, match="expected at least 1"):
+        assert_json_list_cardinality(response, field="data", minimum=1)
+
+
+def test_json_list_cardinality_rejects_inverted_bounds():
+    response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
+    with pytest.raises(ValueError, match="cannot exceed maximum"):
+        assert_json_list_cardinality(response, field="data", minimum=2, maximum=1)
