@@ -1,0 +1,39 @@
+name: Jira Nightly Reconciliation
+
+on:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: jira-nightly-reconciliation
+  cancel-in-progress: false
+
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+  GH_TOKEN: ${{ github.token }}
+  JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+
+jobs:
+  reconcile:
+    name: Reconcile Jira with latest CI evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout trusted reconciliation code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Verify Jira secret
+        run: test -n "$JIRA_API_TOKEN"
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Reconcile latest main evidence
+        run: python scripts/reconcile_jira.py
