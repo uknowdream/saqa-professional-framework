@@ -1,0 +1,110 @@
+name: Jira QA Automation
+
+on:
+  workflow_run:
+    workflows:
+      - SAQA CI
+      - SAQA Accessibility
+      - SAQA Mobile Readiness
+    types: [completed]
+    branches:
+      - 'saqa/**'
+      - main
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: jira-qa-sync-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+
+jobs:
+  sync:
+    name: Sync SAQA CI evidence to Jira
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # This privileged workflow checks out only the trusted default branch.
+      # It never executes the triggering branch or PR code.
+      - name: Checkout trusted Jira automation code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify Jira secret is available
+        run: |
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ACTION REQUIRED: GitHub repository secret JIRA_API_TOKEN is missing or unavailable."
+            exit 1
+          fi
+          echo "JIRA_API_TOKEN: configured (value hidden)"
+
+      - name: Install project
+        run: python -m pip install -e .
+
+      - name: Resolve triggering workflow run
+        id: run
+        env:
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_NAME: ${{ github.event.workflow_run.name }}
+          EVENT_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          EVENT_RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          EVENT_RUN_STATUS: ${{ github.event.workflow_run.status }}
+          EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          EVENT_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          EVENT_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: |
+          if [ -n "$EVENT_RUN_ID" ]; then
+            printf 'run_id=%s\n' "$EVENT_RUN_ID" >> "$GITHUB_OUTPUT"
+            printf 'run_name=%s\n' "$EVENT_RUN_NAME" >> "$GITHUB_OUTPUT"
+            printf 'run_number=%s\n' "$EVENT_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+            printf 'run_conclusion=%s\n' "$EVENT_RUN_CONCLUSION" >> "$GITHUB_OUTPUT"
+            printf 'run_status=%s\n' "$EVENT_RUN_STATUS" >> "$GITHUB_OUTPUT"
+            printf 'head_sha=%s\n' "$EVENT_HEAD_SHA" >> "$GITHUB_OUTPUT"
+            printf 'head_branch=%s\n' "$EVENT_HEAD_BRANCH" >> "$GITHUB_OUTPUT"
+            printf 'run_url=%s\n' "$EVENT_RUN_URL" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "workflow_run payload is required for automatic synchronization"
+          exit 1
+
+      - name: Collect completed job evidence
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+            --jq '.jobs[] | {name,status,conclusion,html_url}' > "$RUNNER_TEMP/jira-jobs.json"
+
+      - name: Collect all relevant workflow runs for exact commit
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: |
+          gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" \
+            > "$RUNNER_TEMP/jira-runs.json"
+
+      - name: Synchronize Jira QA control plane
+        env:
+          JIRA_WORKFLOW_NAME: ${{ steps.run.outputs.run_name }}
+          JIRA_RUN_ID: ${{ steps.run.outputs.run_id }}
+          JIRA_RUN_NUMBER: ${{ steps.run.outputs.run_number }}
+          JIRA_RUN_CONCLUSION: ${{ steps.run.outputs.run_conclusion }}
+          JIRA_RUN_STATUS: ${{ steps.run.outputs.run_status }}
+          JIRA_HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          JIRA_HEAD_BRANCH: ${{ steps.run.outputs.head_branch }}
+          JIRA_RUN_URL: ${{ steps.run.outputs.run_url }}
+          JIRA_JOBS_JSON: ${{ runner.temp }}/jira-jobs.json
+          JIRA_ALL_RUNS_JSON: ${{ runner.temp }}/jira-runs.json
+        run: python scripts/sync_jira_ci.py
