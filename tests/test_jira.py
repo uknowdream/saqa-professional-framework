@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -69,3 +71,82 @@ def test_jira_create_task_rejects_write_authorization_failure() -> None:
             client.create_task("SAQA test", "Controlled QA task", ["saqa-bootstrap"])
     finally:
         client.close()
+
+
+def test_jira_update_labels_sends_add_and_remove_operations() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["path"] = request.url.path
+        seen["payload"] = json.loads(request.read())
+        return httpx.Response(204)
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        client.update_labels("QA-4", add=("saqa-automation", "saqa-ci-pass"), remove=("saqa-ci-fail",))
+    finally:
+        client.close()
+
+    assert seen["method"] == "PUT"
+    assert seen["path"] == "/rest/api/3/issue/QA-4"
+    assert seen["payload"] == {
+        "update": {
+            "labels": [
+                {"add": "saqa-automation"},
+                {"add": "saqa-ci-pass"},
+                {"remove": "saqa-ci-fail"},
+            ]
+        }
+    }
+
+
+def test_jira_comment_is_idempotent_when_marker_already_exists() -> None:
+    calls: list[str] = []
+    marker = "[SAQA-AUTO-SYNC:123:QA-4]"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.method == "GET":
+            return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": marker}]}}]})
+        raise AssertionError("duplicate marker must not create a second comment")
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        assert client.add_comment_once("QA-4", "result", marker) is False
+    finally:
+        client.close()
+
+    assert calls == ["/rest/api/3/issue/QA-4/comment"]
+
+
+def test_jira_transition_uses_only_an_available_exact_transition() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("/transitions") and request.method == "GET":
+            return httpx.Response(200, json={"transitions": [{"id": "31", "name": "Done"}]})
+        if request.url.path.endswith("/QA-9") and request.method == "GET":
+            return httpx.Response(200, json={"fields": {"status": {"name": "In Progress"}, "labels": []}})
+        if request.url.path.endswith("/transitions") and request.method == "POST":
+            return httpx.Response(204)
+        raise AssertionError(f"unexpected request: {request.method} {request.url.path}")
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        assert client.transition_to_any("QA-9", ("Done",)) == "Done"
+    finally:
+        client.close()
+
+    assert calls == [
+        "/rest/api/3/issue/QA-9/transitions",
+        "/rest/api/3/issue/QA-9",
+        "/rest/api/3/issue/QA-9/transitions",
+    ]
