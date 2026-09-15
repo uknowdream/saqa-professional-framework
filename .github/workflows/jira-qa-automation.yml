@@ -11,13 +11,18 @@ on:
       - 'saqa/**'
       - main
   workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Optional completed GitHub Actions run ID to synchronize'
+        required: false
+        type: string
 
 permissions:
   actions: read
   contents: read
 
 concurrency:
-  group: jira-qa-sync-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: jira-qa-sync-${{ github.event.workflow_run.head_sha || github.event.inputs.run_id || github.sha }}
   cancel-in-progress: false
 
 env:
@@ -27,15 +32,14 @@ env:
 
 jobs:
   sync:
-    name: Sync SAQA CI evidence to Jira
+    name: Sync SAQA evidence to Jira
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # This privileged workflow checks out only the trusted default branch.
-      # It never executes the triggering branch or PR code.
+      # Privileged workflow: execute only trusted repository code from main.
       - name: Checkout trusted Jira automation code
         uses: actions/checkout@v6
         with:
@@ -53,7 +57,7 @@ jobs:
       - name: Install project
         run: python -m pip install -e .
 
-      - name: Resolve triggering workflow run
+      - name: Resolve workflow run
         id: run
         env:
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
@@ -64,6 +68,7 @@ jobs:
           EVENT_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           EVENT_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           EVENT_RUN_URL: ${{ github.event.workflow_run.html_url }}
+          INPUT_RUN_ID: ${{ github.event.inputs.run_id }}
         run: |
           if [ -n "$EVENT_RUN_ID" ]; then
             printf 'run_id=%s\n' "$EVENT_RUN_ID" >> "$GITHUB_OUTPUT"
@@ -76,8 +81,34 @@ jobs:
             printf 'run_url=%s\n' "$EVENT_RUN_URL" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "workflow_run payload is required for automatic synchronization"
-          exit 1
+
+          if [ -z "$INPUT_RUN_ID" ]; then
+            echo "Manual dispatch requires run_id so the exact CI evidence is unambiguous."
+            exit 1
+          fi
+
+          RUN_JSON="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${INPUT_RUN_ID}")"
+          RUN_NAME="$(jq -r '.name // empty' <<< "$RUN_JSON")"
+          RUN_STATUS="$(jq -r '.status // empty' <<< "$RUN_JSON")"
+          RUN_CONCLUSION="$(jq -r '.conclusion // empty' <<< "$RUN_JSON")"
+          RUN_NUMBER="$(jq -r '.run_number // empty' <<< "$RUN_JSON")"
+          HEAD_SHA="$(jq -r '.head_sha // empty' <<< "$RUN_JSON")"
+          HEAD_BRANCH="$(jq -r '.head_branch // empty' <<< "$RUN_JSON")"
+          RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
+
+          case "$RUN_NAME" in
+            "SAQA CI"|"SAQA Accessibility"|"SAQA Mobile Readiness") ;;
+            *) echo "Unsupported workflow for Jira synchronization: $RUN_NAME"; exit 1 ;;
+          esac
+
+          printf 'run_id=%s\n' "$INPUT_RUN_ID" >> "$GITHUB_OUTPUT"
+          printf 'run_name=%s\n' "$RUN_NAME" >> "$GITHUB_OUTPUT"
+          printf 'run_number=%s\n' "$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          printf 'run_conclusion=%s\n' "$RUN_CONCLUSION" >> "$GITHUB_OUTPUT"
+          printf 'run_status=%s\n' "$RUN_STATUS" >> "$GITHUB_OUTPUT"
+          printf 'head_sha=%s\n' "$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          printf 'head_branch=%s\n' "$HEAD_BRANCH" >> "$GITHUB_OUTPUT"
+          printf 'run_url=%s\n' "$RUN_URL" >> "$GITHUB_OUTPUT"
 
       - name: Collect completed job evidence
         env:
