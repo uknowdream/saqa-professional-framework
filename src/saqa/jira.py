@@ -96,7 +96,7 @@ class JiraClient:
             params={
                 "jql": f"project = {self.config.project_key}",
                 "maxResults": max_results,
-                "fields": "summary",
+                "fields": "summary,labels",
             },
         )
         self._raise_for_auth(response, "authentication")
@@ -160,10 +160,16 @@ class JiraClient:
         return list(response.json().get("comments", []))
 
     def create_task(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
-        """Create a Jira Task using Atlassian Document Format."""
+        return self._create_issue("Task", summary, description, labels)
+
+    def create_bug(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
+        """Create a Jira Bug with explicit automation traceability."""
+        return self._create_issue("Bug", summary, description, labels)
+
+    def _create_issue(self, issue_type: str, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
         payload: dict[str, Any] = {"fields": {
             "project": {"key": self.config.project_key},
-            "issuetype": {"name": "Task"},
+            "issuetype": {"name": issue_type},
             "summary": summary,
             "description": {
                 "type": "doc",
