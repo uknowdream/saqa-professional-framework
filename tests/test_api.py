@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -28,6 +29,18 @@ def test_non_json_response_is_rejected():
     response = ApiResponse(200, {}, b"not-json", 1.0)
     with pytest.raises(AssertionError, match="not valid JSON"):
         assert_json_fields(response, ("id",))
+
+
+def test_api_response_sha256_is_deterministic_for_exact_body():
+    body = b'{"status":"ok"}'
+    response = ApiResponse(200, {}, body, 1.0)
+    assert response.sha256 == hashlib.sha256(body).hexdigest()
+
+
+def test_api_response_sha256_changes_when_body_changes():
+    first = ApiResponse(200, {}, b'{"status":"ok"}', 1.0)
+    second = ApiResponse(200, {}, b'{"status":"changed"}', 1.0)
+    assert first.sha256 != second.sha256
 
 
 def test_json_contract_accepts_field_and_list_item_types():
