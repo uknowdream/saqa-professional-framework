@@ -11,13 +11,14 @@ from urllib.parse import urlparse
 BASE_URL = os.getenv("SAQA_WEBGOAT_URL", "http://127.0.0.1:8080/WebGoat/")
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 ARTIFACT = Path("artifacts/targets") / f"webgoat-e2e-{BROWSER}.json"
 
 
 def validate_target(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
-        raise ValueError("WebGoat E2E target must be credential-free HTTP on 127.0.0.1 with a port")
+    if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password or parsed.port is None:
+        raise ValueError("WebGoat E2E target must be credential-free HTTP on an approved loopback host with a port")
 
 
 def guard_request(route) -> None:
@@ -25,7 +26,7 @@ def guard_request(route) -> None:
     if route.request.method != "GET":
         route.abort()
         return
-    if parsed.scheme not in {"http", "https"} or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password:
+    if parsed.scheme not in {"http", "https"} or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password:
         route.abort()
         raise RuntimeError(f"blocked non-loopback WebGoat request: {route.request.url!r}")
     route.continue_()
@@ -68,7 +69,7 @@ def main() -> None:
             title = page.title().strip()
             final_url = page.url
             parsed_final = urlparse(final_url)
-            if parsed_final.hostname != "127.0.0.1":
+            if parsed_final.hostname not in LOOPBACK_HOSTS:
                 raise AssertionError(f"unexpected final host: {parsed_final.hostname!r}")
             if "/WebGoat" not in parsed_final.path:
                 raise AssertionError(f"unexpected final path: {parsed_final.path!r}")
