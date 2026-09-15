@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Synchronize authorized SAQA CI results into the Jira QA control plane.
+"""Synchronize verified SAQA CI evidence into the Jira QA control plane.
 
-The script is intentionally idempotent: every CI run gets one deterministic
-Jira comment marker, and status transitions are attempted only when Jira
-exposes an exact matching transition. It never fabricates PASS from missing
-GitHub evidence.
+The synchronizer is idempotent and fail-closed. Every workflow run gets a
+stable marker per managed issue, result labels are mutually exclusive, and
+status transitions are performed only when Jira exposes an exact transition.
+Managed QA issues are also self-healed: if an expected issue is missing, the
+integration creates it instead of silently dropping the automation state.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from saqa.jira import JiraClient, JiraConfig
+from saqa.jira import JiraClient, JiraConfig, JiraIssueResult
 
 
 ISSUE_SUMMARIES = {
@@ -33,6 +34,13 @@ MONITORED_WORKFLOWS = {"SAQA CI", "SAQA Accessibility", "SAQA Mobile Readiness"}
 PASS_CONCLUSIONS = {"success"}
 FAIL_CONCLUSIONS = {"failure", "timed_out"}
 BLOCKED_CONCLUSIONS = {"cancelled", "action_required", "stale"}
+STATUS_LABELS = {
+    "saqa-ci-pass",
+    "saqa-ci-fail",
+    "saqa-ci-blocked",
+    "saqa-ci-pending",
+    "saqa-ci-unverified",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,7 +107,7 @@ def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
         return "PASS"
     if conclusions & {"failure", "timed_out"}:
         return "FAIL"
-    if conclusions & {"cancelled", "action_required"}:
+    if conclusions & {"cancelled", "action_required", "stale"}:
         return "BLOCKED"
     return "UNVERIFIED"
 
@@ -124,24 +132,41 @@ def transition_targets(result: str) -> tuple[str, ...]:
     return ("In Progress", "Open", "To Do")
 
 
-def sync_issue(client: JiraClient, key: str, result: str, body: str, marker: str) -> None:
-    state = client.get_issue_state(key)
-    status_labels = {
-        "saqa-ci-pass",
-        "saqa-ci-fail",
-        "saqa-ci-blocked",
-        "saqa-ci-pending",
-        "saqa-ci-unverified",
-    }
+def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
+    """Find every managed issue by exact summary and self-heal missing items."""
+    project_issues = client.find_project_issues()
+    managed: dict[str, JiraIssueResult] = {}
+    for key, summary in ISSUE_SUMMARIES.items():
+        existing = project_issues.get(summary)
+        if existing:
+            managed[key] = existing
+            # Existing issues may have lost the management label; restore it.
+            client.update_labels(existing.key, add=("saqa-bootstrap", "saqa-automation"))
+            continue
+        created = client.create_task(
+            summary=summary,
+            description=(
+                f"SAQA managed QA control-plane item for {key}. "
+                "Its execution state is synchronized automatically from verified GitHub Actions evidence."
+            ),
+            labels=["saqa-bootstrap", "saqa-automation", "saqa-ci-unverified"],
+        )
+        managed[key] = created
+        print(f"JIRA {key}: self-healed missing issue as {created.key}")
+    return managed
+
+
+def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str, body: str, marker: str) -> None:
+    state = client.get_issue_state(issue.key)
     client.update_labels(
-        key,
+        issue.key,
         add=("saqa-automation", run_label(result)),
-        remove=(label for label in status_labels if label in state.labels and label != run_label(result)),
+        remove=(label for label in STATUS_LABELS if label in state.labels and label != run_label(result)),
     )
-    added = client.add_comment_once(key, body, marker)
-    transitioned = client.transition_to_any(key, transition_targets(result))
+    added = client.add_comment_once(issue.key, body, marker)
+    transitioned = client.transition_to_any(issue.key, transition_targets(result))
     print(
-        f"JIRA {key}: result={result} comment={'added' if added else 'exists'} "
+        f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} "
         f"transition={transitioned or 'unchanged'}"
     )
 
@@ -207,16 +232,16 @@ def main() -> None:
     )
 
     with JiraClient(JiraConfig.from_env()) as client:
-        client.verify_access()
-        existing = client.find_bootstrap_issues()
-        missing = [key for key in ISSUE_SUMMARIES if ISSUE_SUMMARIES[key] not in existing]
-        if missing:
-            raise RuntimeError("Jira bootstrap items missing: " + ", ".join(missing))
+        project = client.verify_access()
+        print(f"JIRA project verified: {project.key} / {project.name}")
+        managed = ensure_managed_issues(client)
         for key, result in domain_results.items():
+            issue = managed[key]
             marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
             sync_issue(
                 client,
                 key,
+                issue,
                 result,
                 f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
                 marker,
