@@ -53,9 +53,10 @@ def main() -> None:
         "details": {},
     }
 
-    browser = None
-    try:
-        with sync_playwright() as playwright:
+    with sync_playwright() as playwright:
+        browser = None
+        context = None
+        try:
             browser_type = getattr(playwright, BROWSER)
             browser = browser_type.launch(headless=True)
             context = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=1)
@@ -86,14 +87,21 @@ def main() -> None:
             if horizontal_overflow:
                 raise AssertionError("mobile viewport has horizontal document overflow")
             evidence["status"] = "PASS"
-            context.close()
-    except Exception as exc:
-        evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
-        raise
-    finally:
-        if browser is not None:
-            browser.close()
-        OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        except Exception as exc:
+            evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if context is not None:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+            if browser is not None:
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+            OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(json.dumps(evidence, indent=2, sort_keys=True))
 
