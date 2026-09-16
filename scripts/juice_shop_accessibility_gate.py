@@ -38,11 +38,12 @@ def main()->int:
  OUTPUT.parent.mkdir(parents=True,exist_ok=True)
  evidence={"schema":"saqa.juice-shop-accessibility.v7","test_id":f"juice-shop.accessibility-readiness.{BROWSER}","status":"FAIL","target":BASE_URL,"browser":BROWSER,"http_methods":["GET"],"redirects_followed":"guarded","destructive_actions":False,"observed_at":datetime.now(timezone.utc).isoformat(),"details":{}}
  browser=None
+ context=None
  try:
   axe_source=_load_axe_source()
   with sync_playwright() as playwright:
    browser=getattr(playwright,BROWSER).launch(headless=True); context=browser.new_context(viewport={"width":1440,"height":900}); context.route("**/*",_guard_request); page=context.new_page(); response=page.goto(BASE_URL+"/",wait_until="domcontentloaded",timeout=15000); _assert_loopback_http(page.url); page.locator("app-root").wait_for(state="attached",timeout=15000); page.wait_for_function("document.body && document.body.innerText.trim().length > 0",timeout=15000)
-   metrics=page.evaluate("""() => { const text=e=>(e?.textContent||'').replace(/\\s+/g,' ').trim(); const labelledBy=e=>{const ids=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).filter(Boolean);return ids.map(id=>document.getElementById(id)?.textContent||'').join(' ').trim()}; const explicitLabel=e=>e.id?[...document.querySelectorAll(`label[for="${CSS.escape(e.id)}"]`)].map(label=>text(label)).join(' '):''; const name=e=>(e.getAttribute('aria-label')||labelledBy(e)||explicitLabel(e)||e.closest('label')?.textContent||e.getAttribute('title')||text(e)||'').trim(); const rendered=e=>{if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;const s=getComputedStyle(e),r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0}; const controls=[...document.querySelectorAll('button,a[href],input,select,textarea,[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="switch"],[role="combobox"],[role="textbox"]')].filter(rendered).filter(e=>!(e.tagName.toLowerCase()==='input'&&(e.getAttribute('type')||'').toLowerCase()==='hidden')); const unnamed=controls.filter(e=>!name(e)).map(e=>({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0, 300)})); return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed}; }""")
+   metrics=page.evaluate("""() => { const text=e=>(e?.textContent||'').replace(/\\s+/g,' ').trim(); const labelledBy=e=>{const ids=(e.getAttribute('aria-labelledby')||'').split(/\\s+/).filter(Boolean);return ids.map(id=>document.getElementById(id)?.textContent||'').join(' ').trim()}; const explicitLabel=e=>e.id?[...document.querySelectorAll(`label[for=\"${CSS.escape(e.id)}\"]`)].map(label=>text(label)).join(' '):''; const name=e=>(e.getAttribute('aria-label')||labelledBy(e)||explicitLabel(e)||e.closest('label')?.textContent||e.getAttribute('title')||text(e)||'').trim(); const rendered=e=>{if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;const s=getComputedStyle(e),r=e.getBoundingClientRect();return s.display!=='none'&&s.visibility!=='hidden'&&r.width>0&&r.height>0}; const controls=[...document.querySelectorAll('button,a[href],input,select,textarea,[role=\"button\"],[role=\"link\"],[role=\"checkbox\"],[role=\"radio\"],[role=\"switch\"],[role=\"combobox\"],[role=\"textbox\"]')].filter(rendered).filter(e=>!(e.tagName.toLowerCase()==='input'&&(e.getAttribute('type')||'').toLowerCase()==='hidden')); const unnamed=controls.filter(e=>!name(e)).map(e=>({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0, 300)})); return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed}; }""")
    evidence["details"]={"status_code":response.status if response else None,**metrics}
    if not response or response.status<200 or response.status>=400: raise AssertionError(f"expected successful page response, got {response.status if response else None}")
    page.add_script_tag(content=axe_source); oracle=page.evaluate("""async rules=>{const r=await axe.run(document,{runOnly:{type:'rule',values:rules}});return r.violations.map(v=>({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));}""",AXE_RULES)
@@ -54,9 +55,17 @@ def main()->int:
    if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
    if disposition=="INCONCLUSIVE": failures.append(f"{metrics['unnamed_interactive_controls']} user-operable DOM-heuristic unnamed control(s) require independent oracle correlation")
    if failures: raise AssertionError("; ".join(failures))
-   evidence["status"]="PASS"; context.close(); browser=None
+   # Cleanup must complete successfully before the evidence can become PASS.
+   context.close()
+   context=None
+   browser.close()
+   browser=None
+   evidence["status"]="PASS"
  except Exception as exc: evidence["details"]["error"]=f"{type(exc).__name__}: {exc}"
  finally:
+  if context is not None:
+   try: context.close()
+   except Exception: pass
   if browser is not None:
    try: browser.close()
    except Exception: pass
