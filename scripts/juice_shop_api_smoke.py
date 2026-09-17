@@ -16,13 +16,12 @@ BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
 OUTPUT = Path("artifacts/targets/juice-shop-api.json")
 LATENCY_BUDGET_MS = int(os.getenv("SAQA_API_LATENCY_BUDGET_MS", "5000"))
-LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname not in LOOPBACK_HOSTS or parsed.username or parsed.password or parsed.port is None:
-        raise ValueError("API target must be credential-free HTTP on an approved loopback host with a port")
+    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
+        raise ValueError("API target must be credential-free HTTP on 127.0.0.1 with a port")
 
 
 def main() -> int:
@@ -30,7 +29,7 @@ def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     observed_at = datetime.now(timezone.utc).isoformat()
-    evidence = {"schema": "saqa.juice-shop-api.v6", "test_id": "juice-shop.api.products-search", "status": "FAIL", "target": BASE_URL, "http_methods": ["GET"], "destructive_actions": False, "observed_at": observed_at, "details": {}}
+    evidence = {"schema": "saqa.juice-shop-api.v6", "test_id": "juice-shop.api.products-search", "status": "BLOCKED", "target": BASE_URL, "http_methods": ["GET"], "destructive_actions": False, "observed_at": observed_at, "details": {}}
     response = None
     try:
         with httpx.Client(timeout=10.0, follow_redirects=False) as client:
@@ -53,7 +52,8 @@ def main() -> int:
         evidence["details"] = {"endpoint": ENDPOINT, "status_code": response.status_code, "content_type": content_type, "response_bytes": len(response.content), "response_sha256": contract_response.sha256, "data_items": len(payload["data"]), "elapsed_ms": elapsed_ms, "latency_budget_ms": LATENCY_BUDGET_MS}
     except Exception as exc:
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-        evidence["details"] = {"endpoint": ENDPOINT, "status_code": response.status_code if response is not None else None, "response_bytes": len(response.content) if response is not None else 0, "response_sha256": ApiResponse(response.status_code, response.headers, response.content, elapsed_ms).sha256 if response is not None else None, "elapsed_ms": elapsed_ms, "latency_budget_ms": LATENCY_BUDGET_MS, "error": f"{type(exc).__name__}: {exc}"}
+        evidence["status"] = "BLOCKED" if response is None and isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError)) else "FAIL"
+        evidence["details"] = {"endpoint": ENDPOINT, "status_code": response.status_code if response is not None else 0, "response_bytes": len(response.content) if response is not None else 0, "response_sha256": ApiResponse(response.status_code, response.headers, response.content, elapsed_ms).sha256 if response is not None else None, "elapsed_ms": elapsed_ms, "latency_budget_ms": LATENCY_BUDGET_MS, "error": f"{type(exc).__name__}: {exc}"}
 
     OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(evidence, indent=2, sort_keys=True))
