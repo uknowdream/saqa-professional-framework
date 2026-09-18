@@ -23,7 +23,7 @@ def test_aggregate_multiple_executor_results(tmp_path: Path) -> None:
     assert verify_manifest(manifest)
     digest_again = aggregate(tmp_path, manifest)
     assert digest_again == digest
-    assert [r.test_id for r in load_results(tmp_path)] == ["API-001", "WEB-001"]
+    assert [r.test_id for r in load_results(tmp_path, exclude=manifest)] == ["API-001", "WEB-001"]
 
 
 def test_aggregate_rejects_empty_directory(tmp_path: Path) -> None:
