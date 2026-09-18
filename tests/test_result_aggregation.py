@@ -17,12 +17,13 @@ def test_aggregate_multiple_executor_results(tmp_path: Path) -> None:
     )
     records = load_results(tmp_path)
     assert [r.test_id for r in records] == ["API-001", "WEB-001"]
-    manifest = tmp_path.parent / f"{tmp_path.name}-manifest.json"
+    manifest = tmp_path / "manifest.json"
     digest = aggregate(tmp_path, manifest)
     assert len(digest) == 64
     assert verify_manifest(manifest)
     digest_again = aggregate(tmp_path, manifest)
     assert digest_again == digest
+    assert [r.test_id for r in load_results(tmp_path)] == ["API-001", "WEB-001"]
 
 
 def test_aggregate_rejects_empty_directory(tmp_path: Path) -> None:
