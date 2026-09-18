@@ -10,11 +10,6 @@ import urllib.parse
 import urllib.request
 
 WORKFLOWS = ("SAQA CI", "SAQA Accessibility", "SAQA Mobile Readiness")
-WORKFLOW_IDS = {
-    "SAQA CI": 345839221,
-    "SAQA Accessibility": 355591975,
-    "SAQA Mobile Readiness": 355328607,
-}
 
 
 def gh_get(path: str) -> object:
@@ -29,34 +24,75 @@ def gh_get(path: str) -> object:
         return json.load(response)
 
 
-def completed_runs(workflow_name: str, per_page: int = 100) -> list[dict[str, object]]:
-    workflow_id = WORKFLOW_IDS[workflow_name]
-    query = urllib.parse.urlencode({"branch": "main", "status": "completed", "per_page": per_page})
-    payload = gh_get(f"/repos/{os.environ['GITHUB_REPOSITORY']}/actions/workflows/{workflow_id}/runs?{query}")
-    runs = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+def workflow_ids() -> dict[str, int]:
+    repo = os.environ["GITHUB_REPOSITORY"]
+    payload = gh_get(f"/repos/{repo}/actions/workflows?per_page=100")
+    workflows = payload.get("workflows", []) if isinstance(payload, dict) else []
+    result: dict[str, int] = {}
+    for item in workflows:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", ""))
+        if name in WORKFLOWS and item.get("id") is not None:
+            result[name] = int(item["id"])
+    missing = [name for name in WORKFLOWS if name not in result]
+    if missing:
+        raise SystemExit(f"Unable to resolve mandatory workflow IDs: {', '.join(missing)}")
+    return result
+
+
+def completed_runs(workflow_name: str, workflow_id: int, max_pages: int = 20) -> list[dict[str, object]]:
+    repo = os.environ["GITHUB_REPOSITORY"]
+    runs: list[dict[str, object]] = []
+    for page in range(1, max_pages + 1):
+        query = urllib.parse.urlencode({"branch": "main", "status": "completed", "per_page": 100, "page": page})
+        payload = gh_get(f"/repos/{repo}/actions/workflows/{workflow_id}/runs?{query}")
+        batch = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
+        if not isinstance(batch, list):
+            break
+        typed = [run for run in batch if isinstance(run, dict)]
+        runs.extend(typed)
+        if len(typed) < 100:
+            break
     return [
         run for run in runs
-        if isinstance(run, dict) and run.get("status") == "completed" and run.get("head_branch") == "main"
+        if run.get("status") == "completed" and run.get("head_branch") == "main" and run.get("head_sha")
     ]
 
 
+def main_history(max_pages: int = 20) -> list[str]:
+    repo = os.environ["GITHUB_REPOSITORY"]
+    history: list[str] = []
+    for page in range(1, max_pages + 1):
+        query = urllib.parse.urlencode({"sha": "main", "per_page": 100, "page": page})
+        payload = gh_get(f"/repos/{repo}/commits?{query}")
+        batch = payload if isinstance(payload, list) else []
+        typed = [str(item["sha"]) for item in batch if isinstance(item, dict) and item.get("sha")]
+        history.extend(typed)
+        if len(typed) < 100:
+            break
+    return history
+
+
 def select_common_run() -> dict[str, dict[str, object]] | None:
-    by_workflow = {name: completed_runs(name) for name in WORKFLOWS}
-    sha_sets = [{str(run.get("head_sha")) for run in runs if run.get("head_sha")} for runs in by_workflow.values()]
+    ids = workflow_ids()
+    by_workflow = {name: completed_runs(name, ids[name]) for name in WORKFLOWS}
+    sha_sets = [{str(run["head_sha"]) for run in runs} for runs in by_workflow.values()]
     common = set.intersection(*sha_sets) if sha_sets else set()
     if not common:
         return None
 
-    candidates = []
-    for sha in common:
+    # Certification/reconciliation follows the repository's main ancestry, not
+    # wall-clock completion time. An older rerun must never overwrite newer state.
+    for sha in main_history():
+        if sha not in common:
+            continue
         selected = {
-            name: next(run for run in by_workflow[name] if str(run.get("head_sha")) == sha)
+            name: next(run for run in by_workflow[name] if str(run["head_sha"]) == sha)
             for name in WORKFLOWS
         }
-        latest_time = max(str(run.get("completed_at", "")) for run in selected.values())
-        candidates.append((latest_time, sha, selected))
-    candidates.sort(reverse=True)
-    return candidates[0][2]
+        return selected
+    return None
 
 
 def main() -> None:
