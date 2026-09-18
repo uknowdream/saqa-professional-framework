@@ -25,9 +25,15 @@ def test_accessibility_target_rejects_remote_http():
     raise AssertionError("remote target was accepted")
 
 
-def test_accessibility_target_accepts_loopback_http():
+def test_accessibility_target_accepts_strict_loopback_http():
     module._assert_loopback_http("http://127.0.0.1:3000")
-    module._assert_loopback_http("http://localhost:3000")
+    for target in ("http://localhost:3000", "http://127.0.0.1", "https://127.0.0.1:3000"):
+        try:
+            module._assert_loopback_http(target)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"target should be rejected: {target}")
 
 
 def test_browser_allowlist_is_explicit():
@@ -44,7 +50,7 @@ def test_accessible_name_resolution_handles_real_label_sources():
 
 def test_accessibility_gate_records_actionable_control_details():
     assert "unnamed_control_details" in SOURCE
-    assert "outerHTML.slice(0, 300)" in SOURCE
+    assert "e.outerHTML.slice(0,300)" in SOURCE
     assert "tab_index" in SOURCE
 
 
