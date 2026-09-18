@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: jira-qa-sync
+  group: jira-qa-sync-${{ github.event.workflow_run.id || github.event.inputs.run_id || github.run_id }}
   cancel-in-progress: false
 
 env:
