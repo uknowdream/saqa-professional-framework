@@ -38,10 +38,10 @@ def _redirect_target(current: str, location: str) -> str:
 
 
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
-    """Read at most ``limit`` bytes so a large authorized response cannot exhaust memory."""
+    """Read at most ``limit`` raw bytes so compressed responses cannot inflate before the cap."""
     chunks: list[bytes] = []
     total = 0
-    for chunk in response.iter_bytes():
+    for chunk in response.iter_raw():
         remaining = limit - total
         if remaining <= 0:
             break
@@ -59,7 +59,7 @@ def run(target: str) -> dict[str, object]:
     redirects: list[str] = []
     body = b""
 
-    with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0"}) as client:
+    with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
         for _ in range(max_redirects + 1):
             validated, host = validate_target(current)
             with client.stream("GET", validated) as response:
@@ -80,6 +80,7 @@ def run(target: str) -> dict[str, object]:
 
     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
     content_type = headers.get("content-type", "")
+    content_encoding = headers.get("content-encoding", "")
     lower = body.decode("utf-8", errors="replace").lower()
     title_present = "<title" in lower and "</title>" in lower
     security_headers = {name: headers.get(name) for name in ("content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy") if headers.get(name)}
@@ -88,7 +89,7 @@ def run(target: str) -> dict[str, object]:
         "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": status,
         "target": validated, "host": host, "http_methods": ["GET"], "destructive_actions": False,
         "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "details": {"status_code": status_code, "content_type": content_type, "title_present": title_present, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects, "security_headers_present": sorted(security_headers)},
+        "details": {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": title_present, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects, "security_headers_present": sorted(security_headers)},
     }
     output = Path(os.getenv("SAQA_REAL_WEB_EVIDENCE", "artifacts/targets/real-web-smoke.json"))
     output.parent.mkdir(parents=True, exist_ok=True)
