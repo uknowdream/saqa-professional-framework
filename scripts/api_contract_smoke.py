@@ -34,6 +34,7 @@ def main() -> int:
     response = request(f"{BASE_URL}{PATH}", method="GET", timeout=10, follow_redirects=False)
     elapsed_ms = (time.perf_counter() - started) * 1000
 
+    status = "BLOCKED" if response.status_code == 0 else "FAIL"
     result = {
         "schema": "saqa.api-contract.v2",
         "target": BASE_URL,
@@ -44,7 +45,7 @@ def main() -> int:
         "elapsed_ms": round(elapsed_ms, 3),
         "contract": {"required_fields": ["data"], "list_fields": ["data"]},
         "destructive_actions": False,
-        "status": "FAIL",
+        "status": status,
         "details": {},
     }
 
