@@ -30,23 +30,26 @@ docker compose -f "$COMPOSE_FILE" pull --quiet
 docker compose -f "$COMPOSE_FILE" up -d
 
 wait_http() {
-  local name="$1" url="$2" max_attempts="${3:-60}" allow_local_redirect="${4:-false}" attempt=1 delay=2 status=""
+  local name="$1" url="$2" max_attempts="${3:-60}" allow_local_redirect="${4:-false}" attempt=1 delay=2 status="" location="" header_file=""
   while (( attempt <= max_attempts )); do
-    status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 --max-redirs 0 "$url" 2>/dev/null || true)"
+    header_file="$(mktemp)"
+    status="$(curl --silent --show-error --output /dev/null --dump-header "$header_file" --write-out '%{http_code}' --max-time 5 --max-redirs 0 "$url" 2>/dev/null || true)"
     if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+      rm -f "$header_file"
       printf '%s:PASS (attempt %d/%d, HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status"
       return 0
     fi
     if [[ "$status" =~ ^3[0-9][0-9]$ && "$allow_local_redirect" == "true" ]]; then
-      local location
-      location="$(curl --silent --show-error --head --max-time 5 --max-redirs 0 "$url" 2>/dev/null | awk 'BEGIN{IGNORECASE=1} /^Location:/{sub(/\r$/,"",$0); sub(/^Location:[[:space:]]*/,"",$0); print; exit}')"
-      if [[ "$location" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+/WebGoat(/|$) ]] || [[ "$location" =~ ^/WebGoat(/|$) ]]; then
+      location="$(awk 'tolower($0) ~ /^location:/{sub(/\r$/,"",$0); sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$header_file")"
+      rm -f "$header_file"
+      if [[ "$location" =~ ^http://127\.0\.0\.1:8080/WebGoat(/|$) ]] || [[ "$location" =~ ^/WebGoat(/|$) ]]; then
         printf '%s:PASS (attempt %d/%d, HTTP %s, validated local redirect)\n' "$name" "$attempt" "$max_attempts" "$status"
         return 0
       fi
       printf '%s:FAIL (unsafe redirect location: %s)\n' "$name" "${location:-missing}" >&2
       return 1
     fi
+    rm -f "$header_file"
     if [[ "$status" =~ ^3[0-9][0-9]$ ]]; then
       printf '%s:FAIL (unexpected redirect response HTTP %s; redirects are not followed)\n' "$name" "$status" >&2
       return 1
