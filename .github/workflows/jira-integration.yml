@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: jira-bootstrap
+  group: jira-qa-sync-bootstrap
   cancel-in-progress: false
 
 env:
