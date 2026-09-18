@@ -1,0 +1,102 @@
+name: SAQA Release Certification
+
+on:
+  workflow_run:
+    workflows:
+      - SAQA CI
+      - SAQA Accessibility
+      - SAQA Mobile Readiness
+    types: [completed]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: 'Commit SHA to certify'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: saqa-certification-${{ github.event.workflow_run.head_sha || github.event.inputs.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  readiness:
+    name: Wait for mandatory domains
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.check.outputs.ready }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
+    steps:
+      - name: Resolve commit
+        id: check
+        env:
+          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_SHA: ${{ github.event.inputs.head_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHA="${EVENT_SHA:-$INPUT_SHA}"
+          test -n "$SHA"
+          echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
+          runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
+          ready=true
+          mkdir -p artifacts
+          for workflow in "SAQA CI" "SAQA Accessibility" "SAQA Mobile Readiness"; do
+            count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .head_branch == "main" and .status == "completed")] | length' <<< "$runs")"
+            if [ "$count" -lt 1 ]; then
+              ready=false
+              echo "$workflow: not completed for main/$SHA"
+            else
+              echo "$workflow: completed for main/$SHA"
+            fi
+          done
+          if [ "$ready" = true ]; then
+            reason="All mandatory domains completed on main."
+          else
+            reason="One or more mandatory domains are not yet completed on main; certification is not available."
+          fi
+          jq -n --arg sha "$SHA" --arg status "${ready}" --arg reason "$reason" '{schema:"saqa.release-readiness.v1",head_sha:$sha,required_branch:"main",ready:($status == "true"),status:(if $status == "true" then "READY" else "NOT_CERTIFIED" end),reason:$reason}' > artifacts/release-readiness.json
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+      - name: Upload readiness decision
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-release-readiness-${{ steps.check.outputs.head_sha }}
+          path: artifacts/release-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
+  certify:
+    name: Evaluate release certification
+    needs: readiness
+    if: needs.readiness.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SAQA_HEAD_SHA: ${{ needs.readiness.outputs.head_sha }}
+    steps:
+      - name: Checkout trusted certification code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Collect exact-commit workflow evidence
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/saqa-runs.json"
+      - name: Evaluate certification
+        env:
+          SAQA_RUNS_JSON: ${{ runner.temp }}/saqa-runs.json
+        run: python scripts/qa_release_gate.py
+      - name: Upload certification decision
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-release-certification-${{ needs.readiness.outputs.head_sha }}
+          path: artifacts/release-certification.json
+          if-no-files-found: error
+          retention-days: 30
