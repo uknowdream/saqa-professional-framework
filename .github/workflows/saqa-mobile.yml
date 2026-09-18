@@ -63,7 +63,7 @@ jobs:
     name: Mobile canonical evidence aggregation
     runs-on: ubuntu-latest
     needs: [juice-shop-mobile]
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -77,6 +77,24 @@ jobs:
           pattern: juice-shop-mobile-*
           path: artifacts/mobile-executions
           merge-multiple: false
+      - name: Require complete browser matrix evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {"chromium", "firefox", "webkit"}
+          files = sorted(Path("artifacts/mobile-executions").glob("*/juice-shop-mobile-readiness.json"))
+          if len(files) != len(expected):
+              raise SystemExit(f"UNVERIFIED: expected {len(expected)} browser evidence files, found {len(files)}")
+          browsers = set()
+          for path in files:
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              browsers.add(str(payload.get("browser", "")).lower())
+          if browsers != expected:
+              raise SystemExit(f"UNVERIFIED: expected browser evidence {sorted(expected)}, found {sorted(browsers)}")
+          print(f"Complete mobile matrix evidence verified: {sorted(browsers)}")
+          PY
       - name: Aggregate and verify mobile manifest
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('mobile evidence manifest SHA-256:', aggregate(Path('artifacts/mobile-executions'), Path('artifacts/mobile-evidence-manifest.json')))"
       - name: Upload mobile canonical evidence
