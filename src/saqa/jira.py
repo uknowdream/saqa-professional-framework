@@ -102,15 +102,18 @@ class JiraClient:
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         issues = response.json().get("issues", [])
-        return {
-            str(i["fields"]["summary"]): JiraIssueResult(
-                str(i["key"]),
-                str(i["id"]),
-                f"{self.config.base_url}/browse/{i['key']}",
-            )
-            for i in issues
-            if i.get("key") and i.get("fields", {}).get("summary")
-        }
+        result: dict[str, JiraIssueResult] = {}
+        for item in issues:
+            key = str(item.get("key", ""))
+            summary = str(item.get("fields", {}).get("summary", ""))
+            if not key or not summary:
+                continue
+            if summary in result and result[summary].key != key and summary.startswith("[SAQA-"):
+                raise RuntimeError(
+                    f"Jira has duplicate managed summary: {summary!r} ({result[summary].key}, {key})"
+                )
+            result[summary] = JiraIssueResult(key, str(item.get("id", "")), f"{self.config.base_url}/browse/{key}")
+        return result
 
     def search_issues(self, jql: str, max_results: int = 100) -> list[JiraIssueResult]:
         """Search Jira issues using an explicit JQL query."""
@@ -239,25 +242,27 @@ class JiraClient:
         return True
 
     def transition_to_any(self, issue_key: str, target_statuses: Iterable[str]) -> str | None:
-        """Transition only when Jira exposes an exact matching available status."""
+        """Transition only when Jira exposes an exact matching available destination status."""
         response = self._client.get(f"/rest/api/3/issue/{issue_key}/transitions")
         self._raise_for_auth(response, "authentication")
         response.raise_for_status()
         wanted = {status.casefold() for status in target_statuses}
         current = self.get_issue_state(issue_key).status
         for transition in response.json().get("transitions", []):
-            name = str(transition.get("name", ""))
-            if name.casefold() in wanted:
-                if current.casefold() == name.casefold():
-                    return name
-                transition_id = str(transition["id"])
+            destination = str((transition.get("to") or {}).get("name", ""))
+            if destination.casefold() in wanted:
+                if current.casefold() == destination.casefold():
+                    return destination
+                transition_id = str(transition.get("id", ""))
+                if not transition_id:
+                    continue
                 transition_response = self._client.post(
                     f"/rest/api/3/issue/{issue_key}/transitions",
                     json={"transition": {"id": transition_id}},
                 )
                 self._raise_for_auth(transition_response, "transition write")
                 transition_response.raise_for_status()
-                return name
+                return destination
         return None
 
 
