@@ -101,24 +101,33 @@ def transition_targets(result: str) -> tuple[str, ...]:
 
 
 def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
+    """Resolve pre-bootstrapped QA issues without creating them during CI sync.
+
+    The bootstrap is intentionally manual-only. CI synchronization must not perform
+    lookup-then-create self-healing because independent workflow runs can race and
+    Jira does not provide a uniqueness constraint on summaries. Missing control-plane
+    items are therefore a fail-closed configuration error requiring bootstrap/recovery.
+    """
     project_issues = client.find_project_issues()
     managed: dict[str, JiraIssueResult] = {}
+    missing: list[str] = []
     for key, summary in ISSUE_SUMMARIES.items():
         existing = project_issues.get(summary)
-        if existing:
-            managed[key] = existing
-            state = client.get_issue_state(existing.key)
-            missing = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
-            if missing:
-                client.update_labels(existing.key, add=missing)
+        if not existing:
+            missing.append(f"{key}: {summary}")
             continue
-        created = client.create_task(
-            summary=summary,
-            description=f"SAQA managed QA control-plane item for {key}. Its execution state is synchronized automatically from verified GitHub Actions evidence.",
-            labels=["saqa-bootstrap", "saqa-automation", "saqa-ci-unverified"],
+        managed[key] = existing
+        state = client.get_issue_state(existing.key)
+        missing_labels = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
+        if missing_labels:
+            client.update_labels(existing.key, add=missing_labels)
+
+    if missing:
+        details = "; ".join(missing)
+        raise RuntimeError(
+            "Jira managed QA issues are missing; CI synchronization will not self-heal them because "
+            f"lookup-then-create is race-prone. Run the manual bootstrap/recovery workflow first. Missing: {details}"
         )
-        managed[key] = created
-        print(f"JIRA {key}: self-healed missing issue as {created.key}")
     return managed
 
 

@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from scripts.sync_jira_ci import RunSummary, job_result, run_label, transition_targets
+import pytest
+
+from scripts.sync_jira_ci import (
+    ISSUE_SUMMARIES,
+    RunSummary,
+    ensure_managed_issues,
+    job_result,
+    run_label,
+    transition_targets,
+)
+from src.saqa.jira import JiraIssueResult, JiraIssueState
 
 
 def make_run(*, status: str = "completed", conclusion: str = "success") -> RunSummary:
@@ -46,3 +56,41 @@ def test_status_labels_and_transition_targets_are_deterministic() -> None:
     assert run_label("FAIL") == "saqa-ci-fail"
     assert "Done" in transition_targets("PASS")
     assert "In Progress" in transition_targets("FAIL")
+
+
+class BootstrapOnlyJiraStub:
+    def __init__(self, summaries: dict[str, JiraIssueResult]) -> None:
+        self.summaries = summaries
+        self.created = 0
+        self.label_updates: list[tuple[str, tuple[str, ...]]] = []
+
+    def find_project_issues(self) -> dict[str, JiraIssueResult]:
+        return dict(self.summaries)
+
+    def get_issue_state(self, issue_key: str) -> JiraIssueState:
+        return JiraIssueState(issue_key, "To Do", ("saqa-bootstrap", "saqa-automation"))
+
+    def update_labels(self, issue_key: str, *, add=(), remove=()) -> None:
+        self.label_updates.append((issue_key, tuple(add)))
+
+    def create_task(self, **_: object) -> JiraIssueResult:
+        self.created += 1
+        raise AssertionError("CI synchronization must never create missing managed Jira tasks")
+
+
+def test_ensure_managed_issues_is_fail_closed_without_self_healing() -> None:
+    client = BootstrapOnlyJiraStub({})
+    with pytest.raises(RuntimeError, match="will not self-heal"):
+        ensure_managed_issues(client)  # type: ignore[arg-type]
+    assert client.created == 0
+
+
+def test_ensure_managed_issues_resolves_existing_bootstrapped_items() -> None:
+    summaries = {
+        summary: JiraIssueResult(f"{key}", str(index), f"https://jira.example/browse/{key}")
+        for index, (key, summary) in enumerate(ISSUE_SUMMARIES.items(), start=1)
+    }
+    client = BootstrapOnlyJiraStub(summaries)
+    managed = ensure_managed_issues(client)  # type: ignore[arg-type]
+    assert set(managed) == set(ISSUE_SUMMARIES)
+    assert client.created == 0
