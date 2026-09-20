@@ -10,7 +10,7 @@ from scripts.sync_jira_ci import (
     run_label,
     transition_targets,
 )
-from src.saqa.jira import JiraIssueResult, JiraIssueState
+from saqa.jira import JiraIssueResult, JiraIssueState
 
 
 def make_run(*, status: str = "completed", conclusion: str = "success") -> RunSummary:
@@ -59,8 +59,9 @@ def test_status_labels_and_transition_targets_are_deterministic() -> None:
 
 
 class BootstrapOnlyJiraStub:
-    def __init__(self, summaries: dict[str, JiraIssueResult]) -> None:
+    def __init__(self, summaries: dict[str, JiraIssueResult], labels: tuple[str, ...] = ("saqa-bootstrap", "saqa-automation")) -> None:
         self.summaries = summaries
+        self.labels = labels
         self.created = 0
         self.label_updates: list[tuple[str, tuple[str, ...]]] = []
 
@@ -68,7 +69,7 @@ class BootstrapOnlyJiraStub:
         return dict(self.summaries)
 
     def get_issue_state(self, issue_key: str) -> JiraIssueState:
-        return JiraIssueState(issue_key, "To Do", ("saqa-bootstrap", "saqa-automation"))
+        return JiraIssueState(issue_key, "To Do", self.labels)
 
     def update_labels(self, issue_key: str, *, add=(), remove=()) -> None:
         self.label_updates.append((issue_key, tuple(add)))
@@ -78,19 +79,25 @@ class BootstrapOnlyJiraStub:
         raise AssertionError("CI synchronization must never create missing managed Jira tasks")
 
 
-def test_ensure_managed_issues_is_fail_closed_without_self_healing() -> None:
-    client = BootstrapOnlyJiraStub({})
+def test_ensure_managed_issues_is_fail_closed_without_self_healing_or_partial_writes() -> None:
+    summaries = {
+        ISSUE_SUMMARIES["QA-1"]: JiraIssueResult("QA-1", "1", "https://jira.example/browse/QA-1")
+    }
+    client = BootstrapOnlyJiraStub(summaries, labels=())
     with pytest.raises(RuntimeError, match="will not self-heal"):
         ensure_managed_issues(client)  # type: ignore[arg-type]
     assert client.created == 0
+    assert client.label_updates == []
 
 
-def test_ensure_managed_issues_resolves_existing_bootstrapped_items() -> None:
+def test_ensure_managed_issues_resolves_existing_bootstrapped_items_and_repairs_labels() -> None:
     summaries = {
         summary: JiraIssueResult(f"{key}", str(index), f"https://jira.example/browse/{key}")
         for index, (key, summary) in enumerate(ISSUE_SUMMARIES.items(), start=1)
     }
-    client = BootstrapOnlyJiraStub(summaries)
+    client = BootstrapOnlyJiraStub(summaries, labels=("saqa-bootstrap",))
     managed = ensure_managed_issues(client)  # type: ignore[arg-type]
     assert set(managed) == set(ISSUE_SUMMARIES)
     assert client.created == 0
+    assert {key for key, _ in client.label_updates} == {issue.key for issue in managed.values()}
+    assert all(add == ("saqa-automation",) for _, add in client.label_updates)
