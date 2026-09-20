@@ -107,6 +107,10 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
     lookup-then-create self-healing because independent workflow runs can race and
     Jira does not provide a uniqueness constraint on summaries. Missing control-plane
     items are therefore a fail-closed configuration error requiring bootstrap/recovery.
+
+    Discovery and mutation are deliberately separated: if any managed issue is
+    missing, the function raises before performing any Jira label writes. This keeps
+    fail-closed synchronization free of partial side effects.
     """
     project_issues = client.find_project_issues()
     managed: dict[str, JiraIssueResult] = {}
@@ -117,10 +121,6 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
             missing.append(f"{key}: {summary}")
             continue
         managed[key] = existing
-        state = client.get_issue_state(existing.key)
-        missing_labels = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
-        if missing_labels:
-            client.update_labels(existing.key, add=missing_labels)
 
     if missing:
         details = "; ".join(missing)
@@ -128,6 +128,12 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
             "Jira managed QA issues are missing; CI synchronization will not self-heal them because "
             f"lookup-then-create is race-prone. Run the manual bootstrap/recovery workflow first. Missing: {details}"
         )
+
+    for issue in managed.values():
+        state = client.get_issue_state(issue.key)
+        missing_labels = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
+        if missing_labels:
+            client.update_labels(issue.key, add=missing_labels)
     return managed
 
 
