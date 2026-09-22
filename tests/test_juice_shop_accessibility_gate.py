@@ -65,7 +65,8 @@ def test_heuristic_classification_is_fail_closed_for_uncorroborated_controls():
     assert module._classify_heuristic_finding([], 0) == "NONE"
     assert module._classify_heuristic_finding([{"tab_index": -1}], 0) == "INCONCLUSIVE"
     assert module._classify_heuristic_finding([{"tab_index": 0}], 0) == "INCONCLUSIVE"
-    assert module._classify_heuristic_finding([{"tab_index": -1}], 1) == "CONFIRMED_ORACLE"
+    # A raw violation count is not node-level correlation and must not confirm the heuristic.
+    assert module._classify_heuristic_finding([{"tab_index": -1}], 1) == "INCONCLUSIVE"
 
 
 def test_accessibility_oracle_path_is_explicitly_configurable():

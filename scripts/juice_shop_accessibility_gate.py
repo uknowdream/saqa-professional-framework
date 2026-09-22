@@ -30,9 +30,15 @@ def _load_axe_source() -> str:
 def _classify_heuristic_finding(
     unnamed_controls: list[dict[str, object]], oracle_violation_count: int
 ) -> str:
+    """Classify heuristic findings without falsely correlating unrelated oracle nodes.
+
+    The current heuristic does not retain stable DOM/axe-node identity, so a non-zero
+    oracle count is insufficient evidence for CONFIRMED_ORACLE. Keep the finding
+    INCONCLUSIVE until a future implementation provides explicit node correlation.
+    """
     if not unnamed_controls:
         return "NONE"
-    return "CONFIRMED_ORACLE" if oracle_violation_count > 0 else "INCONCLUSIVE"
+    return "INCONCLUSIVE"
 
 
 def _guard_request(route) -> None:
