@@ -12,6 +12,16 @@ EVIDENCE_DIR = Path(os.getenv("SAQA_EVIDENCE_DIR", "artifacts/targets"))
 STATUS_VALUE = {"PASS": 1, "FAIL": 0, "BLOCKED": -1, "PENDING": -2, "UNVERIFIED": -3}
 
 
+def _escape_label(value: object) -> str:
+    """Escape a Prometheus label value using the text exposition format."""
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("\n", "\\n")
+        .replace('"', '\\"')
+    )
+
+
 def collect() -> str:
     lines = [
         "# HELP saqa_quality_status Current normalized quality status.",
@@ -25,9 +35,15 @@ def collect() -> str:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
+        if not isinstance(data, dict):
+            continue
         status = str(data.get("status", "UNVERIFIED")).upper()
-        test_id = str(data.get("test_id", path.stem)).replace("\\", "\\\\").replace('"', '\\"')
-        lines.append(f'saqa_quality_status{{test_id="{test_id}",status="{status}"}} {STATUS_VALUE.get(status, -3)}')
+        test_id = _escape_label(data.get("test_id", path.stem))
+        status_label = _escape_label(status)
+        lines.append(
+            f'saqa_quality_status{{test_id="{test_id}",status="{status_label}"}} '
+            f"{STATUS_VALUE.get(status, -3)}"
+        )
         count += 1
     lines.append(f"saqa_quality_evidence_total {count}")
     return "\n".join(lines) + "\n"
