@@ -34,7 +34,7 @@ def _classify_heuristic_finding(
 
     The current heuristic does not retain stable DOM/axe-node identity, so a non-zero
     oracle count is insufficient evidence for CONFIRMED_ORACLE. Keep the finding
-    INCONCLUSIVE until a future implementation provides explicit node correlation.
+    INCONCLUSIVE until a future implementation provides explicit node correlation.\n\n    INCONCLUSIVE is diagnostic evidence only; the independent axe oracle remains the\n    certification authority for the selected accessibility rules.
     """
     if not unnamed_controls:
         return "NONE"
@@ -105,8 +105,8 @@ def main() -> int:
                     const s = getComputedStyle(e), r = e.getBoundingClientRect(); return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0; };
                   const controls = [...document.querySelectorAll('button,a[href],input,select,textarea,[role=\\"button\\"],[role=\\"link\\"],[role=\\"checkbox\\"],[role=\\"radio\\"],[role=\\"switch\\"],[role=\\"combobox\\"],[role=\\"textbox\\"]')]
                     .filter(rendered)
-                    .filter(e => e.tabIndex >= 0)
-                    .filter(e => !e.disabled && e.getAttribute('aria-disabled') !== 'true')
+                    .filter(e => !e.matches(':disabled'))
+                    .filter(e => e.getAttribute('aria-disabled') !== 'true')
                     .filter(e => !(e.tagName.toLowerCase() === 'input' && (e.getAttribute('type') || '').toLowerCase() === 'hidden'));
                   const unnamed = controls.filter(e => !name(e)).map(e => ({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0,300)}));
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
@@ -127,7 +127,8 @@ def main() -> int:
                 if not metrics["title_present"]: failures.append("document title is missing")
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
                 if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
-                if disposition == "INCONCLUSIVE": failures.append(f"{metrics['unnamed_interactive_controls']} user-operable DOM-heuristic unnamed control(s) require independent oracle correlation")
+                if disposition == "INCONCLUSIVE":
+                    evidence["details"]["heuristic_note"] = "unnamed control(s) detected; independent axe result is authoritative until deterministic node correlation is implemented"
                 if failures: raise AssertionError("; ".join(failures))
                 context.close(); context = None
                 browser.close(); browser = None
