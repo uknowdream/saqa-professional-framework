@@ -38,12 +38,6 @@ def guard_request(route) -> None:
 
 
 def main() -> None:
-    from playwright.sync_api import sync_playwright
-
-    validate_target(BASE_URL)
-    if BROWSER not in ALLOWED_BROWSERS:
-        raise ValueError(f"unsupported browser: {BROWSER}")
-
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
         "schema": "saqa.webgoat-e2e.v3",
@@ -61,6 +55,10 @@ def main() -> None:
     started = time.perf_counter()
     browser = None
     try:
+        validate_target(BASE_URL)
+        if BROWSER not in ALLOWED_BROWSERS:
+            raise ValueError(f"unsupported browser: {BROWSER}")
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
             browser = getattr(playwright, BROWSER).launch(headless=True)
             context = browser.new_context(viewport={"width": 1440, "height": 900})
@@ -92,6 +90,8 @@ def main() -> None:
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
             }
             context.close()
+            browser.close()
+            browser = None
     except Exception as exc:
         evidence["details"] = {
             **evidence.get("details", {}),
