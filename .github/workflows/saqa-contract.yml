@@ -39,9 +39,10 @@ jobs:
             sleep 2
           done
           echo 'Juice Shop did not become ready; contract gate will record BLOCKED evidence.'
+          docker logs saqa-juice-shop-contract || true
+          exit 1
       - name: Run contract gate
         run: python scripts/contract_gate.py
-        continue-on-error: true
       - name: Upload contract evidence
         if: always()
         uses: actions/upload-artifact@v6
