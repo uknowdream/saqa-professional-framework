@@ -2,7 +2,7 @@ SHELL := /bin/bash
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: install test test-serial compile target-smoke contract-test
+.PHONY: install test test-serial compile target-smoke contract-test k6-test
 
 install:
 	$(PIP) install -e '.[test,ci]'
@@ -21,3 +21,6 @@ target-smoke:
 
 contract-test:
 	$(PYTHON) scripts/contract_gate.py
+
+k6-test:
+	$(PYTHON) scripts/k6_gate.py
