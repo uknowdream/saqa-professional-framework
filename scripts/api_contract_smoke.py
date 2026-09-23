@@ -55,11 +55,19 @@ def main() -> int:
         if response.status_code != 200:
             raise AssertionError(f"expected HTTP 200, got {response.status_code}")
         content_type = response.headers.get("Content-Type", "")
-        if "json" not in content_type.lower():
-            raise AssertionError(f"expected JSON content type, got {content_type!r}")
+        media_type = content_type.split(";", 1)[0].strip().lower()
+        if media_type != "application/json":
+            raise AssertionError(f"expected application/json content type, got {content_type!r}")
 
         payload = response.json()
         validate_json_contract(payload, required_object_fields=("data",), list_fields=("data",))
+        for index, item in enumerate(payload["data"]):
+            if not isinstance(item, dict):
+                raise AssertionError(f"data[{index}] must be an object")
+            if not isinstance(item.get("id"), int) or isinstance(item.get("id"), bool):
+                raise AssertionError(f"data[{index}].id must be an integer")
+            if not isinstance(item.get("name"), str):
+                raise AssertionError(f"data[{index}].name must be a string")
         result["status"] = "PASS"
         result["details"] = {"response_sha256": response.sha256, "redirects_followed": False}
     except Exception as exc:
