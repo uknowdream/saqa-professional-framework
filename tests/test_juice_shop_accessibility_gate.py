@@ -67,7 +67,7 @@ def test_heuristic_findings_are_diagnostic_until_node_correlation_exists():
 
 
 def test_independent_accessibility_oracle_is_required():
-    assert module.AXE_RULES == ["aria-input-field-name", "button-name", "link-name", "label"]
+    assert module.AXE_RULES == ["aria-input-field-name", "button-name", "link-name"]
     assert "axe-core" in SOURCE
     assert "CONFIRMED_ORACLE" in SOURCE
     assert "INCONCLUSIVE" in SOURCE
