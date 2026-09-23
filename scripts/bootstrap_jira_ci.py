@@ -24,7 +24,7 @@ WORK_ITEMS = [
 def main() -> None:
     with JiraClient(JiraConfig.from_env()) as client:
         project = client.verify_access()
-        existing = client.find_bootstrap_issues()
+        existing = client.find_project_issues()
         created = 0
         skipped = 0
         print(f"Jira project: PASS ({project.key} / {project.name})")
