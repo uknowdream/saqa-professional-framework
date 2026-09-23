@@ -45,35 +45,15 @@ def _percentile(values: list[float], percentile: float) -> float:
 
 
 def main() -> None:
-    _assert_loopback_http(BASE_URL)
-    if REQUESTS < 3:
-        raise ValueError("SAQA_PERF_REQUESTS must be at least 3")
-    if not math.isfinite(P95_BUDGET_MS) or P95_BUDGET_MS < 0:
-        raise ValueError("SAQA_API_P95_BUDGET_MS must be finite and non-negative")
-
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     observed_at = datetime.now(timezone.utc).isoformat()
     latencies: list[float] = []
     status_codes: list[int] = []
     content_types: list[str] = []
-
-    with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
-        for _ in range(REQUESTS):
-            started = time.perf_counter()
-            response = client.get(f"{BASE_URL}{ENDPOINT}")
-            latencies.append(round((time.perf_counter() - started) * 1000, 2))
-            status_codes.append(response.status_code)
-            content_types.append(response.headers.get("content-type", ""))
-            if response.status_code != 200:
-                raise AssertionError(f"expected HTTP 200, got {response.status_code}")
-            if "application/json" not in content_types[-1].lower():
-                raise AssertionError(f"expected JSON response, got {content_types[-1]!r}")
-
-    p95_ms = round(_percentile(latencies, 0.95), 2)
     evidence = {
         "schema": "saqa.juice-shop-performance.v1",
         "test_id": "juice-shop.performance.products-search",
-        "status": "PASS" if p95_ms <= P95_BUDGET_MS else "FAIL",
+        "status": "BLOCKED",
         "target": BASE_URL,
         "http_methods": ["GET"],
         "destructive_actions": False,
@@ -81,6 +61,34 @@ def main() -> None:
         "details": {
             "endpoint": ENDPOINT,
             "requests": REQUESTS,
+            "status_codes": [],
+            "content_types": [],
+            "p95_budget_ms": P95_BUDGET_MS,
+        },
+    }
+
+    try:
+        _assert_loopback_http(BASE_URL)
+        if REQUESTS < 3:
+            raise ValueError("SAQA_PERF_REQUESTS must be at least 3")
+        if not math.isfinite(P95_BUDGET_MS) or P95_BUDGET_MS < 0:
+            raise ValueError("SAQA_API_P95_BUDGET_MS must be finite and non-negative")
+
+        with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
+            for _ in range(REQUESTS):
+                started = time.perf_counter()
+                response = client.get(f"{BASE_URL}{ENDPOINT}")
+                latencies.append(round((time.perf_counter() - started) * 1000, 2))
+                status_codes.append(response.status_code)
+                content_types.append(response.headers.get("content-type", ""))
+                if response.status_code != 200:
+                    raise AssertionError(f"expected HTTP 200, got {response.status_code}")
+                if "application/json" not in content_types[-1].lower():
+                    raise AssertionError(f"expected JSON response, got {content_types[-1]!r}")
+
+        p95_ms = round(_percentile(latencies, 0.95), 2)
+        evidence["status"] = "PASS" if p95_ms <= P95_BUDGET_MS else "FAIL"
+        evidence["details"].update({
             "status_codes": status_codes,
             "content_types": sorted(set(content_types)),
             "min_ms": min(latencies),
@@ -88,12 +96,21 @@ def main() -> None:
             "p95_ms": p95_ms,
             "max_ms": max(latencies),
             "p95_budget_ms": P95_BUDGET_MS,
-        },
-    }
-    OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        })
+        if evidence["status"] != "PASS":
+            raise AssertionError(f"p95 latency exceeded budget: {p95_ms} ms > {P95_BUDGET_MS} ms")
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+        evidence["status"] = "BLOCKED"
+        evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
+    except Exception as exc:
+        evidence["status"] = "FAIL"
+        evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        OUTPUT.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+
     print(json.dumps(evidence, indent=2))
     if evidence["status"] != "PASS":
-        raise AssertionError(f"p95 latency exceeded budget: {p95_ms} ms > {P95_BUDGET_MS} ms")
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
