@@ -27,3 +27,25 @@ def test_collect_maps_unknown_status_fail_closed_for_telemetry(tmp_path, monkeyp
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
     metrics = collect()
     assert 'saqa_quality_status{test_id="unknown",status="NEW"} -3\n' in metrics
+
+
+def test_collect_ignores_non_object_json(tmp_path, monkeypatch):
+    evidence_dir = tmp_path / "targets"
+    evidence_dir.mkdir()
+    (evidence_dir / "list.json").write_text("[1,2,3]", encoding="utf-8")
+    monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
+    metrics = collect()
+    assert "saqa_quality_evidence_total 0\n" in metrics
+
+
+def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
+    evidence_dir = tmp_path / "targets"
+    evidence_dir.mkdir()
+    (evidence_dir / "escaped.json").write_text(
+        json.dumps({"test_id": 'a"b\\c\nd', "status": 'PASS\n"'}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
+    metrics = collect()
+    assert 'test_id="a\"b\\\\c\\nd"' in metrics
+    assert 'status="PASS\\n\""' in metrics
