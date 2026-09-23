@@ -10,7 +10,7 @@ def main() -> int:
     started = time.perf_counter()
     evidence = {"schema":"saqa.k6-gate.v1","test_id":"juice-shop.performance.k6-products-search","status":"BLOCKED","target":"http://127.0.0.1:3000","http_methods":["GET"],"destructive_actions":False,"observed_at":datetime.now(timezone.utc).isoformat(),"details":{"script":str(SCRIPT)}}
     try:
-        completed = subprocess.run(["docker","run","--rm","--network","host","-v",f"{Path.cwd() / 'performance/k6'}:/scripts:ro","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=90,check=False)
+        completed = subprocess.run(["docker","run","--rm","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=90,check=False)
         evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
         evidence["status"] = "PASS" if completed.returncode == 0 else "FAIL"
     except subprocess.TimeoutExpired as exc:
