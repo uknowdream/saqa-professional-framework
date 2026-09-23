@@ -76,6 +76,8 @@ jobs:
           HEAD_SHA="$(jq -r '.head_sha // empty' <<< "$RUN_JSON")"
           HEAD_BRANCH="$(jq -r '.head_branch // empty' <<< "$RUN_JSON")"
           RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
+          HEAD_REPO="$(jq -r '.repository.full_name // empty' <<< "$RUN_JSON")"
+          RUN_EVENT="$(jq -r '.event // empty' <<< "$RUN_JSON")"
           if [ "$RUN_STATUS" != "completed" ]; then echo "Selected workflow run is not completed: $RUN_STATUS"; exit 1; fi
           if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
             echo "Unsupported head repository for Jira synchronization: $HEAD_REPO"
