@@ -44,6 +44,8 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_DIRECT_NO_REDIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirectHandler)
 
 
 def request(
@@ -54,6 +56,7 @@ def request(
     body: Any = None,
     timeout: float = 10.0,
     follow_redirects: bool = True,
+    use_environment_proxies: bool = True,
 ) -> ApiResponse:
     """Execute one bounded HTTP request and return observable evidence.
 
@@ -72,7 +75,10 @@ def request(
         request_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)
     started = time.perf_counter()
-    opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
+    if use_environment_proxies:
+        opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
+    else:
+        opener = _DIRECT_OPENER.open if follow_redirects else _DIRECT_NO_REDIRECT_OPENER.open
     try:
         with opener(req, timeout=timeout) as response:
             content = response.read()
