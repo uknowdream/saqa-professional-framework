@@ -1,9 +1,9 @@
 """Read-only OpenAPI contract gate for authorized local targets."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,13 +20,21 @@ ENDPOINT = "/rest/products/search?q=apple"
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username
+        or parsed.password
+        or parsed.port is None
+    ):
         raise ValueError("contract target must be credential-free HTTP on 127.0.0.1 with a port")
 
 
-def _schema() -> dict:
-    document = json.loads(CONTRACT.read_text(encoding="utf-8"))
-    return document["paths"]["/rest/products/search"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+def _schema() -> tuple[dict, str]:
+    contract_bytes = CONTRACT.read_bytes()
+    document = json.loads(contract_bytes)
+    schema = document["paths"]["/rest/products/search"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    return schema, hashlib.sha256(contract_bytes).hexdigest()
 
 
 def main() -> int:
@@ -34,7 +42,7 @@ def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     evidence = {
-        "schema": "saqa.contract-gate.v1",
+        "schema": "saqa.contract-gate.v2",
         "test_id": "juice-shop.api.openapi-contract",
         "status": "BLOCKED",
         "target": BASE_URL,
@@ -43,9 +51,8 @@ def main() -> int:
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "details": {"contract": str(CONTRACT), "endpoint": ENDPOINT},
     }
-    response = None
     try:
-        schema = _schema()
+        schema, contract_sha256 = _schema()
         Draft202012Validator.check_schema(schema)
         with httpx.Client(timeout=10.0, follow_redirects=False) as client:
             response = client.get(f"{BASE_URL}{ENDPOINT}")
@@ -60,13 +67,16 @@ def main() -> int:
             rendered = [{"path": list(error.path), "message": error.message} for error in errors[:20]]
             raise AssertionError(json.dumps(rendered, sort_keys=True))
         evidence["status"] = "PASS"
-        evidence["details"].update({
-            "status_code": response.status_code,
-            "content_type": response.headers.get("content-type", ""),
-            "response_sha256": __import__("hashlib").sha256(response.content).hexdigest(),
-            "elapsed_ms": elapsed_ms,
-            "validation_errors": [],
-        })
+        evidence["details"].update(
+            {
+                "status_code": response.status_code,
+                "content_type": response.headers.get("content-type", ""),
+                "contract_sha256": contract_sha256,
+                "response_sha256": hashlib.sha256(response.content).hexdigest(),
+                "elapsed_ms": elapsed_ms,
+                "validation_errors": [],
+            }
+        )
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
