@@ -22,7 +22,6 @@ The contract gate:
 make install
 docker run --detach --rm --name saqa-juice-shop -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
 for attempt in $(seq 1 30); do curl --silent --fail --max-time 3 http://127.0.0.1:3000/ >/dev/null && break; sleep 2; done
-curl --silent --fail --max-time 3 http://127.0.0.1:3000/ >/dev/null
 python3 scripts/contract_gate.py
 docker stop saqa-juice-shop
 ```
