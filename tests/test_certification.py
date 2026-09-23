@@ -15,6 +15,8 @@ def test_certification_rejects_blocking_result():
     )
     assert not result.certified
     assert result.blocking_test_ids == ("api-1",)
+    assert result.status == "FAIL"
+    assert result.verified_failure_test_ids == ("api-1",)
 
 
 def test_certification_accepts_explicit_passes():
@@ -32,3 +34,13 @@ def test_certification_does_not_hide_unverified():
     )
     assert not result.certified
     assert result.blocking_test_ids == ("api-1",)
+
+
+def test_certification_treats_blocked_as_unverified():
+    result = certify(
+        [("web-1", "web", ResultStatus.PASS), ("api-1", "api", ResultStatus.BLOCKED)],
+        ["web", "api"],
+    )
+    assert not result.certified
+    assert result.status == "UNVERIFIED"
+    assert result.verified_failure_test_ids == ()
