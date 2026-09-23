@@ -201,8 +201,9 @@ def test_jira_find_project_issues_detects_managed_duplicate_summary() -> None:
         if start == 0:
             issues = [{"key": f"QA-{i}", "id": str(i), "fields": {"summary": f"Summary {i}"}} for i in range(100)]
             issues.append({"key": "QA-100", "id": "100", "fields": {"summary": "[SAQA-AUTO] duplicate"}})
+            issues.append({"key": "QA-101", "id": "101", "fields": {"summary": "[SAQA-AUTO] duplicate"}})
             return httpx.Response(200, json={"issues": issues})
-        return httpx.Response(200, json={"issues": [{"key": "QA-101", "id": "101", "fields": {"summary": "[SAQA-AUTO] duplicate"}}]})
+        return httpx.Response(200, json={"issues": [{"key": "QA-102", "id": "102", "fields": {"summary": "[SAQA-AUTO] duplicate"}}]})
 
     config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
     client = JiraClient(config, timeout=1.0)
