@@ -7,6 +7,7 @@ on:
       - SAQA Contract Testing
       - SAQA Accessibility
       - SAQA Mobile Readiness
+      - SAQA k6 Performance
     types: [completed]
     branches:
       - main
@@ -47,7 +48,7 @@ jobs:
           runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
           ready=true
           mkdir -p artifacts
-          for workflow in "SAQA CI" "SAQA Contract Testing" "SAQA Accessibility" "SAQA Mobile Readiness"; do
+          for workflow in "SAQA CI" "SAQA Contract Testing" "SAQA Accessibility" "SAQA Mobile Readiness" "SAQA k6 Performance"; do
             count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .head_branch == "main" and .status == "completed")] | length' <<< "$runs")"
             if [ "$count" -lt 1 ]; then
               ready=false
