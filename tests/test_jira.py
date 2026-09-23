@@ -170,3 +170,49 @@ def test_jira_transition_uses_only_an_available_exact_transition() -> None:
         "/rest/api/3/issue/QA-9",
         "/rest/api/3/issue/QA-9/transitions",
     ]
+
+
+def test_jira_find_project_issues_reads_multiple_pages_and_detects_managed_duplicate() -> None:
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("startAt", "0"))
+        calls.append(start)
+        if start == 0:
+            return httpx.Response(200, json={"issues": [{"key": "QA-1", "id": "1", "fields": {"summary": "SAQA | Test Management Foundation"}}]})
+        return httpx.Response(200, json={"issues": [{"key": "QA-2", "id": "2", "fields": {"summary": "SAQA | Web E2E Automation"}}]})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        result = client.find_project_issues(max_results=200)
+    finally:
+        client.close()
+
+    assert set(result) == {"SAQA | Test Management Foundation", "SAQA | Web E2E Automation"}
+    assert calls == [0, 1]
+
+
+def test_jira_comment_marker_is_found_beyond_first_page() -> None:
+    marker = "[SAQA-AUTO-SYNC:123:QA-4]"
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("startAt", "0"))
+        calls.append(start)
+        if start == 0:
+            return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": "older"}]}}], "total": 101})
+        if start == 1:
+            return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": marker}]}}], "total": 101})
+        return httpx.Response(200, json={"comments": [], "total": 101})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        assert client.add_comment_once("QA-4", "result", marker) is False
+    finally:
+        client.close()
+
+    assert calls == [0, 1]
