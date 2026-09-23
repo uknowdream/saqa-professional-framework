@@ -104,7 +104,6 @@ def test_ensure_managed_issues_resolves_existing_bootstrapped_items_and_repairs_
 
 
 def test_jira_sync_fail_closed_mappings():
-    from scripts.sync_jira_ci import RunSummary, job_result, run_label, transition_targets
 
     pending = RunSummary("SAQA CI", "1", "1", "", "in_progress", "sha", "main", "")
     unknown = RunSummary("SAQA CI", "2", "2", "", "completed", "sha", "main", "")
