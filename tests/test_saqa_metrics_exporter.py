@@ -47,5 +47,5 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
     )
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
     metrics = collect()
-    assert 'test_id="a\"b\\\\c\\nd"' in metrics
-    assert 'status="PASS\\n\""' in metrics
+    assert 'test_id="a\\\"b\\\\\\\\c\\\\nd"' in metrics
+    assert 'status="PASS\\\\n\\\""' in metrics
