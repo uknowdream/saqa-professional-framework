@@ -65,6 +65,7 @@ A target gate must:
 ```bash
 make install
 make test
+make contract-test
 make compile
 make target-smoke
 ```
