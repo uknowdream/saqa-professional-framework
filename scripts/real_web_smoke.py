@@ -95,7 +95,7 @@ def run(target: str) -> dict[str, object]:
         evidence["status"] = "PASS" if 200 <= status_code < 400 else "FAIL"
         evidence["host"] = host
         evidence["target"] = _redact_url(validated)
-        evidence["details"] = {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": "<title" in lower and "</title>" in lower, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects}
+        evidence["details"] = {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": "<title" in lower and "</title>" in lower, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "security_headers_present": sorted(name for name in ("content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy") if headers.get(name)), "redirects": redirects}
         if evidence["status"] != "PASS": raise AssertionError(f"Authorized real-web smoke returned HTTP {status_code}")
     except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
         evidence["status"] = "BLOCKED"
@@ -104,7 +104,7 @@ def run(target: str) -> dict[str, object]:
         evidence["status"] = "FAIL"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     finally:
-        output.write_text(json.dumps(evidence, indent=2) + "\\n", encoding="utf-8")
+        output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     if evidence["status"] != "PASS": raise SystemExit(1)
     return evidence
 
