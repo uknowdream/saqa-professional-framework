@@ -60,6 +60,8 @@ def test_contract_gate_writes_contract_digest(monkeypatch, tmp_path):
             return Response()
 
     output = tmp_path / "contract.json"
+    monkeypatch.setattr(gate, "BASE_URL", "http://127.0.0.1:3000")
+    monkeypatch.setattr(gate, "CONTRACT", CONTRACT)
     monkeypatch.setattr(gate, "OUTPUT", output)
     monkeypatch.setattr(gate.httpx, "Client", Client)
     assert gate.main() == 0
