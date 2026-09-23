@@ -27,16 +27,16 @@ def _load_axe_source() -> str:
     return AXE_CORE_PATH.read_text(encoding="utf-8")
 
 
-def _classify_heuristic_finding(
-    unnamed_controls: list[dict[str, object]], oracle_violation_count: int
-) -> str:
-    """Classify only keyboard-operable unnamed controls as actionable heuristic findings.
+def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]]) -> str:
+    """Classify only keyboard-operable unnamed controls as diagnostic findings.
+
+    INCONCLUSIVE is diagnostic evidence only. The independent axe oracle remains authoritative
+    until deterministic DOM/node correlation is implemented.
 
     The heuristic intentionally does not claim correlation with axe nodes. DOM controls
     removed from keyboard navigation (tabindex < 0) are non-user-operable implementation
     details and are excluded; the independent axe oracle remains authoritative.
     """
-    del oracle_violation_count
     if not unnamed_controls:
         return "NONE"
     return "INCONCLUSIVE"
@@ -120,7 +120,7 @@ def main() -> int:
                   return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));
                 }""", AXE_RULES)
                 evidence["details"]["independent_oracle"] = {"engine":"axe-core","rules":AXE_RULES,"violation_count":len(oracle),"violations":oracle}
-                disposition = _classify_heuristic_finding(metrics["unnamed_control_details"], len(oracle))
+                disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
                 if not metrics["lang_present"]: failures.append("document language is missing")
