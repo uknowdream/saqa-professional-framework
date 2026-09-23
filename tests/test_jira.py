@@ -216,3 +216,26 @@ def test_jira_comment_marker_is_found_beyond_first_page() -> None:
         client.close()
 
     assert calls == [0, 1]
+
+
+def test_jira_client_uses_basic_auth_header():
+    import base64
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["authorization"] = request.headers.get("Authorization", "")
+        return httpx.Response(200, json={"key": "QA", "name": "Quality", "projectTypeKey": "software"})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url=config.base_url,
+        auth=(config.email, config.api_token),
+    )
+    try:
+        assert client.verify_access().key == "QA"
+    finally:
+        client.close()
+    expected = "Basic " + base64.b64encode(b"qa@example.com:secret-token").decode()
+    assert seen["authorization"] == expected
