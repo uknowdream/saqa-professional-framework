@@ -204,7 +204,7 @@ def test_jira_comment_marker_is_found_beyond_first_page() -> None:
         if start == 0:
             return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": "older"}]}}], "total": 101})
         if start == 1:
-            return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": marker}]}}], "total": 101})
+            return httpx.Response(200, json={"comments": [{"body": {"content": [{"text": marker}]}}], "total": 2})
         return httpx.Response(200, json={"comments": [], "total": 101})
 
     config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
