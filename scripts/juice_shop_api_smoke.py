@@ -25,13 +25,13 @@ def _assert_loopback_http(url: str) -> None:
 
 
 def main() -> int:
-    _assert_loopback_http(BASE_URL)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     observed_at = datetime.now(timezone.utc).isoformat()
     evidence = {"schema": "saqa.juice-shop-api.v6", "test_id": "juice-shop.api.products-search", "status": "BLOCKED", "target": BASE_URL, "http_methods": ["GET"], "destructive_actions": False, "observed_at": observed_at, "details": {}}
     response = None
     try:
+        _assert_loopback_http(BASE_URL)
         with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
             response = client.get(f"{BASE_URL}{ENDPOINT}")
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
