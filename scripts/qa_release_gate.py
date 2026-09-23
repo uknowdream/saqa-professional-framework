@@ -28,7 +28,10 @@ def normalize_runs(raw: object) -> list[dict[str, str]]:
              "conclusion": str(item.get("conclusion") or ""), "head_sha": str(item.get("head_sha","")),
              "head_branch": str(item.get("head_branch","")), "run_id": str(item.get("id","")),
              "url": str(item.get("html_url",""))}
-            for item in raw if isinstance(item, dict)]
+            for item in raw
+            if isinstance(item, dict)
+            and str(item.get("id", "")).isdigit()
+            and int(item.get("id", 0)) > 0]
 
 def result(run: dict[str, str] | None) -> str:
     if not run: return "UNVERIFIED"
