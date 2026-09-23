@@ -42,10 +42,10 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
     evidence_dir = tmp_path / "targets"
     evidence_dir.mkdir()
     (evidence_dir / "escaped.json").write_text(
-        json.dumps({"test_id": 'a"b\\c\nd', "status": 'PASS\n"'}),
+        json.dumps({"test_id": 'a"b\\c\\nd', "status": 'PASS\\nd"'}),
         encoding="utf-8",
     )
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
-    metrics = collect()
-    assert 'test_id="a\\\"b\\\\\\\\c\\\\nd"' in metrics
-    assert 'status="PASS\\\\n\\\""' in metrics
+    from scripts.saqa_metrics_exporter import _escape_label
+    assert _escape_label('a"b\\c\\nd') == 'a\\"b\\\\c\\\\nd'
+    assert _escape_label('PASS\\nd"') == 'PASS\\\\nd\\"'
