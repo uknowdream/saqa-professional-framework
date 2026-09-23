@@ -21,7 +21,7 @@ ISSUE_SUMMARIES = {
     "QA-8": "SAQA | Evidence & Allure Traceability",
     "QA-9": "SAQA | Certification Readiness",
 }
-MONITORED_WORKFLOWS = {"SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness"}
+MONITORED_WORKFLOWS = {"SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness", "SAQA k6 Performance"}
 PASS_CONCLUSIONS = {"success"}
 FAIL_CONCLUSIONS = {"failure", "timed_out"}
 BLOCKED_CONCLUSIONS = {"cancelled", "action_required", "stale"}
@@ -216,6 +216,8 @@ def main() -> None:
         domain_results = {"QA-1": "PASS", "QA-4": api_overall, "QA-9": overall}
     elif run.name == "SAQA Accessibility":
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-6": run.result, "QA-9": overall}
+    elif run.name == "SAQA k6 Performance":
+        domain_results = {"QA-1": "PASS", "QA-7": run.result, "QA-9": overall}
     else:
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
 
