@@ -92,11 +92,12 @@ def main() -> None:
                     except Exception: pass
     except Exception as exc:
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
-        raise
     finally:
         OUTPUT.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print(json.dumps(evidence, indent=2, sort_keys=True))
+    if evidence["status"] != "PASS":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
