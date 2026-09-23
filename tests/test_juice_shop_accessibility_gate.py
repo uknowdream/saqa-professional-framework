@@ -54,6 +54,11 @@ def test_accessibility_gate_records_actionable_control_details():
     assert "tab_index" in SOURCE
 
 
+def test_heuristic_only_considers_user_operable_controls():
+    assert ".filter(e => e.tabIndex >= 0)" in SOURCE
+    assert ".filter(e => !e.disabled && e.getAttribute('aria-disabled') !== 'true')" in SOURCE
+
+
 def test_independent_accessibility_oracle_is_required():
     assert module.AXE_RULES == ["aria-input-field-name", "button-name", "link-name", "label"]
     assert "axe-core" in SOURCE
