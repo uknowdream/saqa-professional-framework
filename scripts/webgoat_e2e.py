@@ -27,7 +27,11 @@ def guard_request(route) -> None:
         route.abort()
         return
     base = urlparse(BASE_URL)
-    if parsed.scheme != base.scheme or parsed.hostname != base.hostname or parsed.port != base.port or parsed.username or parsed.password:
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        parsed_port = None
+    if parsed.scheme != base.scheme or parsed.hostname != base.hostname or parsed_port != base.port or parsed.username or parsed.password:
         route.abort()
         raise RuntimeError(f"blocked non-loopback WebGoat request: {route.request.url!r}")
     route.continue_()
