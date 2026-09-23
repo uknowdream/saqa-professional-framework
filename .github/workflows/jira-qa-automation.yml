@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: jira-qa-sync-${{ github.event.workflow_run.id || github.event.inputs.run_id || github.run_id }}
+  group: jira-qa-sync-${{ github.event.workflow_run.head_sha || github.event.inputs.run_id || github.run_id }}
   cancel-in-progress: false
 
 env:
@@ -77,6 +77,14 @@ jobs:
           HEAD_BRANCH="$(jq -r '.head_branch // empty' <<< "$RUN_JSON")"
           RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
           if [ "$RUN_STATUS" != "completed" ]; then echo "Selected workflow run is not completed: $RUN_STATUS"; exit 1; fi
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "Unsupported head repository for Jira synchronization: $HEAD_REPO"
+            exit 1
+          fi
+          if [ "$RUN_EVENT" = "pull_request" ]; then
+            echo "Refusing privileged Jira synchronization for pull_request workflow runs."
+            exit 1
+          fi
           case "$RUN_NAME:$HEAD_BRANCH" in
             "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Contract Testing:main"|"SAQA Contract Testing:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*) ;;
             *) echo "Unsupported workflow or branch for Jira synchronization: $RUN_NAME / $HEAD_BRANCH"; exit 1 ;;
