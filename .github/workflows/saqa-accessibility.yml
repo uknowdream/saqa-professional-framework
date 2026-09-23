@@ -83,7 +83,7 @@ jobs:
   accessibility-canonical:
     name: Accessibility canonical evidence aggregation
     runs-on: ubuntu-latest
-    if: ${{ always() }}
+    if: ${{ always() && !cancelled() }}
     needs: [accessibility-matrix]
     steps:
       - uses: actions/checkout@v6
