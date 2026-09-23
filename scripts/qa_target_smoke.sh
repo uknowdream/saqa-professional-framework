@@ -40,7 +40,15 @@ wait_http() {
       return 0
     fi
     if [[ "$status" =~ ^3[0-9][0-9]$ && "$allow_local_redirect" == "true" ]]; then
-      location="$(grep -i "^location:" "$header_file" | head -n 1 | cut -d: -f2- | tr -d "\r")"
+      location="$(python3 - "$header_file" <<'PY'
+import sys
+from pathlib import Path
+for line in Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace").splitlines():
+    if line.lower().startswith("location:"):
+        print(line.split(":", 1)[1].strip())
+        break
+PY
+)"
       rm -f "$header_file"
       if [[ "$location" =~ ^http://127\.0\.0\.1:8080/WebGoat(/|$) ]] || [[ "$location" =~ ^/WebGoat(/|$) ]]; then
         destination="$location"
