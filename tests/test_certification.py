@@ -1,36 +1,34 @@
-from pathlib import Path
-
 from saqa.certification import certify
-from saqa.evidence import EvidenceRecord, verify_manifest, write_manifest
+from saqa.contracts import ResultStatus
 
 
-def record(status: str, test_id: str = "T-001") -> EvidenceRecord:
-    return EvidenceRecord(test_id, status, "2026-08-30T00:00:00+00:00", "local", {})
+def test_certification_rejects_missing_capability():
+    result = certify([("web-1", "web", ResultStatus.PASS)], ["web", "api"])
+    assert not result.certified
+    assert result.missing_capabilities == ("api",)
 
 
-def test_all_pass_certifies():
-    result = certify([record("PASS"), record("PASS", "T-002")], required_total=2)
-    assert result.status == "PASS"
+def test_certification_rejects_blocking_result():
+    result = certify(
+        [("web-1", "web", ResultStatus.PASS), ("api-1", "api", ResultStatus.FAIL)],
+        ["web", "api"],
+    )
+    assert not result.certified
+    assert result.blocking_test_ids == ("api-1",)
 
 
-def test_fail_never_certifies():
-    result = certify([record("PASS"), record("FAIL", "T-002")], required_total=2)
-    assert result.status == "FAIL"
+def test_certification_accepts_explicit_passes():
+    result = certify(
+        [("web-1", "web", ResultStatus.PASS), ("api-1", "api", ResultStatus.PASS)],
+        ["web", "api"],
+    )
+    assert result.certified
 
 
-def test_blocked_is_not_pass():
-    result = certify([record("PASS"), record("BLOCKED", "T-002")], required_total=2)
-    assert result.status == "UNVERIFIED"
-
-
-def test_missing_evidence_fails_closed():
-    result = certify([record("PASS")], required_total=2)
-    assert result.status == "FAIL"
-
-
-def test_manifest_detects_tampering(tmp_path: Path):
-    path = tmp_path / "manifest.json"
-    write_manifest([record("PASS")], path)
-    assert verify_manifest(path)
-    path.write_text(path.read_text().replace('"PASS"', '"FAIL"'), encoding="utf-8")
-    assert not verify_manifest(path)
+def test_certification_does_not_hide_unverified():
+    result = certify(
+        [("web-1", "web", ResultStatus.PASS), ("api-1", "api", ResultStatus.UNVERIFIED)],
+        ["web", "api"],
+    )
+    assert not result.certified
+    assert result.blocking_test_ids == ("api-1",)

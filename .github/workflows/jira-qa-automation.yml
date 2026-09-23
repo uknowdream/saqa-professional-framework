@@ -1,0 +1,107 @@
+name: Jira QA Automation
+
+on:
+  workflow_run:
+    workflows:
+      - SAQA CI
+      - SAQA Accessibility
+      - SAQA Mobile Readiness
+    types: [completed]
+    branches:
+      - 'saqa/**'
+      - main
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Completed SAQA workflow run ID to synchronize'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: jira-qa-sync-${{ github.event.workflow_run.id || github.event.inputs.run_id || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+
+jobs:
+  sync:
+    name: Sync SAQA evidence to Jira
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted Jira automation code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify Jira secret is available
+        run: |
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ACTION REQUIRED: GitHub repository secret JIRA_API_TOKEN is missing or unavailable."
+            exit 1
+          fi
+
+      - name: Install project
+        run: python -m pip install -e .
+
+      - name: Resolve and validate workflow run
+        id: run
+        env:
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          if [ -n "$EVENT_RUN_ID" ]; then
+            RUN_ID="$EVENT_RUN_ID"
+          else
+            RUN_ID="$INPUT_RUN_ID"
+            if [ -z "$RUN_ID" ]; then echo "Completed run_id is required."; exit 1; fi
+          fi
+          RUN_JSON="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          RUN_NAME="$(jq -r '.name // empty' <<< "$RUN_JSON")"
+          RUN_STATUS="$(jq -r '.status // empty' <<< "$RUN_JSON")"
+          RUN_CONCLUSION="$(jq -r '.conclusion // empty' <<< "$RUN_JSON")"
+          RUN_NUMBER="$(jq -r '.run_number // empty' <<< "$RUN_JSON")"
+          HEAD_SHA="$(jq -r '.head_sha // empty' <<< "$RUN_JSON")"
+          HEAD_BRANCH="$(jq -r '.head_branch // empty' <<< "$RUN_JSON")"
+          RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
+          if [ "$RUN_STATUS" != "completed" ]; then echo "Selected workflow run is not completed: $RUN_STATUS"; exit 1; fi
+          case "$RUN_NAME:$HEAD_BRANCH" in
+            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*) ;;
+            *) echo "Unsupported workflow or branch for Jira synchronization: $RUN_NAME / $HEAD_BRANCH"; exit 1 ;;
+          esac
+          printf 'run_id=%s\nrun_name=%s\nrun_number=%s\nrun_conclusion=%s\nrun_status=%s\nhead_sha=%s\nhead_branch=%s\nrun_url=%s\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Collect completed job evidence
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --jq '.jobs' > "$RUNNER_TEMP/jira-jobs.json"
+
+      - name: Collect all relevant workflow runs for exact commit
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/jira-runs.json"
+
+      - name: Synchronize Jira QA control plane
+        env:
+          JIRA_WORKFLOW_NAME: ${{ steps.run.outputs.run_name }}
+          JIRA_RUN_ID: ${{ steps.run.outputs.run_id }}
+          JIRA_RUN_NUMBER: ${{ steps.run.outputs.run_number }}
+          JIRA_RUN_CONCLUSION: ${{ steps.run.outputs.run_conclusion }}
+          JIRA_RUN_STATUS: ${{ steps.run.outputs.run_status }}
+          JIRA_HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          JIRA_HEAD_BRANCH: ${{ steps.run.outputs.head_branch }}
+          JIRA_RUN_URL: ${{ steps.run.outputs.run_url }}
+          JIRA_JOBS_JSON: ${{ runner.temp }}/jira-jobs.json
+          JIRA_ALL_RUNS_JSON: ${{ runner.temp }}/jira-runs.json
+        run: python scripts/sync_jira_ci.py

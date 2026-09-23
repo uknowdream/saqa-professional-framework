@@ -9,8 +9,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: saqa-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  SAQA_PLAYWRIGHT_VERSION: '1.62.0'
 
 jobs:
   python-quality:
@@ -27,11 +32,11 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
       - name: Install project
-        run: python -m pip install -e '.[test]'
+        run: python -m pip install -e '.[test,ci]'
       - name: Compile
         run: python -m compileall -q src tests
       - name: Tests
-        run: python -m pytest --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+        run: python -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
       - name: Generate and verify evidence
         run: python -m saqa.ci_evidence
       - name: Optimized-mode compile and import
@@ -43,8 +48,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: saqa-python-${{ matrix.python }}
-          path: |
-            artifacts/
+          path: artifacts/
           if-no-files-found: warn
           retention-days: 14
 
@@ -66,6 +70,25 @@ jobs:
         run: |
           ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
             --exclude-dir=.git --exclude='*.zip'
+
+  database-quality:
+    name: Isolated database quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Run isolated database quality gate
+        run: python scripts/database_quality_gate.py
+      - name: Upload database evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-database-quality
+          path: artifacts/targets/database-quality.json
+          if-no-files-found: error
+          retention-days: 14
 
   target-policy:
     name: Target authorization policy
@@ -95,8 +118,8 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install -e '.[test]'
-      - name: Install Playwright
-        run: python -m pip install 'playwright>=1.50,<2'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Browser smoke
@@ -104,12 +127,228 @@ jobs:
           SAQA_BROWSER: ${{ matrix.browser }}
         run: python -m saqa.browser_smoke
 
+  juice-shop-e2e-matrix:
+    name: Juice Shop E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e '.[test]'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
+      - name: Install selected browser
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Start Juice Shop
+        run: docker run --detach --rm --name saqa-juice-shop -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+      - name: Wait for Juice Shop
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs saqa-juice-shop
+          exit 1
+      - name: Run real Juice Shop E2E
+        env:
+          SAQA_BROWSER: ${{ matrix.browser }}
+        run: python scripts/juice_shop_e2e.py
+      - name: Upload E2E evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: juice-shop-e2e-${{ matrix.browser }}
+          path: artifacts/targets/juice-shop-e2e-${{ matrix.browser }}.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop Juice Shop
+        if: always()
+        run: docker stop saqa-juice-shop || true
+
+  juice-shop-api-smoke:
+    name: Juice Shop API quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Start Juice Shop
+        run: docker run --detach --rm --name saqa-juice-shop-api -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+      - name: Wait for Juice Shop
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs saqa-juice-shop-api
+          exit 1
+      - name: Run read-only API smoke
+        run: python scripts/juice_shop_api_smoke.py
+      - name: Upload API evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: juice-shop-api-smoke
+          path: artifacts/targets/juice-shop-api.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop Juice Shop
+        if: always()
+        run: docker stop saqa-juice-shop-api || true
+
+  juice-shop-performance:
+    name: Juice Shop Performance quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Start Juice Shop
+        run: docker run --detach --rm --name saqa-juice-shop-performance -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+      - name: Wait for Juice Shop
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs saqa-juice-shop-performance
+          exit 1
+      - name: Run read-only performance gate
+        run: python scripts/juice_shop_performance_gate.py
+      - name: Upload performance evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: juice-shop-performance
+          path: artifacts/targets/juice-shop-performance.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop Juice Shop
+        if: always()
+        run: docker stop saqa-juice-shop-performance || true
+
+  webgoat-e2e-matrix:
+    name: WebGoat E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e '.[test]'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
+      - name: Install selected browser
+        run: python -m playwright install --with-deps ${{ matrix.browser }}
+      - name: Start WebGoat
+        run: docker run --detach --rm --name saqa-webgoat -p 127.0.0.1:8080:8080 webgoat/webgoat:2026
+      - name: Wait for WebGoat login page
+        run: |
+          for attempt in {1..45}; do
+            status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 --max-redirs 0 http://127.0.0.1:8080/WebGoat/login 2>/dev/null || true)"
+            if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then exit 0; fi
+            sleep 2
+          done
+          docker logs saqa-webgoat
+          exit 1
+      - name: Run read-only WebGoat E2E
+        env:
+          SAQA_BROWSER: ${{ matrix.browser }}
+        run: python scripts/webgoat_e2e.py
+      - name: Upload WebGoat evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: webgoat-e2e-${{ matrix.browser }}
+          path: artifacts/targets/webgoat-e2e-${{ matrix.browser }}.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop WebGoat
+        if: always()
+        run: docker stop saqa-webgoat || true
+
+  evidence-aggregation:
+    name: Canonical evidence aggregation
+    runs-on: ubuntu-latest
+    needs: [juice-shop-e2e-matrix, juice-shop-api-smoke, juice-shop-performance, webgoat-e2e-matrix, database-quality]
+    if: ${{ always() && !cancelled() }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Download target evidence
+        uses: actions/download-artifact@v6
+        with:
+          pattern: '*-e2e-*'
+          path: artifacts/executions
+          merge-multiple: true
+      - name: Download API evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: juice-shop-api-smoke
+          path: artifacts/executions
+      - name: Download performance evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: juice-shop-performance
+          path: artifacts/executions
+      - name: Download database evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: saqa-database-quality
+          path: artifacts/executions
+      - name: Aggregate and verify canonical manifest
+        run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('evidence manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/evidence-manifest.json')))"
+      - name: Upload canonical evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-canonical-evidence
+          path: artifacts/evidence-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
   docker-target-smoke:
     name: Docker authorized target smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned Playwright
+        run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
       - name: Validate Docker Compose definition
         run: docker compose -f docker-compose.qa-targets.yml config
       - name: Start and validate local OWASP targets
