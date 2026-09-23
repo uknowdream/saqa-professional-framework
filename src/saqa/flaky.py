@@ -24,7 +24,7 @@ class FlakyAnalysis:
 
 def analyze_history(statuses: Sequence[str] | Iterable[str]) -> FlakyAnalysis:
     """Classify an execution history without inventing retries or outcomes."""
-    normalized = [str(getattr(status, "value", status)).upper() for status in statuses]
+    normalized = ["NOT_APPLICABLE" if str(getattr(status, "value", status)).upper() == "N/A" else str(getattr(status, "value", status)).upper() for status in statuses]
     unknown = sorted(set(normalized) - _ALLOWED)
     if unknown:
         raise ValueError(f"unsupported execution status(es): {', '.join(unknown)}")
