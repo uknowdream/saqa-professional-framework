@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-python - <<'PY'
+python3 - <<'PY
 from saqa.jira import verify_from_env
 
 result = verify_from_env()
