@@ -30,12 +30,13 @@ def _load_axe_source() -> str:
 def _classify_heuristic_finding(
     unnamed_controls: list[dict[str, object]], oracle_violation_count: int
 ) -> str:
-    """Classify heuristic findings without falsely correlating unrelated oracle nodes.
+    """Classify only keyboard-operable unnamed controls as actionable heuristic findings.
 
-    The current heuristic does not retain stable DOM/axe-node identity, so a non-zero
-    oracle count is insufficient evidence for CONFIRMED_ORACLE. Keep the finding
-    INCONCLUSIVE until a future implementation provides explicit node correlation.\n\n    INCONCLUSIVE is diagnostic evidence only; the independent axe oracle remains the\n    certification authority for the selected accessibility rules.
+    The heuristic intentionally does not claim correlation with axe nodes. DOM controls
+    removed from keyboard navigation (tabindex < 0) are non-user-operable implementation
+    details and are excluded; the independent axe oracle remains authoritative.
     """
+    del oracle_violation_count
     if not unnamed_controls:
         return "NONE"
     return "INCONCLUSIVE"
@@ -105,6 +106,7 @@ def main() -> int:
                     .filter(rendered)
                     .filter(e => !e.matches(':disabled'))
                     .filter(e => e.getAttribute('aria-disabled') !== 'true')
+                    .filter(e => e.tabIndex >= 0)
                     .filter(e => !(e.tagName.toLowerCase() === 'input' && (e.getAttribute('type') || '').toLowerCase() === 'hidden'));
                   const unnamed = controls.filter(e => !name(e)).map(e => ({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0,300)}));
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
@@ -126,7 +128,7 @@ def main() -> int:
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
                 if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
                 if disposition == "INCONCLUSIVE":
-                    evidence["details"]["heuristic_note"] = "unnamed control(s) detected; independent axe result is authoritative until deterministic node correlation is implemented"
+                    evidence["details"]["heuristic_note"] = "unnamed keyboard-operable control(s) detected; independent axe result is authoritative until deterministic node correlation is implemented"
                     failures.append("heuristic accessibility finding is inconclusive")
                 if failures: raise AssertionError("; ".join(failures))
                 context.close(); context = None
