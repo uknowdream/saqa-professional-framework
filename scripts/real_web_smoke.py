@@ -36,6 +36,13 @@ def validate_target(url: str) -> tuple[str, str]:
 def _redirect_target(current: str, location: str) -> str:
     return urljoin(current, location)
 
+def _redact_url(url: str) -> str:
+    """Remove query and fragment components before persisting URL evidence."""
+    parsed = urlparse(url)
+    return parsed._replace(query="", fragment="").geturl()
+
+
+
 
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
     """Read at most ``limit`` raw bytes so compressed responses cannot inflate before the cap."""
@@ -69,7 +76,7 @@ def run(target: str) -> dict[str, object]:
                         raise TargetPolicyError("Redirect response has no Location header")
                     current = _redirect_target(validated, location)
                     validate_target(current)
-                    redirects.append(current)
+                    redirects.append(_redact_url(current))
                     continue
                 status_code = response.status_code
                 headers = response.headers
@@ -87,7 +94,7 @@ def run(target: str) -> dict[str, object]:
     status = "PASS" if 200 <= status_code < 400 else "FAIL"
     evidence = {
         "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": status,
-        "target": validated, "host": host, "http_methods": ["GET"], "destructive_actions": False,
+        "target": _redact_url(validated), "host": host, "http_methods": ["GET"], "destructive_actions": False,
         "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "details": {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": title_present, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects, "security_headers_present": sorted(security_headers)},
     }
