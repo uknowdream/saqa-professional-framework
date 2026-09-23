@@ -12,7 +12,7 @@ BASE_URL = os.getenv("SAQA_WEBGOAT_URL", "http://127.0.0.1:8080/WebGoat/")
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
-ARTIFACT = Path("artifacts/targets") / f"webgoat-e2e-{BROWSER}.json"
+ARTIFACT_DIR = Path("artifacts/targets")
 
 
 def validate_target(url: str) -> None:
@@ -38,6 +38,10 @@ def guard_request(route) -> None:
 
 
 def main() -> None:
+    if BROWSER not in ALLOWED_BROWSERS:
+        raise ValueError(f"unsupported browser: {BROWSER}")
+    validate_target(BASE_URL)
+    ARTIFACT = ARTIFACT_DIR / f"webgoat-e2e-{BROWSER}.json"
     ARTIFACT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
         "schema": "saqa.webgoat-e2e.v3",
@@ -55,9 +59,6 @@ def main() -> None:
     started = time.perf_counter()
     browser = None
     try:
-        validate_target(BASE_URL)
-        if BROWSER not in ALLOWED_BROWSERS:
-            raise ValueError(f"unsupported browser: {BROWSER}")
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
             browser = getattr(playwright, BROWSER).launch(headless=True)
