@@ -1,8 +1,6 @@
-from pathlib import Path
-
 import pytest
 
-from scripts.juice_shop_api_smoke import _assert_loopback_http
+from scripts.juice_shop_api_smoke import OUTPUT, _assert_loopback_http
 
 
 def test_api_target_is_strict_loopback_http_only() -> None:
@@ -13,6 +11,6 @@ def test_api_target_is_strict_loopback_http_only() -> None:
 
 
 def test_api_evidence_output_contract_is_deterministic() -> None:
-    output = Path("artifacts/targets/juice-shop-api.json")
+    output = OUTPUT
     assert output.name == "juice-shop-api.json"
     assert output.parent.as_posix() == "artifacts/targets"
