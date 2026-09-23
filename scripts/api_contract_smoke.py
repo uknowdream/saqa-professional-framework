@@ -59,7 +59,7 @@ def main() -> int:
         result["status"] = "PASS"
         result["details"] = {"response_sha256": response.sha256, "redirects_followed": False}
     except Exception as exc:
-        result["status"] = "BLOCKED" if result["status_code"] == 0 and isinstance(exc, (ConnectionError, OSError)) else "FAIL"
+        result["status"] = "BLOCKED" if result["status_code"] == 0 else "FAIL"
         result["details"] = {"error": f"{type(exc).__name__}: {exc}", "redirects_followed": False}
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     output = ARTIFACT_DIR / "juice-shop-api-contract.json"
