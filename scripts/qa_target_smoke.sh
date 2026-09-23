@@ -43,8 +43,17 @@ wait_http() {
       location="$(awk 'tolower($0) ~ /^location:/{sub(/\r$/,"",$0); sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$header_file")"
       rm -f "$header_file"
       if [[ "$location" =~ ^http://127\.0\.0\.1:8080/WebGoat(/|$) ]] || [[ "$location" =~ ^/WebGoat(/|$) ]]; then
-        printf '%s:PASS (attempt %d/%d, HTTP %s, validated local redirect)\n' "$name" "$attempt" "$max_attempts" "$status"
-        return 0
+        destination="$location"
+        if [[ "$destination" == /* ]]; then
+          destination="http://127.0.0.1:8080${destination}"
+        fi
+        destination_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 5 --max-redirs 0 "$destination" 2>/dev/null || true)"
+        if [[ "$destination_status" =~ ^2[0-9][0-9]$ ]]; then
+          printf '%s:PASS (attempt %d/%d, HTTP %s, redirect destination HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status" "$destination_status"
+          return 0
+        fi
+        printf '%s:FAIL (redirect destination returned HTTP %s)\n' "$name" "${destination_status:-no-response}" >&2
+        return 1
       fi
       printf '%s:FAIL (unsafe redirect location: %s)\n' "$name" "${location:-missing}" >&2
       return 1
