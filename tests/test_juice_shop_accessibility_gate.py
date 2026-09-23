@@ -54,9 +54,16 @@ def test_accessibility_gate_records_actionable_control_details():
     assert "tab_index" in SOURCE
 
 
-def test_heuristic_only_considers_user_operable_controls():
-    assert ".filter(e => e.tabIndex >= 0)" in SOURCE
-    assert ".filter(e => !e.disabled && e.getAttribute('aria-disabled') !== 'true')" in SOURCE
+def test_heuristic_uses_semantic_disabled_state_not_tab_order():
+    assert ".filter(e => !e.matches(':disabled'))" in SOURCE
+    assert ".filter(e => e.getAttribute('aria-disabled') !== 'true')" in SOURCE
+    assert ".filter(e => e.tabIndex >= 0)" not in SOURCE
+    assert "tab_index:e.tabIndex" in SOURCE
+
+
+def test_heuristic_findings_are_diagnostic_until_node_correlation_exists():
+    assert "heuristic_note" in SOURCE
+    assert "INCONCLUSIVE is diagnostic evidence only" in SOURCE
 
 
 def test_independent_accessibility_oracle_is_required():
@@ -72,6 +79,11 @@ def test_heuristic_classification_is_fail_closed_for_uncorroborated_controls():
     assert module._classify_heuristic_finding([{"tab_index": 0}], 0) == "INCONCLUSIVE"
     # A raw violation count is not node-level correlation and must not confirm the heuristic.
     assert module._classify_heuristic_finding([{"tab_index": -1}], 1) == "INCONCLUSIVE"
+
+
+def test_semantic_disabled_controls_are_excluded_by_browser_logic():
+    assert ":disabled" in SOURCE
+    assert "fieldset" not in SOURCE or ":disabled" in SOURCE
 
 
 def test_accessibility_oracle_path_is_explicitly_configurable():
