@@ -20,8 +20,14 @@ P95_BUDGET_MS = float(os.getenv("SAQA_API_P95_BUDGET_MS", "5000"))
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost"}:
-        raise ValueError("performance target must be local HTTP loopback only")
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname not in {"127.0.0.1", "localhost"}
+        or parsed.username
+        or parsed.password
+        or parsed.port is None
+    ):
+        raise ValueError("performance target must be credential-free local HTTP loopback with an explicit port")
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -48,7 +54,7 @@ def main() -> None:
     status_codes: list[int] = []
     content_types: list[str] = []
 
-    with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+    with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
         for _ in range(REQUESTS):
             started = time.perf_counter()
             response = client.get(f"{BASE_URL}{ENDPOINT}")
