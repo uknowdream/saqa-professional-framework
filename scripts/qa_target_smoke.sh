@@ -40,7 +40,7 @@ wait_http() {
       return 0
     fi
     if [[ "$status" =~ ^3[0-9][0-9]$ && "$allow_local_redirect" == "true" ]]; then
-      location="$(awk 'tolower($0) ~ /^location:/{sub(/\r$/,"",$0); sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$header_file")"
+      location="$(awk 'BEGIN{IGNORECASE=1} /^location:/{sub(/\r$/,"",$0); sub(/^[^:]*:[[:space:]]*/,"",$0); print; exit}' "$header_file")"
       rm -f "$header_file"
       if [[ "$location" =~ ^http://127\.0\.0\.1:8080/WebGoat(/|$) ]] || [[ "$location" =~ ^/WebGoat(/|$) ]]; then
         destination="$location"
