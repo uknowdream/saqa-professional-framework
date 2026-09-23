@@ -82,7 +82,7 @@ Use the same Playwright version as CI for reproducibility:
 
 ```bash
 python -m pip install "playwright==1.62.0"
-python -m playwright install chromium firefox webkit
+python -m playwright install chromium firefox webkit firefox webkit
 ```
 
 Run the read-only E2E smoke:
