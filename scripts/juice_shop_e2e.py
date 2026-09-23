@@ -63,15 +63,19 @@ def main() -> int:
             context = browser.new_context(viewport={"width": 1440, "height": 900})
             context.route("**/*", lambda route: route.abort() if route.request.method != "GET" else (_assert_local_request(route.request.url), route.continue_())[1])
             page = context.new_page()
-            page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30_000)
+            response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30_000)
             _assert_local_request(page.url)
+            if response is None or not 200 <= response.status < 400:
+                raise AssertionError(f"unexpected home response status: {response.status if response else None}")
             page.locator("app-root").wait_for(state="attached", timeout=15_000)
             title = page.title()
             if "Juice Shop" not in title:
                 raise AssertionError(f"unexpected title: {title!r}")
 
-            page.goto(BASE_URL + "/#/search?q=apple", wait_until="domcontentloaded", timeout=30_000)
+            search_response = page.goto(BASE_URL + "/#/search?q=apple", wait_until="domcontentloaded", timeout=30_000)
             _assert_local_request(page.url)
+            if search_response is None or not 200 <= search_response.status < 400:
+                raise AssertionError(f"unexpected search response status: {search_response.status if search_response else None}")
             page.locator("app-root").wait_for(state="attached", timeout=15_000)
             final_url = page.url
             body_text = page.locator("body").inner_text(timeout=10_000)
@@ -82,6 +86,8 @@ def main() -> int:
 
             evidence["details"] = {
                 "title": title,
+                "home_status": response.status,
+                "search_status": search_response.status,
                 "final_url": final_url,
                 "body_text_nonempty": True,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
