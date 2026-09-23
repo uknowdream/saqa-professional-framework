@@ -10,7 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import httpx
-from jsonschema import Draft202012Validator
+from jsonschema import Draft4Validator
 
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 CONTRACT = Path(os.getenv("SAQA_CONTRACT_FILE", "contracts/juice-shop.openapi.json"))
@@ -61,7 +61,7 @@ def main() -> int:
         _assert_loopback_http(BASE_URL)
         schema, contract_sha256 = _schema()
         evidence["details"]["contract_sha256"] = contract_sha256
-        Draft202012Validator.check_schema(schema)
+        Draft4Validator.check_schema(schema)
         with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
             response = client.get(f"{BASE_URL}{ENDPOINT}")
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
@@ -71,7 +71,7 @@ def main() -> int:
         if content_type != "application/json":
             raise AssertionError("response content-type is not application/json")
         payload = response.json()
-        errors = sorted(Draft202012Validator(schema).iter_errors(payload), key=lambda error: list(error.path))
+        errors = sorted(Draft4Validator(schema).iter_errors(payload), key=lambda error: list(error.path))
         if errors:
             rendered = [{"path": list(error.path), "message": error.message} for error in errors[:20]]
             raise AssertionError(json.dumps(rendered, sort_keys=True))
