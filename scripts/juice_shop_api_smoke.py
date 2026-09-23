@@ -32,13 +32,13 @@ def main() -> int:
     evidence = {"schema": "saqa.juice-shop-api.v6", "test_id": "juice-shop.api.products-search", "status": "BLOCKED", "target": BASE_URL, "http_methods": ["GET"], "destructive_actions": False, "observed_at": observed_at, "details": {}}
     response = None
     try:
-        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+        with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
             response = client.get(f"{BASE_URL}{ENDPOINT}")
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
         content_type = response.headers.get("content-type", "")
         if response.status_code != 200:
             raise AssertionError(f"expected HTTP 200, got {response.status_code}")
-        if "application/json" not in content_type.lower():
+        if content_type.split(";", 1)[0].strip().lower() != "application/json":
             raise AssertionError(f"expected JSON response, got {content_type!r}")
         contract_response = ApiResponse(response.status_code, response.headers, response.content, elapsed_ms)
         assert_json_contract(contract_response, required_fields=("data",), field_types={"data": list})
