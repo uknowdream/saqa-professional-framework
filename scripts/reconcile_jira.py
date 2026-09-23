@@ -9,7 +9,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 
-WORKFLOWS = ("SAQA CI", "SAQA Accessibility", "SAQA Mobile Readiness")
+WORKFLOWS = ("SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness")
 
 
 def gh_get(path: str) -> object:
