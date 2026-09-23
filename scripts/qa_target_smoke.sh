@@ -52,10 +52,11 @@ wait_http() {
           printf '%s:PASS (attempt %d/%d, HTTP %s, redirect destination HTTP %s)\n' "$name" "$attempt" "$max_attempts" "$status" "$destination_status"
           return 0
         fi
-        printf '%s:FAIL (redirect destination returned HTTP %s)\n' "$name" "${destination_status:-no-response}" >&2
-        # Keep polling transient destination failures until the readiness budget expires.
+        printf '%s:WAIT (redirect destination returned HTTP %s)\n' "$name" "${destination_status:-no-response}" >&2
+        if (( attempt < max_attempts )); then sleep "$delay"; fi
+        ((attempt++))
+        continue
       fi
-      printf '%s:FAIL (unsafe redirect location: %s)\n' "$name" "${location:-missing}" >&2
       return 1
     fi
     rm -f "$header_file"
