@@ -129,6 +129,7 @@ def main() -> int:
                 if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
                 if disposition == "INCONCLUSIVE":
                     evidence["details"]["heuristic_note"] = "unnamed control(s) detected; independent axe result is authoritative until deterministic node correlation is implemented"
+                    failures.append("heuristic accessibility finding is inconclusive")
                 if failures: raise AssertionError("; ".join(failures))
                 context.close(); context = None
                 browser.close(); browser = None
