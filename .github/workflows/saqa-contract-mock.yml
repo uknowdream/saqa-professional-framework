@@ -29,18 +29,19 @@ jobs:
           python-version: '3.12'
       - name: Install project
         run: python -m pip install -e '.[contract,test]'
+
       - name: Start valid mock
         env:
           SAQA_MOCK_MODE: valid
           SAQA_MOCK_PORT: "3100"
         run: |
-          python scripts/mock_contract_service.py > /tmp/saqa-mock.log 2>&1 &
-          echo $! > /tmp/saqa-mock.pid
+          python scripts/mock_contract_service.py > /tmp/saqa-mock-valid.log 2>&1 &
+          echo $! > /tmp/saqa-mock-valid.pid
           for attempt in {1..20}; do
             curl --fail --silent http://127.0.0.1:3100/ >/dev/null && exit 0
             sleep 0.25
           done
-          cat /tmp/saqa-mock.log
+          cat /tmp/saqa-mock-valid.log
           exit 1
       - name: Validate passing contract against mock
         env:
@@ -49,24 +50,24 @@ jobs:
         run: python scripts/contract_gate.py
       - name: Stop valid mock
         if: always()
-        run: kill "$(cat /tmp/saqa-mock.pid)" 2>/dev/null || true
+        run: kill "$(cat /tmp/saqa-mock-valid.pid)" 2>/dev/null || true
 
       - name: Start invalid-schema mock
         env:
           SAQA_MOCK_MODE: invalid-schema
-          SAQA_MOCK_PORT: "3100"
+          SAQA_MOCK_PORT: "3101"
         run: |
-          python scripts/mock_contract_service.py > /tmp/saqa-mock.log 2>&1 &
-          echo $! > /tmp/saqa-mock.pid
+          python scripts/mock_contract_service.py > /tmp/saqa-mock-invalid.log 2>&1 &
+          echo $! > /tmp/saqa-mock-invalid.pid
           for attempt in {1..20}; do
-            curl --fail --silent http://127.0.0.1:3100/ >/dev/null && exit 0
+            curl --fail --silent http://127.0.0.1:3101/ >/dev/null && exit 0
             sleep 0.25
           done
-          cat /tmp/saqa-mock.log
+          cat /tmp/saqa-mock-invalid.log
           exit 1
       - name: Assert contract failure is fail-closed
         env:
-          SAQA_API_BASE_URL: http://127.0.0.1:3100
+          SAQA_API_BASE_URL: http://127.0.0.1:3101
           SAQA_CONTRACT_OUTPUT: artifacts/targets/mock-contract-fail.json
         run: |
           set +e
@@ -82,7 +83,7 @@ jobs:
           PY
       - name: Stop invalid mock
         if: always()
-        run: kill "$(cat /tmp/saqa-mock.pid)" 2>/dev/null || true
+        run: kill "$(cat /tmp/saqa-mock-invalid.pid)" 2>/dev/null || true
 
       - name: Upload mock evidence
         if: always()
