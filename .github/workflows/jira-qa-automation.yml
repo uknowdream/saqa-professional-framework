@@ -99,7 +99,7 @@ jobs:
               SHOULD_SYNC=false
             fi
           fi
-          printf 'run_id=%s\nrun_name=%s\nrun_number=%s\nrun_conclusion=%s\nrun_status=%s\nhead_sha=%s\nhead_branch=%s\nrun_url=%s\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" >> "$GITHUB_OUTPUT"
+          printf 'run_id=%s\\nrun_name=%s\\nrun_number=%s\\nrun_conclusion=%s\\nrun_status=%s\\nhead_sha=%s\\nhead_branch=%s\\nrun_url=%s\\nshould_sync=%s\\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" "$SHOULD_SYNC" >> "$GITHUB_OUTPUT"
 
       - name: Collect completed job evidence
         if: steps.run.outputs.should_sync == 'true'
