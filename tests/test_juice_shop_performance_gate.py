@@ -30,3 +30,31 @@ def test_target_guard_rejects_non_loopback():
 def test_target_guard_accepts_local_http():
     module._assert_loopback_http("http://127.0.0.1:3000")
     module._assert_loopback_http("http://localhost:3000")
+
+
+def test_main_records_fail_evidence_when_p95_exceeds_budget(monkeypatch, tmp_path):
+    class Response:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+    class Client:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return None
+        def get(self, *args, **kwargs):
+            return Response()
+
+    monkeypatch.setattr(module, "OUTPUT", tmp_path / "performance.json")
+    monkeypatch.setattr(module, "REQUESTS", 3)
+    monkeypatch.setattr(module, "P95_BUDGET_MS", 0.0)
+    monkeypatch.setattr(module.httpx, "Client", Client)
+    monkeypatch.setattr(module.time, "perf_counter", lambda: 0.0)
+    monkeypatch.setattr(module, "_percentile", lambda values, percentile: 1.0)
+    with pytest.raises(SystemExit):
+        module.main()
+    evidence = __import__("json").loads((tmp_path / "performance.json").read_text(encoding="utf-8"))
+    assert evidence["status"] == "FAIL"
+    assert evidence["details"]["p95_ms"] == 1.0
