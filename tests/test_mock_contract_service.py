@@ -27,11 +27,15 @@ def _start(mode: str, port: int):
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=1) as response:
                 if response.status == 200:
+                    if process.poll() is not None:
+                        stderr = process.communicate(timeout=2)[1]
+                        raise AssertionError(f"mock process exited before readiness check: {stderr.strip()}")
                     return process
         except (urllib.error.URLError, ConnectionError):
             time.sleep(0.1)
     process.kill()
-    raise AssertionError("mock service did not start")
+    stderr = process.communicate(timeout=2)[1]
+    raise AssertionError(f"mock service did not start: {stderr.strip()}")
 
 
 def _request(port: int, path: str):
