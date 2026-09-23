@@ -104,7 +104,10 @@ def main() -> int:
                   const rendered = e => { if (e.hidden || e.getAttribute('aria-hidden') === 'true') return false;
                     const s = getComputedStyle(e), r = e.getBoundingClientRect(); return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0; };
                   const controls = [...document.querySelectorAll('button,a[href],input,select,textarea,[role=\\"button\\"],[role=\\"link\\"],[role=\\"checkbox\\"],[role=\\"radio\\"],[role=\\"switch\\"],[role=\\"combobox\\"],[role=\\"textbox\\"]')]
-                    .filter(rendered).filter(e => !(e.tagName.toLowerCase() === 'input' && (e.getAttribute('type') || '').toLowerCase() === 'hidden'));
+                    .filter(rendered)
+                    .filter(e => e.tabIndex >= 0)
+                    .filter(e => !e.disabled && e.getAttribute('aria-disabled') !== 'true')
+                    .filter(e => !(e.tagName.toLowerCase() === 'input' && (e.getAttribute('type') || '').toLowerCase() === 'hidden'));
                   const unnamed = controls.filter(e => !name(e)).map(e => ({tag:e.tagName.toLowerCase(),id:e.id||'',role:e.getAttribute('role')||'',type:e.getAttribute('type')||'',tab_index:e.tabIndex,outerHTML:e.outerHTML.slice(0,300)}));
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
                 }""")
