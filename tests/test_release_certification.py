@@ -12,7 +12,16 @@ def test_result_is_fail_closed() -> None:
 
 
 def test_certification_requires_every_mandatory_domain() -> None:
-    assert decide({"SAQA CI": "PASS", "SAQA Accessibility": "PASS", "SAQA Mobile Readiness": "PASS"}).status == "CERTIFIED"
-    assert decide({"SAQA CI": "PASS", "SAQA Accessibility": "FAIL", "SAQA Mobile Readiness": "PASS"}).status == "NOT_CERTIFIED"
-    assert decide({"SAQA CI": "PASS", "SAQA Accessibility": "PENDING", "SAQA Mobile Readiness": "PASS"}).status == "NOT_CERTIFIED"
-    assert decide({"SAQA CI": "PASS", "SAQA Accessibility": "UNVERIFIED", "SAQA Mobile Readiness": "PASS"}).status == "NOT_CERTIFIED"
+    passing = {
+        "SAQA CI": "PASS",
+        "SAQA Contract Testing": "PASS",
+        "SAQA Accessibility": "PASS",
+        "SAQA Mobile Readiness": "PASS",
+    }
+    assert decide(passing).status == "CERTIFIED"
+    failed = {**passing, "SAQA Accessibility": "FAIL"}
+    assert decide(failed).status == "NOT_CERTIFIED"
+    pending = {**passing, "SAQA Contract Testing": "PENDING"}
+    assert decide(pending).status == "NOT_CERTIFIED"
+    unverified = {**passing, "SAQA Contract Testing": "UNVERIFIED"}
+    assert decide(unverified).status == "NOT_CERTIFIED"
