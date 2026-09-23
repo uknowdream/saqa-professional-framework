@@ -325,6 +325,11 @@ jobs:
         with:
           name: saqa-database-quality
           path: artifacts/executions
+      - name: Download Docker target smoke evidence
+        uses: actions/download-artifact@v6
+        with:
+          name: saqa-docker-target-smoke
+          path: artifacts/executions
       - name: Aggregate and verify canonical manifest
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('evidence manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/evidence-manifest.json')))"
       - name: Upload canonical evidence
