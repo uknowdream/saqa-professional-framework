@@ -53,13 +53,15 @@ def main() -> int:
     }
     try:
         schema, contract_sha256 = _schema()
+        evidence["details"]["contract_sha256"] = contract_sha256
         Draft202012Validator.check_schema(schema)
-        with httpx.Client(timeout=10.0, follow_redirects=False) as client:
+        with httpx.Client(timeout=10.0, follow_redirects=False, trust_env=False) as client:
             response = client.get(f"{BASE_URL}{ENDPOINT}")
         elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
         if response.status_code != 200:
             raise AssertionError(f"expected HTTP 200, got {response.status_code}")
-        if "application/json" not in response.headers.get("content-type", "").lower():
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if content_type != "application/json":
             raise AssertionError("response content-type is not application/json")
         payload = response.json()
         errors = sorted(Draft202012Validator(schema).iter_errors(payload), key=lambda error: list(error.path))
