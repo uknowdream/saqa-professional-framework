@@ -14,7 +14,22 @@ cleanup() {
 import json, platform, sys, time
 from pathlib import Path
 path, rc, compose = sys.argv[1], int(sys.argv[2]), sys.argv[3]
-payload = {"schema":"saqa.target-smoke.v4","timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"observed_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),"test_id":"docker.authorized-target-smoke","target":"owasp-juice-shop+owasp-webgoat","compose_file":compose,"targets":["owasp-juice-shop","owasp-webgoat"],"http_methods":["GET"],"redirects_followed":False,"destructive_actions":False,"runner":platform.platform(),"status":"FAIL","exit_code":rc,"details":"target smoke failed before completion; inspect CI diagnostics"}
+payload = {
+    "schema":"saqa.target-smoke.v4",
+    "timestamp_utc":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
+    "observed_at":time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()),
+    "test_id":"docker.authorized-target-smoke",
+    "target":"owasp-juice-shop+owasp-webgoat",
+    "compose_file":compose,
+    "targets":["owasp-juice-shop","owasp-webgoat"],
+    "http_methods":["GET"],
+    "redirects_followed":False,
+    "destructive_actions":False,
+    "runner":platform.platform(),
+    "status":"FAIL",
+    "exit_code":rc,
+    "details":{"reason":"target smoke failed before completion; inspect CI diagnostics","exit_code":rc},
+}
 Path(path).write_text(json.dumps(payload,indent=2,sort_keys=True)+"\n",encoding="utf-8")
 PY
   fi
@@ -30,7 +45,7 @@ docker compose -f "$COMPOSE_FILE" pull --quiet
 docker compose -f "$COMPOSE_FILE" up -d
 
 wait_http() {
-  local name="$1" url="$2" max_attempts="${3:-60}" allow_local_redirect="${4:-false}" attempt=1 delay=2 status="" location="" header_file=""
+  local name="$1" url="$2" max_attempts="${3:-60}" allow_local_redirect="${4:-false}" attempt=1 delay=2 status="" location="" header_file="" destination="" destination_status=""
   while (( attempt <= max_attempts )); do
     header_file="$(mktemp)"
     status="$(curl --silent --show-error --output /dev/null --dump-header "$header_file" --write-out '%{http_code}' --max-time 5 --max-redirs 0 "$url" 2>/dev/null || true)"
@@ -87,7 +102,7 @@ wait_http "webgoat-web" "http://127.0.0.1:8080/WebGoat/" 90 true
 SAQA_API_BASE_URL="http://127.0.0.1:3000" python3 scripts/api_contract_smoke.py
 SAQA_JUICE_SHOP_URL="http://127.0.0.1:3000" python3 scripts/juice_shop_e2e.py
 
-python3 - <<'PY
+python3 - <<'PY'
 import json, os, platform, subprocess, time
 from pathlib import Path
 out=Path(os.environ.get("SAQA_ARTIFACT_DIR","artifacts/targets")); out.mkdir(parents=True,exist_ok=True)
