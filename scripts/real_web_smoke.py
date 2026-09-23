@@ -42,8 +42,6 @@ def _redact_url(url: str) -> str:
     return parsed._replace(query="", fragment="").geturl()
 
 
-
-
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
     """Read at most ``limit`` raw bytes so compressed responses cannot inflate before the cap."""
     chunks: list[bytes] = []
@@ -59,51 +57,57 @@ def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
 
 
 def run(target: str) -> dict[str, object]:
-    current, host = validate_target(target)
-    timeout = float(os.getenv("SAQA_REAL_WEB_TIMEOUT", "10"))
-    max_redirects = int(os.getenv("SAQA_REAL_WEB_MAX_REDIRECTS", "3"))
-    started = time.perf_counter()
-    redirects: list[str] = []
-    body = b""
-
-    with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
-        for _ in range(max_redirects + 1):
-            validated, host = validate_target(current)
-            with client.stream("GET", validated) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise TargetPolicyError("Redirect response has no Location header")
-                    current = _redirect_target(validated, location)
-                    validate_target(current)
-                    redirects.append(_redact_url(current))
-                    continue
-                status_code = response.status_code
-                headers = response.headers
-                body = _bounded_body(response)
-                break
-        else:
-            raise TargetPolicyError("Maximum redirect count exceeded")
-
-    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-    content_type = headers.get("content-type", "")
-    content_encoding = headers.get("content-encoding", "")
-    lower = body.decode("utf-8", errors="replace").lower()
-    title_present = "<title" in lower and "</title>" in lower
-    security_headers = {name: headers.get(name) for name in ("content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy") if headers.get(name)}
-    status = "PASS" if 200 <= status_code < 400 else "FAIL"
-    evidence = {
-        "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": status,
-        "target": _redact_url(validated), "host": host, "http_methods": ["GET"], "destructive_actions": False,
-        "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "details": {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": title_present, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects, "security_headers_present": sorted(security_headers)},
-    }
     output = Path(os.getenv("SAQA_REAL_WEB_EVIDENCE", "artifacts/targets/real-web-smoke.json"))
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
-    if status != "PASS":
-        raise AssertionError(f"Authorized real-web smoke returned HTTP {status_code}")
+    started = time.perf_counter()
+    evidence = {
+        "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": "BLOCKED",
+        "target": _redact_url(target), "host": "", "http_methods": ["GET"], "destructive_actions": False,
+        "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "details": {},
+    }
+    try:
+        current, host = validate_target(target)
+        timeout = float(os.getenv("SAQA_REAL_WEB_TIMEOUT", "10"))
+        max_redirects = int(os.getenv("SAQA_REAL_WEB_MAX_REDIRECTS", "3"))
+        redirects: list[str] = []
+        body = b""
+        with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
+            for _ in range(max_redirects + 1):
+                validated, host = validate_target(current)
+                with client.stream("GET", validated) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location: raise TargetPolicyError("Redirect response has no Location header")
+                        current = _redirect_target(validated, location)
+                        validate_target(current)
+                        redirects.append(_redact_url(current))
+                        continue
+                    status_code = response.status_code
+                    headers = response.headers
+                    body = _bounded_body(response)
+                    break
+            else:
+                raise TargetPolicyError("Maximum redirect count exceeded")
+        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+        content_type = headers.get("content-type", "")
+        content_encoding = headers.get("content-encoding", "")
+        lower = body.decode("utf-8", errors="replace").lower()
+        evidence["status"] = "PASS" if 200 <= status_code < 400 else "FAIL"
+        evidence["host"] = host
+        evidence["target"] = _redact_url(validated)
+        evidence["details"] = {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": "<title" in lower and "</title>" in lower, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "redirects": redirects}
+        if evidence["status"] != "PASS": raise AssertionError(f"Authorized real-web smoke returned HTTP {status_code}")
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+        evidence["status"] = "BLOCKED"
+        evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
+    except Exception as exc:
+        evidence["status"] = "FAIL"
+        evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        output.write_text(json.dumps(evidence, indent=2) + "\\n", encoding="utf-8")
+    if evidence["status"] != "PASS": raise SystemExit(1)
     return evidence
+
 
 
 if __name__ == "__main__":
