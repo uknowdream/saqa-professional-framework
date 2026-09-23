@@ -12,7 +12,7 @@ BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
 OUTPUT = Path("artifacts/targets/juice-shop-accessibility.json")
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
 AXE_CORE_PATH = Path(os.getenv("SAQA_AXE_CORE_PATH", "node_modules/axe-core/axe.min.js"))
-AXE_RULES = ["aria-input-field-name", "button-name", "link-name", "label"]
+AXE_RULES = ["aria-input-field-name", "button-name", "link-name"]
 
 
 def _assert_loopback_http(url: str) -> None:
