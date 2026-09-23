@@ -82,7 +82,7 @@ Use the same Playwright version as CI for reproducibility:
 
 ```bash
 python -m pip install "playwright==1.62.0"
-python -m playwright install chromium
+python -m playwright install chromium firefox webkit
 ```
 
 Run the read-only E2E smoke:
@@ -263,7 +263,7 @@ Mobile-oriented scenarios can be organized around Maestro-style declarative flow
 
 ## ♿ Accessibility
 
-Current readiness checks include document language/title, image `alt`, accessible-name candidates, headings, landmarks, and control-level diagnostics. An independent **axe-core 4.10.2** oracle runs the selected rules `aria-input-field-name`, `button-name`, `link-name`, and `label` across the browser matrix.
+Current readiness checks include document language/title, image `alt`, accessible-name candidates, headings, landmarks, and control-level diagnostics. An independent **axe-core 4.10.2** oracle runs the selected rules `aria-input-field-name`, `button-name`, and `link-name` across the browser matrix.
 
 The framework keeps heuristic findings even when the oracle reports no violation. Classification is explicit:
 
