@@ -7,6 +7,7 @@ on:
       - SAQA Contract Testing
       - SAQA Accessibility
       - SAQA Mobile Readiness
+      - SAQA k6 Performance
     types: [completed]
     branches:
       - 'saqa/**'
@@ -88,7 +89,7 @@ jobs:
             exit 1
           fi
           case "$RUN_NAME:$HEAD_BRANCH" in
-            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Contract Testing:main"|"SAQA Contract Testing:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*) ;;
+            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Contract Testing:main"|"SAQA Contract Testing:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*|"SAQA k6 Performance:main"|"SAQA k6 Performance:saqa/"*) ;;
             *) echo "Unsupported workflow or branch for Jira synchronization: $RUN_NAME / $HEAD_BRANCH"; exit 1 ;;
           esac
           SHOULD_SYNC=true
