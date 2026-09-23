@@ -102,16 +102,19 @@ jobs:
           printf 'run_id=%s\nrun_name=%s\nrun_number=%s\nrun_conclusion=%s\nrun_status=%s\nhead_sha=%s\nhead_branch=%s\nrun_url=%s\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" >> "$GITHUB_OUTPUT"
 
       - name: Collect completed job evidence
+        if: steps.run.outputs.should_sync == 'true'
         env:
           RUN_ID: ${{ steps.run.outputs.run_id }}
         run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --jq '.jobs' > "$RUNNER_TEMP/jira-jobs.json"
 
       - name: Collect all relevant workflow runs for exact commit
+        if: steps.run.outputs.should_sync == 'true'
         env:
           HEAD_SHA: ${{ steps.run.outputs.head_sha }}
         run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/jira-runs.json"
 
       - name: Synchronize Jira QA control plane
+        if: steps.run.outputs.should_sync == 'true'
         env:
           JIRA_WORKFLOW_NAME: ${{ steps.run.outputs.run_name }}
           JIRA_RUN_ID: ${{ steps.run.outputs.run_id }}
