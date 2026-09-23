@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: saqa-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   SAQA_PLAYWRIGHT_VERSION: '1.62.0'
@@ -28,11 +32,11 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
       - name: Install project
-        run: python -m pip install -e '.[test]'
+        run: python -m pip install -e '.[test,ci]'
       - name: Compile
         run: python -m compileall -q src tests
       - name: Tests
-        run: python -m pytest --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+        run: python -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
       - name: Generate and verify evidence
         run: python -m saqa.ci_evidence
       - name: Optimized-mode compile and import
