@@ -104,3 +104,40 @@ def test_json_list_cardinality_rejects_inverted_bounds():
     response = ApiResponse(200, {}, b'{"data":[]}', 1.0)
     with pytest.raises(ValueError, match="cannot exceed maximum"):
         assert_json_list_cardinality(response, field="data", minimum=2, maximum=1)
+
+
+def test_request_can_bypass_environment_proxy_and_preserve_redirect(monkeypatch):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/redirect":
+                self.send_response(302)
+                self.send_header("Location", "/ok")
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"ok":true}')
+        def log_message(self, format, *args):
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
+        url = f"http://127.0.0.1:{server.server_port}"
+        direct = __import__("saqa.api", fromlist=["request"]).request(
+            url + "/ok", use_environment_proxies=False
+        )
+        assert direct.status_code == 200
+        response = __import__("saqa.api", fromlist=["request"]).request(
+            url + "/redirect", use_environment_proxies=False, follow_redirects=False
+        )
+        assert response.status_code == 302
+    finally:
+        server.shutdown()
+        server.server_close()
