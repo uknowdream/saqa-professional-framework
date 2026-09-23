@@ -90,29 +90,39 @@ class JiraClient:
         )
 
     def find_project_issues(self, max_results: int = 1000) -> dict[str, JiraIssueResult]:
-        """Return project issues keyed by exact summary for deterministic management."""
-        response = self._client.get(
-            "/rest/api/3/search/jql",
-            params={
-                "jql": f"project = {self.config.project_key}",
-                "maxResults": max_results,
-                "fields": "summary,labels",
-            },
-        )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
-        issues = response.json().get("issues", [])
+        """Return project issues keyed by exact summary, with paginated retrieval."""
         result: dict[str, JiraIssueResult] = {}
-        for item in issues:
-            key = str(item.get("key", ""))
-            summary = str(item.get("fields", {}).get("summary", ""))
-            if not key or not summary:
-                continue
-            if summary in result and result[summary].key != key and summary.startswith("[SAQA-"):
-                raise RuntimeError(
-                    f"Jira has duplicate managed summary: {summary!r} ({result[summary].key}, {key})"
-                )
-            result[summary] = JiraIssueResult(key, str(item.get("id", "")), f"{self.config.base_url}/browse/{key}")
+        start_at = 0
+        page_size = min(max_results, 100)
+        while len(result) < max_results:
+            response = self._client.get(
+                "/rest/api/3/search/jql",
+                params={
+                    "jql": f"project = {self.config.project_key}",
+                    "maxResults": page_size,
+                    "startAt": start_at,
+                    "fields": "summary,labels",
+                },
+            )
+            self._raise_for_auth(response, "authentication")
+            response.raise_for_status()
+            payload = response.json()
+            issues = payload.get("issues", [])
+            if not isinstance(issues, list):
+                raise RuntimeError("Unexpected Jira issue-search payload")
+            for item in issues:
+                key = str(item.get("key", ""))
+                summary = str(item.get("fields", {}).get("summary", ""))
+                if not key or not summary:
+                    continue
+                if summary in result and result[summary].key != key and summary.startswith("[SAQA-"):
+                    raise RuntimeError(
+                        f"Jira has duplicate managed summary: {summary!r} ({result[summary].key}, {key})"
+                    )
+                result[summary] = JiraIssueResult(key, str(item.get("id", "")), f"{self.config.base_url}/browse/{key}")
+            if not issues or len(issues) < page_size:
+                break
+            start_at += len(issues)
         return result
 
     def search_issues(self, jql: str, max_results: int = 100) -> list[JiraIssueResult]:
@@ -171,14 +181,27 @@ class JiraClient:
             labels=tuple(str(label) for label in fields.get("labels", []) or []),
         )
 
-    def get_issue_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        response = self._client.get(
-            f"/rest/api/3/issue/{issue_key}/comment",
-            params={"maxResults": 100, "orderBy": "-created"},
-        )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
-        return list(response.json().get("comments", []))
+    def get_issue_comments(self, issue_key: str, max_pages: int = 20) -> list[dict[str, Any]]:
+        """Return recent Jira comments across pages so marker checks are complete."""
+        comments: list[dict[str, Any]] = []
+        start_at = 0
+        for _ in range(max_pages):
+            response = self._client.get(
+                f"/rest/api/3/issue/{issue_key}/comment",
+                params={"startAt": start_at, "maxResults": 100, "orderBy": "-created"},
+            )
+            self._raise_for_auth(response, "authentication")
+            response.raise_for_status()
+            payload = response.json()
+            batch = payload.get("comments", [])
+            if not isinstance(batch, list):
+                raise RuntimeError(f"Unexpected Jira comments payload for {issue_key}")
+            comments.extend(item for item in batch if isinstance(item, dict))
+            total = int(payload.get("total", len(comments)))
+            if not batch or len(comments) >= total:
+                break
+            start_at += len(batch)
+        return comments
 
     def create_task(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
         return self._create_issue("Task", summary, description, labels)
