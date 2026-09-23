@@ -4,7 +4,7 @@ import importlib.util
 from pathlib import Path
 
 
-SPEC = importlib.util.spec_from_file_location("webgoat_e2e", Path("scripts/webgoat_e2e.py"))
+SPEC = importlib.util.spec_from_file_location("webgoat_e2e", Path(__file__).resolve().parents[1] / "scripts" / "webgoat_e2e.py")
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
