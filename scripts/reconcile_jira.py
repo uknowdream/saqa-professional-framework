@@ -109,11 +109,12 @@ def main() -> None:
     common_sha = next(iter(shas))
     print(f"Reconciling common main commit: {common_sha}")
 
+    selected_runs = list(selected.values())
+    all_runs = {"workflow_runs": selected_runs}
     for workflow_name in WORKFLOWS:
         run = selected[workflow_name]
         run_id = str(run["id"])
         jobs = gh_get(f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100")
-        all_runs = gh_get(f"/repos/{repo}/actions/runs?head_sha={urllib.parse.quote(common_sha)}&per_page=100")
         with tempfile.TemporaryDirectory() as directory:
             jobs_path = os.path.join(directory, "jobs.json")
             runs_path = os.path.join(directory, "runs.json")
@@ -134,7 +135,7 @@ def main() -> None:
                 "JIRA_JOBS_JSON": jobs_path,
                 "JIRA_ALL_RUNS_JSON": runs_path,
             })
-            subprocess.run(["python", "scripts/sync_jira_ci.py"], env=env, check=True)
+            subprocess.run(["python3", "scripts/sync_jira_ci.py"], env=env, check=True)
             print(f"{workflow_name}: reconciled run {run_id} on {common_sha}")
 
 
