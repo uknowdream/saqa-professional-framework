@@ -1,7 +1,10 @@
+import hashlib
 import json
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
+
+from scripts.contract_gate import CONTRACT, _schema
 
 CONTRACT = Path("contracts/juice-shop.openapi.json")
 
@@ -28,3 +31,9 @@ def test_reference_contract_rejects_missing_data():
         assert "data" in str(exc)
     else:
         raise AssertionError("invalid payload unexpectedly passed contract")
+
+
+def test_schema_evidence_digest_matches_contract_bytes():
+    schema, digest = _schema()
+    assert schema["type"] == "object"
+    assert digest == hashlib.sha256(CONTRACT.read_bytes()).hexdigest()
