@@ -295,7 +295,7 @@ jobs:
   evidence-aggregation:
     name: Canonical evidence aggregation
     runs-on: ubuntu-latest
-    needs: [juice-shop-e2e-matrix, juice-shop-api-smoke, juice-shop-performance, webgoat-e2e-matrix, database-quality]
+    needs: [juice-shop-e2e-matrix, juice-shop-api-smoke, juice-shop-performance, webgoat-e2e-matrix, database-quality, docker-target-smoke]
     if: ${{ always() && !cancelled() }}
     steps:
       - uses: actions/checkout@v6
