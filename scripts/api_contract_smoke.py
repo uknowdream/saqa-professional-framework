@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -30,7 +31,7 @@ def _assert_loopback_http(url: str) -> None:
 def main() -> int:
     started = time.perf_counter()
     result = {
-        "schema": "saqa.api-contract.v2", "target": BASE_URL, "observed_at": datetime.now(timezone.utc).isoformat(), "path": PATH, "method": "GET",
+        "schema": "saqa.api-contract.v2", "test_id": "juice-shop.api-contract.search", "target": BASE_URL, "observed_at": datetime.now(timezone.utc).isoformat(), "path": PATH, "method": "GET",
         "status_code": 0, "content_type": "", "elapsed_ms": 0, "contract": {"required_fields": ["data"], "list_fields": ["data"]},
         "destructive_actions": False, "status": "BLOCKED", "details": {},
     }
