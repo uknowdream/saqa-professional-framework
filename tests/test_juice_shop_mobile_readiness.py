@@ -28,6 +28,7 @@ def test_non_loopback_or_noncanonical_targets_are_rejected():
         "http://192.168.1.10:3000",
         "http://localhost:3000",
         "http://127.0.0.1",
+        "http://user:pass@127.0.0.1:3000",
     ):
         try:
             module._assert_loopback_http(target)
