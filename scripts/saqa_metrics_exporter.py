@@ -6,7 +6,7 @@ import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-HOST = "0.0.0.0"
+HOST = os.getenv("SAQA_METRICS_HOST", "127.0.0.1")
 PORT = int(os.getenv("SAQA_METRICS_PORT", "9109"))
 EVIDENCE_DIR = Path(os.getenv("SAQA_EVIDENCE_DIR", "artifacts/targets"))
 STATUS_VALUE = {"PASS": 1, "FAIL": 0, "BLOCKED": -1, "PENDING": -2, "UNVERIFIED": -3}
