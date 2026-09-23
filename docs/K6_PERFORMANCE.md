@@ -9,6 +9,7 @@ The executor is read-only and targets only the local/containerized Juice Shop se
 Local execution:
 make install
 docker run --detach --rm --name saqa-juice-shop-k6 -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+for attempt in {1..30}; do curl --silent --fail --max-time 5 http://127.0.0.1:3000/ >/dev/null && break; sleep 2; done
 python scripts/k6_gate.py
 docker stop saqa-juice-shop-k6
 
