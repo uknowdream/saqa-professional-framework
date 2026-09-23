@@ -32,12 +32,6 @@ def _guard_request(route) -> None:
 
 
 def main() -> None:
-    _assert_loopback_http(BASE_URL)
-    if BROWSER not in ALLOWED_BROWSERS:
-        raise ValueError(f"unsupported browser: {BROWSER}")
-
-    from playwright.sync_api import sync_playwright
-
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
         "schema": "saqa.juice-shop-mobile-readiness.v2",
@@ -54,6 +48,10 @@ def main() -> None:
     }
 
     try:
+        _assert_loopback_http(BASE_URL)
+        if BROWSER not in ALLOWED_BROWSERS:
+            raise ValueError(f"unsupported browser: {BROWSER}")
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
             browser = None
             context = None
