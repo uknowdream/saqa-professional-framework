@@ -1,9 +1,11 @@
 import hashlib
 import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from saqa.api import ApiResponse, assert_json_contract, assert_json_fields, assert_json_list_cardinality
+from saqa.api import ApiResponse, assert_json_contract, assert_json_fields, assert_json_list_cardinality, request
 
 
 def test_json_field_validation_accepts_expected_object():
@@ -107,9 +109,6 @@ def test_json_list_cardinality_rejects_inverted_bounds():
 
 
 def test_request_can_bypass_environment_proxy_and_preserve_redirect(monkeypatch):
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    import threading
-
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             if self.path == "/redirect":
@@ -130,7 +129,7 @@ def test_request_can_bypass_environment_proxy_and_preserve_redirect(monkeypatch)
     try:
         monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:1")
         url = f"http://127.0.0.1:{server.server_port}"
-        direct = __import__("saqa.api", fromlist=["request"]).request(
+        direct = request(
             url + "/ok", use_environment_proxies=False
         )
         assert direct.status_code == 200
