@@ -78,7 +78,7 @@ def main() -> int:
             # Juice Shop uses Angular hash routing. Navigating the hash is a same-document
             # operation, so Playwright correctly returns no new HTTP Response for it.
             page.evaluate("window.location.hash = '#/search?q=apple'")
-            page.wait_for_url(BASE_URL + "/#/search?q=apple", timeout=15_000)
+            page.wait_for_url(lambda url: url.startswith(BASE_URL + "/#/search?q=apple"), timeout=15_000)
             _assert_local_request(page.url)
             page.locator("app-root").wait_for(state="attached", timeout=15_000)
             final_url = page.url
