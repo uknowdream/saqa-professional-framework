@@ -30,8 +30,15 @@ def main() -> None:
         print(f"Jira project: PASS ({project.key} / {project.name})")
         for summary, description, labels in WORK_ITEMS:
             if summary in existing:
+                issue = existing[summary]
+                state = client.get_issue_state(issue.key)
+                missing_labels = [label for label in labels if label not in state.labels]
+                if missing_labels:
+                    client.update_labels(issue.key, add=missing_labels)
+                    print(f"REPAIRED {issue.key} | labels={missing_labels} | {summary}")
+                else:
+                    print(f"EXISTS {issue.key} | {summary}")
                 skipped += 1
-                print(f"EXISTS {existing[summary].key} | {summary}")
                 continue
             issue = client.create_task(summary, description, labels)
             created += 1
