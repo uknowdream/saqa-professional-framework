@@ -5,7 +5,7 @@ PIP ?= $(PYTHON) -m pip
 .PHONY: install test test-serial compile target-smoke contract-test k6-test
 
 install:
-	$(PIP) install -e '.[test,ci]'
+	$(PIP) install -e '.[test,ci,contract]'
 
 test:
 	$(PYTHON) -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing
