@@ -5,6 +5,7 @@ import json
 import os
 import statistics
 import time
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -47,6 +48,8 @@ def main() -> None:
     _assert_loopback_http(BASE_URL)
     if REQUESTS < 3:
         raise ValueError("SAQA_PERF_REQUESTS must be at least 3")
+    if not math.isfinite(P95_BUDGET_MS) or P95_BUDGET_MS < 0:
+        raise ValueError("SAQA_API_P95_BUDGET_MS must be finite and non-negative")
 
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     observed_at = datetime.now(timezone.utc).isoformat()
