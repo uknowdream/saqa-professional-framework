@@ -172,15 +172,16 @@ def test_jira_transition_uses_only_an_available_exact_transition() -> None:
     ]
 
 
-def test_jira_find_project_issues_reads_multiple_pages_and_detects_managed_duplicate() -> None:
+def test_jira_find_project_issues_reads_multiple_pages() -> None:
     calls: list[int] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         start = int(request.url.params.get("startAt", "0"))
         calls.append(start)
         if start == 0:
-            return httpx.Response(200, json={"issues": [{"key": "QA-1", "id": "1", "fields": {"summary": "SAQA | Test Management Foundation"}}]})
-        return httpx.Response(200, json={"issues": [{"key": "QA-2", "id": "2", "fields": {"summary": "SAQA | Web E2E Automation"}}]})
+            issues = [{"key": f"QA-{i}", "id": str(i), "fields": {"summary": f"Summary {i}"}} for i in range(100)]
+            return httpx.Response(200, json={"issues": issues})
+        return httpx.Response(200, json={"issues": [{"key": "QA-101", "id": "101", "fields": {"summary": "SAQA | Web E2E Automation"}}]})
 
     config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
     client = JiraClient(config, timeout=1.0)
@@ -190,8 +191,26 @@ def test_jira_find_project_issues_reads_multiple_pages_and_detects_managed_dupli
     finally:
         client.close()
 
-    assert set(result) == {"SAQA | Test Management Foundation", "SAQA | Web E2E Automation"}
-    assert calls == [0, 1]
+    assert "SAQA | Web E2E Automation" in result
+    assert calls == [0, 100]
+
+
+def test_jira_find_project_issues_detects_managed_duplicate_summary() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        start = int(request.url.params.get("startAt", "0"))
+        if start == 0:
+            issues = [{"key": f"QA-{i}", "id": str(i), "fields": {"summary": f"Summary {i}"}} for i in range(100)]
+            return httpx.Response(200, json={"issues": issues})
+        return httpx.Response(200, json={"issues": [{"key": "QA-101", "id": "101", "fields": {"summary": "[SAQA-AUTO] duplicate"}}]})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        with pytest.raises(RuntimeError, match="duplicate managed summary"):
+            client.find_project_issues(max_results=200)
+    finally:
+        client.close()
 
 
 def test_jira_comment_marker_is_found_beyond_first_page() -> None:
