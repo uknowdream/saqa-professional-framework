@@ -27,16 +27,23 @@ def _require(condition: bool, message: str) -> None:
 
 def run() -> dict[str, object]:
     started = time.perf_counter()
-    conn = sqlite3.connect(":memory:")
+    output = Path("artifacts/targets/database-quality.json")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    evidence: dict[str, object] = {
+        "schema": "saqa.database-quality.v2", "test_id": "database.isolated-sqlite-quality-gate",
+        "status": "UNVERIFIED", "target": "sqlite::memory:", "http_methods": [],
+        "destructive_actions": False, "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "details": {},
+    }
+    conn = None
     try:
+        conn = sqlite3.connect(":memory:")
         conn.execute("PRAGMA foreign_keys = ON")
         fk_enabled = conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         _require(fk_enabled, "foreign-key enforcement is disabled")
         conn.executescript("""
             CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
             CREATE TABLE test_runs (
-                id INTEGER PRIMARY KEY,
-                team_id INTEGER NOT NULL,
+                id INTEGER PRIMARY KEY, team_id INTEGER NOT NULL,
                 status TEXT NOT NULL CHECK(status IN ('PASS','FAIL','BLOCKED','UNVERIFIED')),
                 duration_ms REAL NOT NULL CHECK(duration_ms >= 0),
                 FOREIGN KEY(team_id) REFERENCES teams(id)
@@ -62,18 +69,15 @@ def run() -> dict[str, object]:
             pass
         after = conn.execute("SELECT COUNT(*) FROM test_runs").fetchone()[0]
         _require(before == after, "transaction rollback probe did not restore row count")
-        elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-        evidence = {
-            "schema": "saqa.database-quality.v2", "test_id": "database.isolated-sqlite-quality-gate", "status": "PASS",
-            "target": "sqlite::memory:", "http_methods": [], "destructive_actions": False,
-            "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "details": {"foreign_keys": True, "primary_key_constraint": True, "unique_constraint": True, "parameterized_queries": True, "constraint_checks": True, "aggregation": True, "transaction_rollback": True, "duration_ms": elapsed_ms},
-        }
+        evidence["status"] = "PASS"
+        evidence["details"] = {"foreign_keys": True, "primary_key_constraint": True, "unique_constraint": True, "parameterized_queries": True, "constraint_checks": True, "aggregation": True, "transaction_rollback": True, "duration_ms": round((time.perf_counter() - started) * 1000, 2)}
+    except Exception as exc:
+        evidence["status"] = "FAIL"
+        evidence["details"] = {"error": f"{type(exc).__name__}: {exc}", "duration_ms": round((time.perf_counter() - started) * 1000, 2)}
     finally:
-        conn.close()
-    output = Path("artifacts/targets/database-quality.json")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        if conn is not None:
+            conn.close()
+        output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     return evidence
 
 
