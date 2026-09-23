@@ -18,6 +18,13 @@ OUTPUT = Path(os.getenv("SAQA_CONTRACT_OUTPUT", "artifacts/targets/juice-shop-co
 ENDPOINT = "/rest/products/search?q=apple"
 
 
+def _redact_url(url: str) -> str:
+    parsed = urlparse(url)
+    hostname = parsed.hostname or ""
+    port = f":{parsed.port}" if parsed.port is not None else ""
+    return parsed._replace(netloc=f"{hostname}{port}", query="", fragment="").geturl()
+
+
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
     if (
@@ -44,7 +51,7 @@ def main() -> int:
         "schema": "saqa.contract-gate.v2",
         "test_id": "juice-shop.api.openapi-contract",
         "status": "BLOCKED",
-        "target": BASE_URL,
+        "target": _redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
         "observed_at": datetime.now(timezone.utc).isoformat(),
