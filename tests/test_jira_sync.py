@@ -101,3 +101,19 @@ def test_ensure_managed_issues_resolves_existing_bootstrapped_items_and_repairs_
     assert client.created == 0
     assert {key for key, _ in client.label_updates} == {issue.key for issue in managed.values()}
     assert all(add == ("saqa-automation",) for _, add in client.label_updates)
+
+
+def test_jira_sync_fail_closed_mappings():
+    from scripts.sync_jira_ci import RunSummary, job_result, run_label, transition_targets
+
+    pending = RunSummary("SAQA CI", "1", "1", "", "in_progress", "sha", "main", "")
+    unknown = RunSummary("SAQA CI", "2", "2", "", "completed", "sha", "main", "")
+    assert pending.result == "PENDING"
+    assert unknown.result == "UNVERIFIED"
+    assert job_result([{"name": "gate", "status": "in_progress", "conclusion": None}], ("gate",)) == "PENDING"
+    assert run_label("BLOCKED") == "saqa-ci-blocked"
+    assert run_label("PENDING") == "saqa-ci-pending"
+    assert run_label("UNVERIFIED") == "saqa-ci-unverified"
+    assert transition_targets("BLOCKED") == ("Blocked", "In Progress")
+    assert transition_targets("PENDING") == ("In Progress", "Open", "To Do")
+    assert transition_targets("UNVERIFIED") == ("In Progress", "Open", "To Do")
