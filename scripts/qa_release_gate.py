@@ -12,6 +12,7 @@ MANDATORY = (
     "SAQA Contract Testing",
     "SAQA Accessibility",
     "SAQA Mobile Readiness",
+    "SAQA k6 Performance",
 )
 
 @dataclass(frozen=True, slots=True)
