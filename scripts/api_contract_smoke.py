@@ -31,7 +31,7 @@ def main() -> int:
     _assert_loopback_http(BASE_URL)
 
     started = time.perf_counter()
-    response = request(f"{BASE_URL}{PATH}", method="GET", timeout=10, follow_redirects=False)
+    response = request(f"{BASE_URL}{PATH}", method="GET", timeout=10, follow_redirects=False, use_environment_proxies=False)
     elapsed_ms = (time.perf_counter() - started) * 1000
 
     status = "BLOCKED" if response.status_code == 0 else "FAIL"
