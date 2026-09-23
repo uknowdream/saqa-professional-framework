@@ -31,7 +31,7 @@ def _load_axe_source() -> str:
 def _classify_heuristic_finding(unnamed_controls: list[dict[str, object]]) -> str:
     """Classify only keyboard-operable unnamed controls as diagnostic findings.
 
-    INCONCLUSIVE is diagnostic evidence only. The independent axe oracle remains authoritative
+    INCONCLUSIVE is diagnostic evidence only The independent axe oracle remains authoritative
     until deterministic DOM/node correlation is implemented.
 
     The heuristic intentionally does not claim correlation with axe nodes. DOM controls
