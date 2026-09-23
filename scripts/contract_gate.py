@@ -38,7 +38,6 @@ def _schema() -> tuple[dict, str]:
 
 
 def main() -> int:
-    _assert_loopback_http(BASE_URL)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     evidence = {
@@ -52,6 +51,7 @@ def main() -> int:
         "details": {"contract": str(CONTRACT), "endpoint": ENDPOINT},
     }
     try:
+        _assert_loopback_http(BASE_URL)
         schema, contract_sha256 = _schema()
         evidence["details"]["contract_sha256"] = contract_sha256
         Draft202012Validator.check_schema(schema)
