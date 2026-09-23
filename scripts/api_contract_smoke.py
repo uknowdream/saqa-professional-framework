@@ -28,37 +28,25 @@ def _assert_loopback_http(url: str) -> None:
 
 
 def main() -> int:
-    _assert_loopback_http(BASE_URL)
-
     started = time.perf_counter()
-    response = request(f"{BASE_URL}{PATH}", method="GET", timeout=10, follow_redirects=False, use_environment_proxies=False)
-    elapsed_ms = (time.perf_counter() - started) * 1000
-
-    status = "BLOCKED" if response.status_code == 0 else "FAIL"
     result = {
-        "schema": "saqa.api-contract.v2",
-        "target": BASE_URL,
-        "path": PATH,
-        "method": "GET",
-        "status_code": response.status_code,
-        "content_type": response.headers.get("Content-Type", ""),
-        "elapsed_ms": round(elapsed_ms, 3),
-        "contract": {"required_fields": ["data"], "list_fields": ["data"]},
-        "destructive_actions": False,
-        "status": status,
-        "details": {},
+        "schema": "saqa.api-contract.v2", "target": BASE_URL, "path": PATH, "method": "GET",
+        "status_code": 0, "content_type": "", "elapsed_ms": 0, "contract": {"required_fields": ["data"], "list_fields": ["data"]},
+        "destructive_actions": False, "status": "BLOCKED", "details": {},
     }
-
     try:
+        _assert_loopback_http(BASE_URL)
+        response = request(f"{BASE_URL}{PATH}", method="GET", timeout=10, follow_redirects=False, use_environment_proxies=False)
+        result["status_code"] = response.status_code
+        result["content_type"] = response.headers.get("Content-Type", "")
+        result["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
         if response.error:
             raise AssertionError(response.error)
         if response.status_code != 200:
             raise AssertionError(f"expected HTTP 200, got {response.status_code}")
-        content_type = response.headers.get("Content-Type", "")
-        media_type = content_type.split(";", 1)[0].strip().lower()
+        media_type = result["content_type"].split(";", 1)[0].strip().lower()
         if media_type != "application/json":
-            raise AssertionError(f"expected application/json content type, got {content_type!r}")
-
+            raise AssertionError(f"expected application/json content type, got {result['content_type']!r}")
         payload = response.json()
         validate_json_contract(payload, required_object_fields=("data",), list_fields=("data",))
         for index, item in enumerate(payload["data"]):
@@ -71,12 +59,8 @@ def main() -> int:
         result["status"] = "PASS"
         result["details"] = {"response_sha256": response.sha256, "redirects_followed": False}
     except Exception as exc:
-        result["details"] = {
-            "error": f"{type(exc).__name__}: {exc}",
-            "response_sha256": response.sha256,
-            "redirects_followed": False,
-        }
-
+        result["status"] = "BLOCKED" if result["status_code"] == 0 and isinstance(exc, (ConnectionError, OSError)) else "FAIL"
+        result["details"] = {"error": f"{type(exc).__name__}: {exc}", "redirects_followed": False}
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     output = ARTIFACT_DIR / "juice-shop-api-contract.json"
     output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
