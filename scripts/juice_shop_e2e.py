@@ -7,8 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
-from playwright.sync_api import sync_playwright
-
 BASE_URL = os.getenv("SAQA_JUICE_SHOP_URL", "http://127.0.0.1:3000").rstrip("/")
 ARTIFACT_DIR = Path(os.getenv("SAQA_ARTIFACT_DIR", "artifacts/targets"))
 BROWSER = os.getenv("SAQA_BROWSER", "chromium").lower()
@@ -37,10 +35,6 @@ def _assert_local_request(request_url: str) -> None:
 
 
 def main() -> int:
-    _assert_loopback_http(BASE_URL)
-    if BROWSER not in SUPPORTED_BROWSERS:
-        raise SystemExit(f"unsupported SAQA_BROWSER: {BROWSER!r}")
-
     ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     evidence = {
@@ -57,6 +51,10 @@ def main() -> int:
     browser = None
     context = None
     try:
+        _assert_loopback_http(BASE_URL)
+        if BROWSER not in SUPPORTED_BROWSERS:
+            raise ValueError(f"unsupported SAQA_BROWSER: {BROWSER!r}")
+        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
             browser_type = getattr(p, BROWSER)
             browser = browser_type.launch(headless=True)
