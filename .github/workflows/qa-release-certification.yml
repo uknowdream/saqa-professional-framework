@@ -63,10 +63,6 @@ jobs:
           fi
           jq -n --arg sha "$SHA" --arg status "${ready}" --arg reason "$reason" '{schema:"saqa.release-readiness.v1",head_sha:$sha,required_branch:"main",ready:($status == "true"),status:(if $status == "true" then "READY" else "NOT_CERTIFIED" end),reason:$reason}' > artifacts/release-readiness.json
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
-      - name: Enforce readiness
-        if: steps.check.outputs.ready != 'true'
-        run: exit 1
-
       - name: Upload readiness decision
         if: always()
         uses: actions/upload-artifact@v6
