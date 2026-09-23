@@ -87,10 +87,12 @@ def select_common_run() -> dict[str, dict[str, object]] | None:
     for sha in main_history():
         if sha not in common:
             continue
-        selected = {
-            name: next(run for run in by_workflow[name] if str(run["head_sha"]) == sha)
-            for name in WORKFLOWS
-        }
+        selected = {}
+        for name in WORKFLOWS:
+            candidates = [run for run in by_workflow[name] if str(run["head_sha"]) == sha]
+            if not candidates:
+                raise SystemExit(f"Internal reconciliation error: no run for {name} on {sha}")
+            selected[name] = max(candidates, key=lambda run: int(run.get("id", 0)))
         return selected
     return None
 
