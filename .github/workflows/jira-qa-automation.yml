@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows:
       - SAQA CI
+      - SAQA Contract Testing
       - SAQA Accessibility
       - SAQA Mobile Readiness
     types: [completed]
@@ -77,7 +78,7 @@ jobs:
           RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
           if [ "$RUN_STATUS" != "completed" ]; then echo "Selected workflow run is not completed: $RUN_STATUS"; exit 1; fi
           case "$RUN_NAME:$HEAD_BRANCH" in
-            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*) ;;
+            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Contract Testing:main"|"SAQA Contract Testing:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*) ;;
             *) echo "Unsupported workflow or branch for Jira synchronization: $RUN_NAME / $HEAD_BRANCH"; exit 1 ;;
           esac
           printf 'run_id=%s\nrun_name=%s\nrun_number=%s\nrun_conclusion=%s\nrun_status=%s\nhead_sha=%s\nhead_branch=%s\nrun_url=%s\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" >> "$GITHUB_OUTPUT"
