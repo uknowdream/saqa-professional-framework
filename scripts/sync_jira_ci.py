@@ -180,7 +180,15 @@ def main() -> None:
 
     jobs = load_json(os.environ.get("JIRA_JOBS_JSON"), [])
     all_runs = normalize_runs(load_json(os.environ.get("JIRA_ALL_RUNS_JSON"), []))
-    current_results = {item.name: item.result for item in all_runs if item.head_sha == run.head_sha}
+    current_results: dict[str, str] = {}
+    current_run_ids: dict[str, int] = {}
+    for item in all_runs:
+        if item.head_sha != run.head_sha:
+            continue
+        run_id = int(item.run_id or 0)
+        if run_id > current_run_ids.get(item.name, -1):
+            current_results[item.name] = item.result
+            current_run_ids[item.name] = run_id
     relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
     if any(value == "FAIL" for value in relevant): overall = "FAIL"
     elif any(value == "BLOCKED" for value in relevant): overall = "BLOCKED"
