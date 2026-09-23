@@ -26,7 +26,7 @@ def test_reference_contract_rejects_missing_data():
     document = json.loads(CONTRACT.read_text(encoding="utf-8"))
     schema = document["paths"]["/rest/products/search"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
     try:
-        Draft202012Validator(schema).validate({"items": []})
+        Draft4Validator(schema).validate({"items": []})
     except Exception as exc:
         assert "data" in str(exc)
     else:
