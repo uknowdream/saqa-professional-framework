@@ -59,7 +59,12 @@ def main() -> int:
             browser_type = getattr(p, BROWSER)
             browser = browser_type.launch(headless=True)
             context = browser.new_context(viewport={"width": 1440, "height": 900})
-            context.route("**/*", lambda route: route.abort() if route.request.method != "GET" else (_assert_local_request(route.request.url), route.continue_())[1])
+            context.route(
+                "**/*",
+                lambda route: route.abort()
+                if route.request.method != "GET"
+                else (_assert_local_request(route.request.url), route.continue_())[1],
+            )
             page = context.new_page()
             response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=30_000)
             _assert_local_request(page.url)
@@ -70,10 +75,11 @@ def main() -> int:
             if "Juice Shop" not in title:
                 raise AssertionError(f"unexpected title: {title!r}")
 
-            search_response = page.goto(BASE_URL + "/#/search?q=apple", wait_until="domcontentloaded", timeout=30_000)
+            # Juice Shop uses Angular hash routing. Navigating the hash is a same-document
+            # operation, so Playwright correctly returns no new HTTP Response for it.
+            page.evaluate("window.location.hash = '#/search?q=apple'")
+            page.wait_for_url(BASE_URL + "/#/search?q=apple", timeout=15_000)
             _assert_local_request(page.url)
-            if search_response is None or not 200 <= search_response.status < 400:
-                raise AssertionError(f"unexpected search response status: {search_response.status if search_response else None}")
             page.locator("app-root").wait_for(state="attached", timeout=15_000)
             final_url = page.url
             body_text = page.locator("body").inner_text(timeout=10_000)
@@ -85,7 +91,7 @@ def main() -> int:
             evidence["details"] = {
                 "title": title,
                 "home_status": response.status,
-                "search_status": search_response.status,
+                "search_navigation": "same-document hash navigation",
                 "final_url": final_url,
                 "body_text_nonempty": True,
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
