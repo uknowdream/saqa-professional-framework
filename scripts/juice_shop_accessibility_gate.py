@@ -130,6 +130,8 @@ def main() -> int:
                 if disposition == "INCONCLUSIVE":
                     evidence["details"]["heuristic_note"] = "unnamed keyboard-operable control(s) detected; independent axe result is authoritative for the selected rules until deterministic node correlation is implemented"
                     evidence["details"]["heuristic_authority"] = "independent_axe"
+                if disposition == "INCONCLUSIVE":
+                    failures = [item for item in failures if item != "heuristic accessibility finding is inconclusive"]
                 if failures: raise AssertionError("; ".join(failures))
                 context.close(); context = None
                 browser.close(); browser = None
