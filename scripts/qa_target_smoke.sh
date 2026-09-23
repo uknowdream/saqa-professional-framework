@@ -53,7 +53,7 @@ wait_http() {
           return 0
         fi
         printf '%s:FAIL (redirect destination returned HTTP %s)\n' "$name" "${destination_status:-no-response}" >&2
-        return 1
+        # Keep polling transient destination failures until the readiness budget expires.
       fi
       printf '%s:FAIL (unsafe redirect location: %s)\n' "$name" "${location:-missing}" >&2
       return 1
@@ -75,10 +75,10 @@ wait_http() {
 wait_http "juice-shop-web" "http://127.0.0.1:3000/" 60
 wait_http "juice-shop-api" "http://127.0.0.1:3000/rest/products/search?q=apple" 60
 wait_http "webgoat-web" "http://127.0.0.1:8080/WebGoat/" 90 true
-python scripts/api_contract_smoke.py
-python scripts/juice_shop_e2e.py
+SAQA_API_BASE_URL="http://127.0.0.1:3000" python3 scripts/api_contract_smoke.py
+SAQA_JUICE_SHOP_URL="http://127.0.0.1:3000" python3 scripts/juice_shop_e2e.py
 
-python - <<'PY'
+python3 - <<'PY
 import json, os, platform, subprocess, time
 from pathlib import Path
 out=Path(os.environ.get("SAQA_ARTIFACT_DIR","artifacts/targets")); out.mkdir(parents=True,exist_ok=True)
