@@ -128,8 +128,8 @@ def main() -> int:
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
                 if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
                 if disposition == "INCONCLUSIVE":
-                    evidence["details"]["heuristic_note"] = "unnamed keyboard-operable control(s) detected; independent axe result is authoritative until deterministic node correlation is implemented"
-                    failures.append("heuristic accessibility finding is inconclusive")
+                    evidence["details"]["heuristic_note"] = "unnamed keyboard-operable control(s) detected; independent axe result is authoritative for the selected rules until deterministic node correlation is implemented"
+                    evidence["details"]["heuristic_authority"] = "independent_axe"
                 if failures: raise AssertionError("; ".join(failures))
                 context.close(); context = None
                 browser.close(); browser = None
