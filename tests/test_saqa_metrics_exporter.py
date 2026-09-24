@@ -41,11 +41,15 @@ def test_collect_ignores_non_object_json(tmp_path, monkeypatch):
 def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
     evidence_dir = tmp_path / "targets"
     evidence_dir.mkdir()
+    raw_test_id = 'a"b\\c\nd'
+    raw_status = 'PASS\nd"'
     (evidence_dir / "escaped.json").write_text(
-        json.dumps({"test_id": 'a"b\\c\\nd', "status": 'PASS\\nd"'}),
+        json.dumps({"test_id": raw_test_id, "status": raw_status}),
         encoding="utf-8",
     )
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
     from scripts.saqa_metrics_exporter import _escape_label
-    assert _escape_label('a"b\\c\\nd') == 'a\\"b\\\\c\\\\nd'
-    assert _escape_label('PASS\\nd"') == 'PASS\\\\nd\\"'
+    assert _escape_label(raw_test_id) == 'a\\"b\\\\c\\nd'
+    assert _escape_label(raw_status) == 'PASS\\nd\\"'
+
+
