@@ -34,3 +34,11 @@ def test_database_quality_gate_passes_and_emits_safe_evidence(tmp_path, monkeypa
     artifact = tmp_path / "artifacts" / "targets" / "database-quality.json"
     assert artifact.exists()
     assert __import__("json").loads(artifact.read_text(encoding="utf-8")) == evidence
+
+
+
+def test_database_quality_gate_main_returns_nonzero_on_failure(monkeypatch):
+    import scripts.database_quality_gate as module
+
+    monkeypatch.setattr(module, "run", lambda: {"status": "FAIL"})
+    assert module.main() == 1
