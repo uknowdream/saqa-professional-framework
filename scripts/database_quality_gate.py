@@ -81,5 +81,11 @@ def run() -> dict[str, object]:
     return evidence
 
 
+def main() -> int:
+    evidence = run()
+    print(json.dumps(evidence, indent=2))
+    return 0 if evidence.get("status") == "PASS" else 1
+
+
 if __name__ == "__main__":
-    print(json.dumps(run(), indent=2))
+    raise SystemExit(main())
