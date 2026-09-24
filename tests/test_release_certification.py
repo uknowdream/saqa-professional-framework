@@ -17,6 +17,7 @@ def test_certification_requires_every_mandatory_domain() -> None:
         "SAQA Contract Testing": "PASS",
         "SAQA Accessibility": "PASS",
         "SAQA Mobile Readiness": "PASS",
+        "SAQA k6 Performance": "PASS",
     }
     assert decide(passing).status == "CERTIFIED"
     failed = {**passing, "SAQA Accessibility": "FAIL"}
