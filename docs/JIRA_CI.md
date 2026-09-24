@@ -29,6 +29,7 @@ Create a repository secret named `JIRA_API_TOKEN`. The token is never stored in 
 - `SAQA Contract Testing`
 - `SAQA Accessibility`
 - `SAQA Mobile Readiness`
+- `SAQA k6 Performance`
 
 The sync collects the exact workflow run, job conclusions, commit SHA, branch, and run URL. It then updates the mapped Jira QA work item with:
 
@@ -64,11 +65,11 @@ A Bug summary contains the managed QA issue, workflow, and immutable run ID so r
 
 ## Release certification
 
-`.github/workflows/qa-release-certification.yml` waits until all four mandatory workflows have completed for the exact commit, then evaluates `scripts/qa_release_gate.py`.
+`.github/workflows/qa-release-certification.yml` waits until all five mandatory workflows have completed for the exact commit, then evaluates `scripts/qa_release_gate.py`.
 
 Certification rules:
 
-- `CERTIFIED` only when `SAQA CI`, `SAQA Contract Testing`, `SAQA Accessibility`, and `SAQA Mobile Readiness` are all PASS;
+- `CERTIFIED` only when `SAQA CI`, `SAQA Contract Testing`, `SAQA Accessibility`, `SAQA Mobile Readiness`, and `SAQA k6 Performance` are all PASS;
 - `FAIL`, `BLOCKED`, `PENDING`, missing, or `UNVERIFIED` evidence means `NOT_CERTIFIED`;
 - the decision and exact workflow evidence are emitted as `artifacts/release-certification.json`.
 
