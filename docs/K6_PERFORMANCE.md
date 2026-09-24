@@ -14,8 +14,14 @@ for attempt in {1..30}; do
   if curl --silent --fail --max-time 5 http://127.0.0.1:3000/ >/dev/null; then ready=1; break; fi
   sleep 2
 done
-if [ "$ready" -ne 1 ]; then echo "Juice Shop did not become ready" >&2; exit 1; fi
+if [ "$ready" -ne 1 ]; then
+  echo "Juice Shop did not become ready" >&2
+  docker stop saqa-juice-shop-k6 >/dev/null 2>&1 || true
+  exit 1
+fi
 python scripts/k6_gate.py
-docker stop saqa-juice-shop-k6
+status=$?
+docker stop saqa-juice-shop-k6 >/dev/null 2>&1 || true
+exit "$status"
 
 The k6 container uses host networking to reach the loopback-bound authorized target on the GitHub runner.
