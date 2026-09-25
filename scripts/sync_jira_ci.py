@@ -89,6 +89,21 @@ def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
     return "UNVERIFIED"
 
 
+def aggregate_performance_result(results: dict[str, str]) -> str:
+    """Reduce the two mandatory performance signals into one deterministic QA-7 state."""
+    required = ("SAQA CI performance", "SAQA k6 Performance")
+    values = [results.get(name, "UNVERIFIED") for name in required]
+    if any(value == "FAIL" for value in values):
+        return "FAIL"
+    if any(value == "BLOCKED" for value in values):
+        return "BLOCKED"
+    if any(value == "PENDING" for value in values):
+        return "PENDING"
+    if all(value == "PASS" for value in values):
+        return "PASS"
+    return "UNVERIFIED"
+
+
 def run_label(result: str) -> str:
     return {"PASS": "saqa-ci-pass", "FAIL": "saqa-ci-fail", "BLOCKED": "saqa-ci-blocked", "PENDING": "saqa-ci-pending", "UNVERIFIED": "saqa-ci-unverified"}[result]
 
@@ -180,6 +195,7 @@ def main() -> None:
 
     jobs = load_json(os.environ.get("JIRA_JOBS_JSON"), [])
     all_runs = normalize_runs(load_json(os.environ.get("JIRA_ALL_RUNS_JSON"), []))
+    performance_records = load_json(os.environ.get("JIRA_PERFORMANCE_JSON"), {})
     current_results: dict[str, str] = {}
     current_run_ids: dict[str, int] = {}
     for item in all_runs:
@@ -210,14 +226,18 @@ def main() -> None:
     else:
         api_overall = "UNVERIFIED"
 
+    performance_result = aggregate_performance_result({
+        "SAQA CI performance": str(performance_records.get("SAQA CI performance", "UNVERIFIED")),
+        "SAQA k6 Performance": str(performance_records.get("SAQA k6 Performance", "UNVERIFIED")),
+    })
     if run.name == "SAQA CI":
-        domain_results = {"QA-1": "PASS", "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")), "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")), "QA-4": api_overall, "QA-5": job_result(jobs, ("Dependency and secret hygiene", "Target authorization policy", "Docker authorized target smoke")), "QA-7": job_result(jobs, ("Juice Shop performance",)), "QA-8": job_result(jobs, ("Canonical evidence aggregation",)), "QA-9": overall}
+        domain_results = {"QA-1": "PASS", "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")), "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")), "QA-4": api_overall, "QA-5": job_result(jobs, ("Dependency and secret hygiene", "Target authorization policy", "Docker authorized target smoke")), "QA-7": performance_result, "QA-8": job_result(jobs, ("Canonical evidence aggregation",)), "QA-9": overall}
     elif run.name == "SAQA Contract Testing":
         domain_results = {"QA-1": "PASS", "QA-4": api_overall, "QA-9": overall}
     elif run.name == "SAQA Accessibility":
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-6": run.result, "QA-9": overall}
     elif run.name == "SAQA k6 Performance":
-        domain_results = {"QA-1": "PASS", "QA-7": run.result, "QA-9": overall}
+        domain_results = {"QA-1": "PASS", "QA-7": performance_result, "QA-9": overall}
     else:
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
 
