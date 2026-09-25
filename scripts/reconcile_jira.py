@@ -97,6 +97,43 @@ def select_common_run() -> dict[str, dict[str, object]] | None:
     return None
 
 
+def performance_evidence(selected: dict[str, dict[str, object]], repo: str) -> dict[str, str]:
+    """Derive QA-7 from the same common commit selected for reconciliation."""
+    ci_run = selected["SAQA CI"]
+    k6_run = selected["SAQA k6 Performance"]
+    ci_jobs = gh_get(f"/repos/{repo}/actions/runs/{int(ci_run['id'])}/jobs?per_page=100")
+    jobs = ci_jobs.get("jobs", []) if isinstance(ci_jobs, dict) else []
+    matched = [
+        job for job in jobs
+        if "juice shop performance" in str(job.get("name", "")).casefold()
+    ]
+    if not matched:
+        ci_result = "UNVERIFIED"
+    elif any(job.get("status") != "completed" for job in matched):
+        ci_result = "PENDING"
+    elif all(job.get("conclusion") == "success" for job in matched):
+        ci_result = "PASS"
+    elif any(job.get("conclusion") in {"failure", "timed_out"} for job in matched):
+        ci_result = "FAIL"
+    elif any(job.get("conclusion") in {"cancelled", "action_required", "stale"} for job in matched):
+        ci_result = "BLOCKED"
+    else:
+        ci_result = "UNVERIFIED"
+
+    conclusion = str(k6_run.get("conclusion") or "")
+    if str(k6_run.get("status")) != "completed":
+        k6_result = "PENDING"
+    elif conclusion == "success":
+        k6_result = "PASS"
+    elif conclusion in {"failure", "timed_out"}:
+        k6_result = "FAIL"
+    elif conclusion in {"cancelled", "action_required", "stale"}:
+        k6_result = "BLOCKED"
+    else:
+        k6_result = "UNVERIFIED"
+    return {"SAQA CI performance": ci_result, "SAQA k6 Performance": k6_result}
+
+
 def main() -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     selected = select_common_run()
@@ -110,6 +147,7 @@ def main() -> None:
     print(f"Reconciling common main commit: {common_sha}")
 
     selected_runs = list(selected.values())
+    performance = performance_evidence(selected, repo)
     all_runs = {"workflow_runs": selected_runs}
     for workflow_name in WORKFLOWS:
         run = selected[workflow_name]
@@ -134,7 +172,11 @@ def main() -> None:
                 "JIRA_RUN_URL": str(run.get("html_url", "")),
                 "JIRA_JOBS_JSON": jobs_path,
                 "JIRA_ALL_RUNS_JSON": runs_path,
+                "JIRA_PERFORMANCE_JSON": os.path.join(directory, "performance.json"),
             })
+            with open(env["JIRA_PERFORMANCE_JSON"], "w", encoding="utf-8") as handle:
+                json.dump(performance, handle, sort_keys=True)
+
             subprocess.run(["python3", "scripts/sync_jira_ci.py"], env=env, check=True)
             print(f"{workflow_name}: reconciled run {run_id} on {common_sha}")
 
