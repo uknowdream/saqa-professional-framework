@@ -87,6 +87,15 @@ def main() -> int:
                 raise AssertionError(f"unexpected search URL: {final_url!r}")
             if not body_text.strip():
                 raise AssertionError("Juice Shop rendered an empty body")
+            api_response = page.request.get(BASE_URL + "/rest/products/search?q=apple", timeout=10_000)
+            if api_response.status != 200:
+                raise AssertionError(f"search API returned HTTP {api_response.status}")
+            api_payload = api_response.json()
+            products = api_payload.get("data") if isinstance(api_payload, dict) else None
+            if not isinstance(products, list) or not products:
+                raise AssertionError("search API returned no products for apple")
+            if not any("apple" in str(item.get("name", "")).casefold() for item in products if isinstance(item, dict)):
+                raise AssertionError("search API returned no product whose name contains apple")
 
             evidence["details"] = {
                 "title": title,
@@ -94,6 +103,9 @@ def main() -> int:
                 "search_navigation": "same-document hash navigation",
                 "final_url": final_url,
                 "body_text_nonempty": True,
+                "search_api_status": api_response.status,
+                "search_result_count": len(products),
+                "search_oracle": "product name contains apple",
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
             }
             context.close()
