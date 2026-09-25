@@ -77,8 +77,7 @@ def test_heuristic_classification_is_fail_closed_for_uncorroborated_controls():
     assert module._classify_heuristic_finding([]) == "NONE"
     assert module._classify_heuristic_finding([{"tab_index": -1}]) == "INCONCLUSIVE"
     assert module._classify_heuristic_finding([{"tab_index": 0}]) == "INCONCLUSIVE"
-    # A raw violation count is not node-level correlation and must not confirm the heuristic.
-    assert module._classify_heuristic_finding([{"tab_index": -1}]) == "INCONCLUSIVE"
+    # Heuristic findings remain diagnostic until independently correlated with the accessibility oracle.
 
 
 def test_semantic_disabled_controls_are_excluded_by_browser_logic():
