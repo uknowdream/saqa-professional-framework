@@ -165,12 +165,21 @@ jobs:
                   return "BLOCKED"
               return "UNVERIFIED"
 
+          selected_ids = {}
+          selected_runs = {}
           for run in runs:
               name = str(run.get("name") or "")
-              if name == "SAQA CI":
-                  records[name + " performance"] = job_result(gh_jobs(run["id"]))
-              elif name == "SAQA k6 Performance":
-                  records[name] = run_result(run)
+              if name not in {"SAQA CI", "SAQA k6 Performance"}:
+                  continue
+              run_id = int(run.get("id") or 0)
+              if run_id > selected_ids.get(name, -1):
+                  selected_ids[name] = run_id
+                  selected_runs[name] = run
+
+          if "SAQA CI" in selected_runs:
+              records["SAQA CI performance"] = job_result(gh_jobs(selected_runs["SAQA CI"]["id"]))
+          if "SAQA k6 Performance" in selected_runs:
+              records["SAQA k6 Performance"] = run_result(selected_runs["SAQA k6 Performance"])
 
           with open(os.environ["RUNNER_TEMP"] + "/jira-performance.json", "w", encoding="utf-8") as handle:
               json.dump(records, handle, sort_keys=True)
