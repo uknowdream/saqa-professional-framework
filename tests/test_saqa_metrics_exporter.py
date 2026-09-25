@@ -52,7 +52,7 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
     metrics = collect()
 
     assert (
-        'saqa_quality_status{test_id="a\\\"b\\\\c\\nd",status="PASS\\nd\\\""} -3\n'
+        'saqa_quality_status{test_id="a\\\"b\\\\c\\nd",status="PASS\\nD\\\""} -3\n'
         in metrics
     )
     assert "saqa_quality_evidence_total 1\n" in metrics
