@@ -266,7 +266,7 @@ jobs:
       - name: Install selected browser
         run: python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start WebGoat
-        run: docker run --detach --rm --name saqa-webgoat -p 127.0.0.1:8080:8080 webgoat/webgoat:2026
+        run: docker run --detach --rm --name saqa-webgoat -p 127.0.0.1:8080:8080 webgoat/webgoat:v2026.4
       - name: Wait for WebGoat login page
         run: |
           for attempt in {1..45}; do
