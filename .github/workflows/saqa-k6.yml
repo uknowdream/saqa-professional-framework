@@ -1,0 +1,42 @@
+name: SAQA k6 Performance
+on:
+  push:
+    branches: [main, 'saqa/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: saqa-k6-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  k6:
+    name: k6 local performance gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Start Juice Shop
+        run: docker run --detach --rm --name saqa-juice-shop-k6 -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+      - name: Wait for Juice Shop
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs saqa-juice-shop-k6
+          exit 1
+      - name: Run k6 gate
+        run: python scripts/k6_gate.py
+      - name: Upload k6 evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-k6-evidence
+          path: artifacts/targets/juice-shop-k6.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Stop Juice Shop
+        if: always()
+        run: docker stop saqa-juice-shop-k6 || true

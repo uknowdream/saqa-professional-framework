@@ -6,6 +6,7 @@ retry non-idempotent methods automatically.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import urllib.error
@@ -29,6 +30,23 @@ class ApiResponse:
     def ok(self) -> bool:
         return 200 <= self.status_code < 400 and self.error is None
 
+    @property
+    def sha256(self) -> str:
+        """Return a deterministic digest of the exact observed response body."""
+        return hashlib.sha256(self.body).hexdigest()
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent an API smoke from following a redirect outside its safe target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_DIRECT_NO_REDIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirectHandler)
+
 
 def request(
     url: str,
@@ -37,12 +55,15 @@ def request(
     headers: Mapping[str, str] | None = None,
     body: Any = None,
     timeout: float = 10.0,
+    follow_redirects: bool = True,
+    use_environment_proxies: bool = True,
 ) -> ApiResponse:
     """Execute one bounded HTTP request and return observable evidence.
 
     GET/HEAD/OPTIONS are the default-safe methods. Callers may explicitly use
     other methods for an authorized test target, but no automatic retry is
-    performed for those methods.
+    performed for those methods. ``follow_redirects=False`` is recommended for
+    target-isolated probes so a local endpoint cannot escape to another host.
     """
     if timeout <= 0 or timeout > 60:
         raise ValueError("timeout must be between 0 and 60 seconds")
@@ -54,8 +75,12 @@ def request(
         request_headers.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)
     started = time.perf_counter()
+    if use_environment_proxies:
+        opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open
+    else:
+        opener = _DIRECT_OPENER.open if follow_redirects else _DIRECT_NO_REDIRECT_OPENER.open
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with opener(req, timeout=timeout) as response:
             content = response.read()
             return ApiResponse(
                 response.status,
@@ -84,6 +109,108 @@ def request(
 
 def assert_json_fields(response: ApiResponse, fields: tuple[str, ...]) -> None:
     """Raise AssertionError when the response is not JSON or misses fields."""
+    payload = _json_object(response)
+    missing = [field for field in fields if field not in payload]
+    if missing:
+        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+
+
+def assert_json_contract(
+    response: ApiResponse,
+    *,
+    required_fields: tuple[str, ...] = (),
+    field_types: Mapping[str, type | tuple[type, ...]] | None = None,
+    list_item_types: Mapping[str, type | tuple[type, ...]] | None = None,
+    list_min_items: Mapping[str, int] | None = None,
+    list_max_items: Mapping[str, int] | None = None,
+) -> None:
+    """Validate a deterministic structural JSON object contract."""
+    for field, minimum in (list_min_items or {}).items():
+        if minimum < 0:
+            raise ValueError(f"minimum list size for {field!r} cannot be negative")
+        maximum = (list_max_items or {}).get(field)
+        if maximum is not None and maximum < 0:
+            raise ValueError(f"maximum list size for {field!r} cannot be negative")
+        if maximum is not None and minimum > maximum:
+            raise ValueError(f"minimum list size for {field!r} cannot exceed maximum")
+    for field, maximum in (list_max_items or {}).items():
+        if maximum < 0:
+            raise ValueError(f"maximum list size for {field!r} cannot be negative")
+
+    payload = _json_object(response)
+    required = tuple(required_fields)
+    missing = [field for field in required if field not in payload]
+    if missing:
+        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+
+    for field, expected in (field_types or {}).items():
+        if field not in payload:
+            raise AssertionError(f"missing JSON field for type check: {field}")
+        if not _json_type_matches(payload[field], expected):
+            raise AssertionError(
+                f"JSON field {field!r} has type {type(payload[field]).__name__}, "
+                f"expected {_type_names(expected)}"
+            )
+
+    for field, expected in (list_item_types or {}).items():
+        if field not in payload:
+            raise AssertionError(f"missing JSON list field: {field}")
+        value = payload[field]
+        if not isinstance(value, list):
+            raise AssertionError(f"JSON field {field!r} must be a list")
+        invalid_index = next(
+            (index for index, item in enumerate(value) if not _json_type_matches(item, expected)),
+            None,
+        )
+        if invalid_index is not None:
+            item = value[invalid_index]
+            raise AssertionError(
+                f"JSON list field {field!r} item {invalid_index} has type "
+                f"{type(item).__name__}, expected {_type_names(expected)}"
+            )
+
+    for field, minimum in (list_min_items or {}).items():
+        value = _require_list(payload, field)
+        if len(value) < minimum:
+            raise AssertionError(
+                f"JSON list field {field!r} has {len(value)} item(s), expected at least {minimum}"
+            )
+
+    for field, maximum in (list_max_items or {}).items():
+        value = _require_list(payload, field)
+        if len(value) > maximum:
+            raise AssertionError(
+                f"JSON list field {field!r} has {len(value)} item(s), expected at most {maximum}"
+            )
+
+
+def assert_json_list_cardinality(
+    response: ApiResponse,
+    *,
+    field: str,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> None:
+    """Validate list cardinality as an explicit data/fixture expectation."""
+    if minimum is not None and minimum < 0:
+        raise ValueError(f"minimum list size for {field!r} cannot be negative")
+    if maximum is not None and maximum < 0:
+        raise ValueError(f"maximum list size for {field!r} cannot be negative")
+    if minimum is not None and maximum is not None and minimum > maximum:
+        raise ValueError(f"minimum list size for {field!r} cannot exceed maximum")
+    payload = _json_object(response)
+    value = _require_list(payload, field)
+    if minimum is not None and len(value) < minimum:
+        raise AssertionError(
+            f"JSON list field {field!r} has {len(value)} item(s), expected at least {minimum}"
+        )
+    if maximum is not None and len(value) > maximum:
+        raise AssertionError(
+            f"JSON list field {field!r} has {len(value)} item(s), expected at most {maximum}"
+        )
+
+
+def _json_object(response: ApiResponse) -> dict[str, Any]:
     if response.error:
         raise AssertionError(response.error)
     try:
@@ -92,6 +219,28 @@ def assert_json_fields(response: ApiResponse, fields: tuple[str, ...]) -> None:
         raise AssertionError("response body is not valid JSON") from exc
     if not isinstance(payload, dict):
         raise AssertionError("expected a JSON object")
-    missing = [field for field in fields if field not in payload]
-    if missing:
-        raise AssertionError(f"missing JSON fields: {', '.join(missing)}")
+    return payload
+
+
+def _require_list(payload: dict[str, Any], field: str) -> list[Any]:
+    if field not in payload:
+        raise AssertionError(f"missing JSON list field: {field}")
+    value = payload[field]
+    if not isinstance(value, list):
+        raise AssertionError(f"JSON field {field!r} must be a list")
+    return value
+
+
+def _json_type_matches(value: Any, expected: type | tuple[type, ...]) -> bool:
+    expected_types = expected if isinstance(expected, tuple) else (expected,)
+    for expected_type in expected_types:
+        if expected_type is int and isinstance(value, bool):
+            continue
+        if isinstance(value, expected_type):
+            return True
+    return False
+
+
+def _type_names(expected: type | tuple[type, ...]) -> str:
+    expected_types = expected if isinstance(expected, tuple) else (expected,)
+    return " or ".join(item.__name__ for item in expected_types)

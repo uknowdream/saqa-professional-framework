@@ -1,0 +1,201 @@
+name: Jira QA Automation
+
+on:
+  workflow_run:
+    workflows:
+      - SAQA CI
+      - SAQA Contract Testing
+      - SAQA Accessibility
+      - SAQA Mobile Readiness
+      - SAQA k6 Performance
+    types: [completed]
+    branches:
+      - 'saqa/**'
+      - main
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Completed SAQA workflow run ID to synchronize'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: jira-qa-sync
+  cancel-in-progress: false
+
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+
+jobs:
+  sync:
+    name: Sync SAQA evidence to Jira
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout trusted Jira automation code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify Jira secret is available
+        run: |
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ACTION REQUIRED: GitHub repository secret JIRA_API_TOKEN is missing or unavailable."
+            exit 1
+          fi
+
+      - name: Install project
+        run: python -m pip install -e .
+
+      - name: Resolve and validate workflow run
+        id: run
+        env:
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          INPUT_RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          if [ -n "$EVENT_RUN_ID" ]; then
+            RUN_ID="$EVENT_RUN_ID"
+          else
+            RUN_ID="$INPUT_RUN_ID"
+            if [ -z "$RUN_ID" ]; then echo "Completed run_id is required."; exit 1; fi
+          fi
+          RUN_JSON="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}")"
+          RUN_NAME="$(jq -r '.name // empty' <<< "$RUN_JSON")"
+          RUN_STATUS="$(jq -r '.status // empty' <<< "$RUN_JSON")"
+          RUN_CONCLUSION="$(jq -r '.conclusion // empty' <<< "$RUN_JSON")"
+          RUN_NUMBER="$(jq -r '.run_number // empty' <<< "$RUN_JSON")"
+          HEAD_SHA="$(jq -r '.head_sha // empty' <<< "$RUN_JSON")"
+          HEAD_BRANCH="$(jq -r '.head_branch // empty' <<< "$RUN_JSON")"
+          RUN_URL="$(jq -r '.html_url // empty' <<< "$RUN_JSON")"
+          HEAD_REPO="$(jq -r '.repository.full_name // empty' <<< "$RUN_JSON")"
+          RUN_EVENT="$(jq -r '.event // empty' <<< "$RUN_JSON")"
+          if [ "$RUN_STATUS" != "completed" ]; then echo "Selected workflow run is not completed: $RUN_STATUS"; exit 1; fi
+          if [ "$HEAD_REPO" != "$GITHUB_REPOSITORY" ]; then
+            echo "Unsupported head repository for Jira synchronization: $HEAD_REPO"
+            exit 1
+          fi
+          if [ "$RUN_EVENT" = "pull_request" ]; then
+            echo "Refusing privileged Jira synchronization for pull_request workflow runs."
+            exit 1
+          fi
+          case "$RUN_NAME:$HEAD_BRANCH" in
+            "SAQA CI:main"|"SAQA CI:saqa/"*|"SAQA Contract Testing:main"|"SAQA Contract Testing:saqa/"*|"SAQA Accessibility:main"|"SAQA Accessibility:saqa/"*|"SAQA Mobile Readiness:main"|"SAQA Mobile Readiness:saqa/"*|"SAQA k6 Performance:main"|"SAQA k6 Performance:saqa/"*) ;;
+            *) echo "Unsupported workflow or branch for Jira synchronization: $RUN_NAME / $HEAD_BRANCH"; exit 1 ;;
+          esac
+          SHOULD_SYNC=true
+          if [ "$HEAD_BRANCH" = "main" ]; then
+            CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+            if [ "$HEAD_SHA" != "$CURRENT_MAIN_SHA" ]; then
+              echo "Skipping stale main workflow run $RUN_ID for $HEAD_SHA; current main is $CURRENT_MAIN_SHA."
+              SHOULD_SYNC=false
+            fi
+          fi
+          printf 'run_id=%s\nrun_name=%s\nrun_number=%s\nrun_conclusion=%s\nrun_status=%s\nhead_sha=%s\nhead_branch=%s\nrun_url=%s\nshould_sync=%s\n' "$RUN_ID" "$RUN_NAME" "$RUN_NUMBER" "$RUN_CONCLUSION" "$RUN_STATUS" "$HEAD_SHA" "$HEAD_BRANCH" "$RUN_URL" "$SHOULD_SYNC" >> "$GITHUB_OUTPUT"
+
+      - name: Collect completed job evidence
+        if: steps.run.outputs.should_sync == 'true'
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --jq '.jobs' > "$RUNNER_TEMP/jira-jobs.json"
+
+      - name: Collect all relevant workflow runs for exact commit
+        if: steps.run.outputs.should_sync == 'true'
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/jira-runs.json"
+
+      - name: Collect exact-SHA performance evidence for QA-7
+        if: steps.run.outputs.should_sync == 'true'
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          runs = json.loads(open(os.environ["RUNNER_TEMP"] + "/jira-runs.json", encoding="utf-8").read())
+          records = {}
+
+          def gh_jobs(run_id):
+              raw = subprocess.check_output(
+                  ["gh", "api", f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", "--jq", ".jobs"],
+                  text=True,
+              )
+              return json.loads(raw)
+
+          def job_result(jobs):
+              matched = [
+                  job for job in jobs
+                  if "juice shop performance" in str(job.get("name", "")).casefold()
+              ]
+              if not matched:
+                  return "UNVERIFIED"
+              if any(job.get("status") != "completed" for job in matched):
+                  return "PENDING"
+              conclusions = {str(job.get("conclusion") or "") for job in matched}
+              if conclusions == {"success"}:
+                  return "PASS"
+              if conclusions & {"failure", "timed_out"}:
+                  return "FAIL"
+              if conclusions & {"cancelled", "action_required", "stale"}:
+                  return "BLOCKED"
+              return "UNVERIFIED"
+
+          def run_result(run):
+              if run.get("status") != "completed":
+                  return "PENDING"
+              conclusion = str(run.get("conclusion") or "")
+              if conclusion == "success":
+                  return "PASS"
+              if conclusion in {"failure", "timed_out"}:
+                  return "FAIL"
+              if conclusion in {"cancelled", "action_required", "stale"}:
+                  return "BLOCKED"
+              return "UNVERIFIED"
+
+          selected_ids = {}
+          selected_runs = {}
+          for run in runs:
+              name = str(run.get("name") or "")
+              if name not in {"SAQA CI", "SAQA k6 Performance"}:
+                  continue
+              run_id = int(run.get("id") or 0)
+              if run_id > selected_ids.get(name, -1):
+                  selected_ids[name] = run_id
+                  selected_runs[name] = run
+
+          if "SAQA CI" in selected_runs:
+              records["SAQA CI performance"] = job_result(gh_jobs(selected_runs["SAQA CI"]["id"]))
+          if "SAQA k6 Performance" in selected_runs:
+              records["SAQA k6 Performance"] = run_result(selected_runs["SAQA k6 Performance"])
+
+          with open(os.environ["RUNNER_TEMP"] + "/jira-performance.json", "w", encoding="utf-8") as handle:
+              json.dump(records, handle, sort_keys=True)
+          PY
+      - name: Synchronize Jira QA control plane
+        if: steps.run.outputs.should_sync == 'true'
+        env:
+          JIRA_WORKFLOW_NAME: ${{ steps.run.outputs.run_name }}
+          JIRA_RUN_ID: ${{ steps.run.outputs.run_id }}
+          JIRA_RUN_NUMBER: ${{ steps.run.outputs.run_number }}
+          JIRA_RUN_CONCLUSION: ${{ steps.run.outputs.run_conclusion }}
+          JIRA_RUN_STATUS: ${{ steps.run.outputs.run_status }}
+          JIRA_HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+          JIRA_HEAD_BRANCH: ${{ steps.run.outputs.head_branch }}
+          JIRA_RUN_URL: ${{ steps.run.outputs.run_url }}
+          JIRA_JOBS_JSON: ${{ runner.temp }}/jira-jobs.json
+          JIRA_ALL_RUNS_JSON: ${{ runner.temp }}/jira-runs.json
+          JIRA_PERFORMANCE_JSON: ${{ runner.temp }}/jira-performance.json
+        run: python scripts/sync_jira_ci.py

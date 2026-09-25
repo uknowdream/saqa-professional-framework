@@ -26,7 +26,7 @@ done
 grep -q '127\.0\.0\.1:3000:3000' docker-compose.qa-targets.yml || fail 'Juice Shop is not loopback-bound'
 grep -q '127\.0\.0\.1:8080:8080' docker-compose.qa-targets.yml || fail 'WebGoat is not loopback-bound'
 grep -q 'bkimminich/juice-shop:v20\.2\.0' docker-compose.qa-targets.yml || fail 'Juice Shop image/version is not pinned'
-grep -q 'webgoat/webgoat:2026' docker-compose.qa-targets.yml || fail 'WebGoat image/version is not pinned'
+grep -q 'webgoat/webgoat:v2026\.4' docker-compose.qa-targets.yml || fail 'WebGoat image/version is not pinned'
 
 # Guardrail: the prohibited external target must never appear in executable target configuration.
 if grep -RniE 'neocapture\.id' src scripts/qa_target_smoke.sh .github/workflows docker-compose.qa-targets.yml 2>/dev/null; then
