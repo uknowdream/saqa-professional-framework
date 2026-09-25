@@ -148,7 +148,7 @@ For local execution, install the same oracle dependency and browser:
 ```bash
 npm install --no-save --ignore-scripts "axe-core@4.10.2"
 python -m pip install "playwright==1.62.0"
-python -m playwright install chromium
+python -m playwright install chromium firefox webkit
 ```
 
 Then:
