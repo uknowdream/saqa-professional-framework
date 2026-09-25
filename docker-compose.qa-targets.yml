@@ -6,7 +6,7 @@ services:
     restart: "no"
 
   webgoat:
-    image: webgoat/webgoat:2026
+    image: webgoat/webgoat:v2026.4
     environment:
       TZ: UTC
     ports:
