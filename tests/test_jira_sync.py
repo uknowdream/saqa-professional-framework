@@ -6,6 +6,7 @@ from scripts.sync_jira_ci import (
     ISSUE_SUMMARIES,
     RunSummary,
     ensure_managed_issues,
+    aggregate_performance_result,
     job_result,
     run_label,
     transition_targets,
@@ -116,3 +117,29 @@ def test_jira_sync_fail_closed_mappings():
     assert transition_targets("BLOCKED") == ("Blocked", "In Progress")
     assert transition_targets("PENDING") == ("In Progress", "Open", "To Do")
     assert transition_targets("UNVERIFIED") == ("In Progress", "Open", "To Do")
+
+
+def test_aggregate_performance_result_is_order_independent_and_fail_closed() -> None:
+    assert aggregate_performance_result({
+        "SAQA CI performance": "PASS",
+        "SAQA k6 Performance": "PASS",
+    }) == "PASS"
+    assert aggregate_performance_result({
+        "SAQA CI performance": "PASS",
+        "SAQA k6 Performance": "FAIL",
+    }) == "FAIL"
+    assert aggregate_performance_result({
+        "SAQA CI performance": "FAIL",
+        "SAQA k6 Performance": "PASS",
+    }) == "FAIL"
+    assert aggregate_performance_result({
+        "SAQA CI performance": "BLOCKED",
+        "SAQA k6 Performance": "PASS",
+    }) == "BLOCKED"
+    assert aggregate_performance_result({
+        "SAQA CI performance": "PENDING",
+        "SAQA k6 Performance": "PASS",
+    }) == "PENDING"
+    assert aggregate_performance_result({
+        "SAQA CI performance": "PASS",
+    }) == "UNVERIFIED"
