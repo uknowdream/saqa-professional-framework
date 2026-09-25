@@ -45,15 +45,15 @@ jobs:
           SHA="${EVENT_SHA:-$INPUT_SHA}"
           test -n "$SHA"
           CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
+          ready=true
           if [ "$SHA" != "$CURRENT_MAIN_SHA" ]; then
             echo "Refusing certification for stale main commit $SHA; current main is $CURRENT_MAIN_SHA."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
-            exit 0
+            ready=false
+            runs='[]'
+          else
+            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
           fi
-          echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
-          runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
-          ready=true
           mkdir -p artifacts
           for workflow in "SAQA CI" "SAQA Contract Testing" "SAQA Accessibility" "SAQA Mobile Readiness" "SAQA k6 Performance"; do
             count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .head_branch == "main" and .status == "completed")] | length' <<< "$runs")"
