@@ -115,7 +115,7 @@ class JiraClient:
                 summary = str(item.get("fields", {}).get("summary", ""))
                 if not key or not summary:
                     continue
-                if summary in result and result[summary].key != key and summary.startswith("[SAQA-"):
+                if summary in result and result[summary].key != key and (summary.startswith("[SAQA-") or summary.startswith("SAQA |")):
                     raise RuntimeError(
                         f"Jira has duplicate managed summary: {summary!r} ({result[summary].key}, {key})"
                     )
