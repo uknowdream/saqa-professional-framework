@@ -359,7 +359,7 @@ Do not place Jira tokens or credentials in README files, source code, commits, o
 
 ```text
 OWASP Juice Shop: bkimminich/juice-shop:v20.2.0
-OWASP WebGoat:    webgoat/webgoat:2026
+OWASP WebGoat:    webgoat/webgoat:v2026.4
 ```
 
 Use loopback bindings for local testing whenever possible. Pin versions to improve reproducibility and auditability.
