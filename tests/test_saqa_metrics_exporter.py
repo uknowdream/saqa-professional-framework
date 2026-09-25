@@ -48,8 +48,11 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR", evidence_dir)
-    from scripts.saqa_metrics_exporter import _escape_label
-    assert _escape_label(raw_test_id) == 'a\\"b\\\\c\\nd'
-    assert _escape_label(raw_status) == 'PASS\\nd\\"'
 
+    metrics = collect()
 
+    assert (
+        'saqa_quality_status{test_id="a\\\"b\\\\c\\nd",status="PASS\\nd\\\""} -3\n'
+        in metrics
+    )
+    assert "saqa_quality_evidence_total 1\n" in metrics
