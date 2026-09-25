@@ -114,6 +114,67 @@ jobs:
           HEAD_SHA: ${{ steps.run.outputs.head_sha }}
         run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/jira-runs.json"
 
+      - name: Collect exact-SHA performance evidence for QA-7
+        if: steps.run.outputs.should_sync == 'true'
+        env:
+          HEAD_SHA: ${{ steps.run.outputs.head_sha }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          runs = json.loads(open(os.environ["RUNNER_TEMP"] + "/jira-runs.json", encoding="utf-8").read())
+          records = {}
+
+          def gh_jobs(run_id):
+              raw = subprocess.check_output(
+                  ["gh", "api", f"/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", "--jq", ".jobs"],
+                  text=True,
+              )
+              return json.loads(raw)
+
+          def job_result(jobs):
+              matched = [
+                  job for job in jobs
+                  if "juice shop performance" in str(job.get("name", "")).casefold()
+              ]
+              if not matched:
+                  return "UNVERIFIED"
+              if any(job.get("status") != "completed" for job in matched):
+                  return "PENDING"
+              conclusions = {str(job.get("conclusion") or "") for job in matched}
+              if conclusions == {"success"}:
+                  return "PASS"
+              if conclusions & {"failure", "timed_out"}:
+                  return "FAIL"
+              if conclusions & {"cancelled", "action_required", "stale"}:
+                  return "BLOCKED"
+              return "UNVERIFIED"
+
+          def run_result(run):
+              if run.get("status") != "completed":
+                  return "PENDING"
+              conclusion = str(run.get("conclusion") or "")
+              if conclusion == "success":
+                  return "PASS"
+              if conclusion in {"failure", "timed_out"}:
+                  return "FAIL"
+              if conclusion in {"cancelled", "action_required", "stale"}:
+                  return "BLOCKED"
+              return "UNVERIFIED"
+
+          for run in runs:
+              name = str(run.get("name") or "")
+              if name == "SAQA CI":
+                  records[name + " performance"] = job_result(gh_jobs(run["id"]))
+              elif name == "SAQA k6 Performance":
+                  records[name] = run_result(run)
+
+          with open(os.environ["RUNNER_TEMP"] + "/jira-performance.json", "w", encoding="utf-8") as handle:
+              json.dump(records, handle, sort_keys=True)
+          PY
       - name: Synchronize Jira QA control plane
         if: steps.run.outputs.should_sync == 'true'
         env:
@@ -127,4 +188,5 @@ jobs:
           JIRA_RUN_URL: ${{ steps.run.outputs.run_url }}
           JIRA_JOBS_JSON: ${{ runner.temp }}/jira-jobs.json
           JIRA_ALL_RUNS_JSON: ${{ runner.temp }}/jira-runs.json
+          JIRA_PERFORMANCE_JSON: ${{ runner.temp }}/jira-performance.json
         run: python scripts/sync_jira_ci.py
