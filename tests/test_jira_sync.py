@@ -143,3 +143,11 @@ def test_aggregate_performance_result_is_order_independent_and_fail_closed() -> 
     assert aggregate_performance_result({
         "SAQA CI performance": "PASS",
     }) == "UNVERIFIED"
+
+
+
+def test_aggregate_performance_result_precedence_is_fail_closed() -> None:
+    assert aggregate_performance_result({"SAQA CI performance": "FAIL", "SAQA k6 Performance": "BLOCKED"}) == "FAIL"
+    assert aggregate_performance_result({"SAQA CI performance": "BLOCKED", "SAQA k6 Performance": "PENDING"}) == "BLOCKED"
+    assert aggregate_performance_result({"SAQA CI performance": "PENDING", "SAQA k6 Performance": "PENDING"}) == "PENDING"
+    assert aggregate_performance_result({}) == "UNVERIFIED"
