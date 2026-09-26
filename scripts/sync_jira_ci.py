@@ -159,6 +159,22 @@ def run_label(result: str) -> str:
         raise ValueError(f"Unsupported SAQA result: {result!r}") from exc
 
 
+def certification_overall(current_results: dict[str, str], contract_result: str) -> str:
+    """Aggregate release-level status while requiring verified contract evidence."""
+    relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
+    if any(value == "FAIL" for value in relevant):
+        return "FAIL"
+    if any(value == "BLOCKED" for value in relevant):
+        return "BLOCKED"
+    if any(value == "PENDING" for value in relevant):
+        return "PENDING"
+    if current_results.get("SAQA Contract Testing") == "PASS" and contract_result != "PASS":
+        return "UNVERIFIED"
+    if all(value == "PASS" for value in relevant):
+        return "PASS"
+    return "UNVERIFIED"
+
+
 def transition_targets(result: str) -> tuple[str, ...]:
     if result == "PASS": return ("Done", "Closed")
     if result == "FAIL": return ("In Progress", "Reopened")
@@ -244,13 +260,6 @@ def main() -> None:
         if run_id > current_run_ids.get(item.name, -1):
             current_results[item.name] = item.result
             current_run_ids[item.name] = run_id
-    relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
-    if any(value == "FAIL" for value in relevant): overall = "FAIL"
-    elif any(value == "BLOCKED" for value in relevant): overall = "BLOCKED"
-    elif all(value == "PASS" for value in relevant): overall = "PASS"
-    elif any(value == "PENDING" for value in relevant): overall = "PENDING"
-    else: overall = "UNVERIFIED"
-
     api_ci_result = current_results.get("SAQA CI", "PENDING")
     api_contract_result = current_results.get("SAQA Contract Testing", "UNVERIFIED")
     evidence_path = os.environ.get("JIRA_CONTRACT_EVIDENCE_JSON")
@@ -270,10 +279,7 @@ def main() -> None:
     else:
         api_overall = "UNVERIFIED"
 
-    # QA-9 is a release-level claim. A contract workflow marked PASS is not
-    # sufficient unless its exact-SHA evidence was actually validated.
-    if current_results.get("SAQA Contract Testing") == "PASS" and api_contract_result != "PASS":
-        overall = "UNVERIFIED"
+    overall = certification_overall(current_results, api_contract_result)
 
     performance_result = aggregate_performance_result({
         "SAQA CI performance": str(performance_records.get("SAQA CI performance", "UNVERIFIED")),
