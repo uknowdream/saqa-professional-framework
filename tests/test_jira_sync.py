@@ -4,6 +4,7 @@ import pytest
 
 from scripts.sync_jira_ci import (
     ISSUE_SUMMARIES,
+    MONITORED_WORKFLOWS,
     RunSummary,
     ensure_managed_issues,
     aggregate_performance_result,
