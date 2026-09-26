@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  actions: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: saqa-advanced-qe-\${{ github.workflow }}-\${{ github.event.pull_request.number || github.ref }}
@@ -45,6 +48,18 @@ jobs:
           echo "Juice Shop did not become ready within 60 seconds"
           docker logs saqa-advanced-security || true
           exit 1
+      - name: Restore previous quality history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: \${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/previous
+          previous_run="$(gh api "/repos/\${GITHUB_REPOSITORY}/actions/runs?branch=main&status=success&per_page=100" --jq '[.workflow_runs[] | select(.name=="SAQA Advanced QE" and .head_sha!="\${{ github.sha }}")] | first | .id // empty')"
+          if [ -n "$previous_run" ]; then
+            gh run download "$previous_run" -n "saqa-advanced-qe-\${{ github.sha }}" -D artifacts/previous || true
+          fi
+          find artifacts/previous -type f -name quality-history.jsonl -print -quit > artifacts/previous-history-path.txt || true
       - name: Generate release and observability evidence
         env:
           SAQA_MANIFEST: artifacts/evidence-manifest.json
@@ -53,28 +68,27 @@ jobs:
           SAQA_SOURCE_SHA: \${{ github.event.pull_request.head.sha || github.sha }}
           SAQA_EVIDENCE_DIR: artifacts/evidence
           SAQA_OBSERVABILITY_DIR: artifacts/observability
-          SAQA_FLAKY_REPORT: artifacts/observability/flaky-telemetry.json
-          SAQA_DASHBOARD_REPORT: artifacts/observability/commit-dashboard.json
         run: |
           mkdir -p artifacts/evidence artifacts/observability
           python - <<'PY'
           import os
           from pathlib import Path
-          from saqa.evidence import EvidenceRecord, utc_now, write_manifest
-          tested_sha = os.environ["SAQA_TESTED_SHA"]
-          source_sha = os.environ["SAQA_SOURCE_SHA"]
-          write_manifest(
-              [EvidenceRecord("ADVANCED-QE","PASS",utc_now(),"saqa-framework",{"tested_sha":tested_sha,"source_sha":source_sha})],
-              Path("artifacts/evidence-manifest.json"),
-          )
+          from saqa.evidence import EvidenceRecord, write_manifest, utc_now
+          write_manifest([EvidenceRecord("ADVANCED-QE","PASS",utc_now(),"saqa-framework",{"tested_sha":os.environ["SAQA_TESTED_SHA"],"source_sha":os.environ["SAQA_SOURCE_SHA"]})],Path("artifacts/evidence-manifest.json"))
           PY
           python scripts/generate_release_report.py
-          python scripts/generate_qe_observability.py
+          previous="$(find artifacts/previous -type f -name quality-history.jsonl -print -quit 2>/dev/null || true)"
+          if [ -n "$previous" ]; then cp "$previous" artifacts/observability/quality-history.jsonl; fi
+          SAQA_HISTORY_PATH=artifacts/observability/quality-history.jsonl python scripts/generate_qe_observability.py
           python scripts/generate_commit_dashboard.py
           SAQA_EVIDENCE_DIR=artifacts/evidence SAQA_RELEASE_REPORT=artifacts/release-certification.json SAQA_FLAKY_REPORT=artifacts/observability/flaky-telemetry.json python -c 'from scripts.saqa_metrics_exporter import collect; print(collect())'
+      - name: Attest immutable release evidence index
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/observability/release-index-\${{ github.sha }}.json
       - name: Upload advanced QE evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: saqa-advanced-qe-\${{ github.sha }}
           path: artifacts/
