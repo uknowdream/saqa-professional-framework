@@ -8,6 +8,7 @@ from scripts.sync_jira_ci import (
     ensure_managed_issues,
     aggregate_performance_result,
     contract_evidence_result,
+    certification_overall,
     job_result,
     run_label,
     transition_targets,
@@ -123,6 +124,18 @@ def test_jira_sync_fail_closed_mappings():
     assert transition_targets("BLOCKED") == ("Blocked", "In Progress")
     assert transition_targets("PENDING") == ("In Progress", "Open", "To Do")
     assert transition_targets("UNVERIFIED") == ("In Progress", "Open", "To Do")
+
+
+def test_certification_overall_requires_contract_evidence_for_release_pass() -> None:
+    results = {name: "PASS" for name in MONITORED_WORKFLOWS}
+    assert certification_overall(results, "PASS") == "PASS"
+    assert certification_overall(results, "UNVERIFIED") == "UNVERIFIED"
+
+
+def test_certification_overall_preserves_fail_closed_precedence() -> None:
+    results = {name: "PASS" for name in MONITORED_WORKFLOWS}
+    results["SAQA CI"] = "FAIL"
+    assert certification_overall(results, "UNVERIFIED") == "FAIL"
 
 
 def test_aggregate_performance_result_is_order_independent_and_fail_closed() -> None:
