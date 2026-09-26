@@ -73,7 +73,7 @@ jobs:
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: Upload readiness decision
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-release-readiness-${{ steps.check.outputs.head_sha }}
           path: artifacts/release-readiness.json
@@ -91,7 +91,7 @@ jobs:
       SAQA_HEAD_SHA: ${{ needs.readiness.outputs.head_sha }}
     steps:
       - name: Checkout trusted certification code
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: main
           persist-credentials: false
@@ -103,7 +103,7 @@ jobs:
         run: python scripts/qa_release_gate.py
       - name: Upload certification decision
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-release-certification-${{ needs.readiness.outputs.head_sha }}
           path: artifacts/release-certification.json
