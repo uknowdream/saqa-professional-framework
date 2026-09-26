@@ -16,7 +16,6 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: "Viewer"
       GF_SECURITY_ALLOW_EMBEDDING: "false"
-      SAQA_METRICS_HOST: "0.0.0.0"
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
@@ -25,6 +24,8 @@ services:
 
   saqa-metrics:
     image: python:3.12-slim
+    environment:
+      SAQA_METRICS_HOST: "0.0.0.0"
     working_dir: /workspace
     command: ["python", "scripts/saqa_metrics_exporter.py"]
     ports:
