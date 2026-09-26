@@ -117,6 +117,8 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
         evidence = load_json(path_value, None)
         if not isinstance(evidence, dict):
             return "UNVERIFIED"
+        if evidence.get("source_sha") != expected_sha:
+            return "UNVERIFIED"
         if evidence.get("schema") != "saqa.contract-gate.v2":
             return "UNVERIFIED"
         if evidence.get("test_id") != "juice-shop.api.openapi-contract":
@@ -127,24 +129,50 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
             return "UNVERIFIED"
         if evidence.get("destructive_actions") is not False:
             return "UNVERIFIED"
-        status = str(evidence.get("status") or "")
+        status = str(evidence.get("status", ""))
         if status not in VALID_EVIDENCE_STATUSES:
             return "UNVERIFIED"
-        details = evidence.get("details")
-        if not isinstance(details, dict):
-            return "UNVERIFIED"
         if status == "PASS":
+            details = evidence.get("details")
+            if not isinstance(details, dict):
+                return "UNVERIFIED"
             if details.get("status_code") != 200:
                 return "UNVERIFIED"
             if details.get("validation_errors") != []:
                 return "UNVERIFIED"
         return status
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return "UNVERIFIED"
 
-
 def run_label(result: str) -> str:
-    return {"PASS": "saqa-ci-pass", "FAIL": "saqa-ci-fail", "BLOCKED": "saqa-ci-blocked", "PENDING": "saqa-ci-pending", "UNVERIFIED": "saqa-ci-unverified"}[result]
+    """Map every supported result to exactly one Jira automation status label."""
+    labels = {
+        "PASS": "saqa-ci-pass",
+        "FAIL": "saqa-ci-fail",
+        "BLOCKED": "saqa-ci-blocked",
+        "PENDING": "saqa-ci-pending",
+        "UNVERIFIED": "saqa-ci-unverified",
+    }
+    try:
+        return labels[result]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported SAQA result: {result!r}") from exc
+
+
+def certification_overall(current_results: dict[str, str], contract_result: str) -> str:
+    """Aggregate release-level status while requiring verified contract evidence."""
+    relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
+    if any(value == "FAIL" for value in relevant):
+        return "FAIL"
+    if any(value == "BLOCKED" for value in relevant):
+        return "BLOCKED"
+    if any(value == "PENDING" for value in relevant):
+        return "PENDING"
+    if current_results.get("SAQA Contract Testing") == "PASS" and contract_result != "PASS":
+        return "UNVERIFIED"
+    if all(value == "PASS" for value in relevant):
+        return "PASS"
+    return "UNVERIFIED"
 
 
 def transition_targets(result: str) -> tuple[str, ...]:
@@ -232,13 +260,6 @@ def main() -> None:
         if run_id > current_run_ids.get(item.name, -1):
             current_results[item.name] = item.result
             current_run_ids[item.name] = run_id
-    relevant = [current_results.get(name, "PENDING") for name in MONITORED_WORKFLOWS]
-    if any(value == "FAIL" for value in relevant): overall = "FAIL"
-    elif any(value == "BLOCKED" for value in relevant): overall = "BLOCKED"
-    elif all(value == "PASS" for value in relevant): overall = "PASS"
-    elif any(value == "PENDING" for value in relevant): overall = "PENDING"
-    else: overall = "UNVERIFIED"
-
     api_ci_result = current_results.get("SAQA CI", "PENDING")
     api_contract_result = current_results.get("SAQA Contract Testing", "UNVERIFIED")
     evidence_path = os.environ.get("JIRA_CONTRACT_EVIDENCE_JSON")
@@ -257,6 +278,8 @@ def main() -> None:
         api_overall = "PENDING"
     else:
         api_overall = "UNVERIFIED"
+
+    overall = certification_overall(current_results, api_contract_result)
 
     performance_result = aggregate_performance_result({
         "SAQA CI performance": str(performance_records.get("SAQA CI performance", "UNVERIFIED")),

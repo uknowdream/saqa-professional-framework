@@ -4,9 +4,12 @@ import pytest
 
 from scripts.sync_jira_ci import (
     ISSUE_SUMMARIES,
+    MONITORED_WORKFLOWS,
     RunSummary,
     ensure_managed_issues,
     aggregate_performance_result,
+    contract_evidence_result,
+    certification_overall,
     job_result,
     run_label,
     transition_targets,
@@ -50,6 +53,11 @@ def test_job_result_requires_all_matching_jobs_to_complete_successfully() -> Non
 
 def test_job_result_is_unverified_when_no_job_matches() -> None:
     assert job_result([], ("missing job",)) == "UNVERIFIED"
+
+
+def test_run_label_rejects_unknown_results() -> None:
+    with pytest.raises(ValueError, match="Unsupported SAQA result"):
+        run_label("NOT_A_RESULT")
 
 
 def test_status_labels_and_transition_targets_are_deterministic() -> None:
@@ -119,6 +127,18 @@ def test_jira_sync_fail_closed_mappings():
     assert transition_targets("UNVERIFIED") == ("In Progress", "Open", "To Do")
 
 
+def test_certification_overall_requires_contract_evidence_for_release_pass() -> None:
+    results = {name: "PASS" for name in MONITORED_WORKFLOWS}
+    assert certification_overall(results, "PASS") == "PASS"
+    assert certification_overall(results, "UNVERIFIED") == "UNVERIFIED"
+
+
+def test_certification_overall_preserves_fail_closed_precedence() -> None:
+    results = {name: "PASS" for name in MONITORED_WORKFLOWS}
+    results["SAQA CI"] = "FAIL"
+    assert certification_overall(results, "UNVERIFIED") == "FAIL"
+
+
 def test_aggregate_performance_result_is_order_independent_and_fail_closed() -> None:
     assert aggregate_performance_result({
         "SAQA CI performance": "PASS",
@@ -151,3 +171,35 @@ def test_aggregate_performance_result_precedence_is_fail_closed() -> None:
     assert aggregate_performance_result({"SAQA CI performance": "BLOCKED", "SAQA k6 Performance": "PENDING"}) == "BLOCKED"
     assert aggregate_performance_result({"SAQA CI performance": "PENDING", "SAQA k6 Performance": "PENDING"}) == "PENDING"
     assert aggregate_performance_result({}) == "UNVERIFIED"
+
+
+def test_contract_evidence_requires_exact_source_sha(tmp_path) -> None:
+    evidence = {
+        "schema": "saqa.contract-gate.v2",
+        "test_id": "juice-shop.api.openapi-contract",
+        "status": "PASS",
+        "target": "http://127.0.0.1:3000",
+        "http_methods": ["GET"],
+        "destructive_actions": False,
+        "source_sha": "expected",
+        "details": {"status_code": 200, "validation_errors": []},
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(__import__("json").dumps(evidence), encoding="utf-8")
+    assert contract_evidence_result(str(path), "expected") == "PASS"
+    assert contract_evidence_result(str(path), "different") == "UNVERIFIED"
+
+
+def test_contract_evidence_rejects_missing_provenance(tmp_path) -> None:
+    evidence = {
+        "schema": "saqa.contract-gate.v2",
+        "test_id": "juice-shop.api.openapi-contract",
+        "status": "PASS",
+        "target": "http://127.0.0.1:3000",
+        "http_methods": ["GET"],
+        "destructive_actions": False,
+        "details": {"status_code": 200, "validation_errors": []},
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(__import__("json").dumps(evidence), encoding="utf-8")
+    assert contract_evidence_result(str(path), "expected") == "UNVERIFIED"
