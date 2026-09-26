@@ -25,7 +25,7 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
     raw_test_id='a"b\\c\nd'; raw_status='PASS\nd"'
     (evidence_dir/"escaped.json").write_text(json.dumps({"test_id":raw_test_id,"status":raw_status}))
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR",evidence_dir)
-    expected='saqa_quality_status{test_id="a\"b\\c\nd",status="PASS\nD\""} -3\n'
+    expected='saqa_quality_status{test_id="a\\"b\\\\c\\nd",status="PASS\\nD\\""} -3\n'
     assert expected in collect()
 
 def test_collect_exposes_commit_certification_and_flaky_metrics(tmp_path, monkeypatch):
