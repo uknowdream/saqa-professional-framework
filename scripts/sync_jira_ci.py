@@ -118,8 +118,8 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
         if not isinstance(evidence, dict):
             return "UNVERIFIED"
         if evidence.get("source_sha") != expected_sha:
-        return "UNVERIFIED"
-    if evidence.get("schema") != "saqa.contract-gate.v2":
+            return "UNVERIFIED"
+        if evidence.get("schema") != "saqa.contract-gate.v2":
             return "UNVERIFIED"
         if evidence.get("test_id") != "juice-shop.api.openapi-contract":
             return "UNVERIFIED"
@@ -129,25 +129,20 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
             return "UNVERIFIED"
         if evidence.get("destructive_actions") is not False:
             return "UNVERIFIED"
-        status = str(evidence.get("status") or "")
+        status = str(evidence.get("status", ""))
         if status not in VALID_EVIDENCE_STATUSES:
             return "UNVERIFIED"
-        details = evidence.get("details")
-        if not isinstance(details, dict):
-            return "UNVERIFIED"
         if status == "PASS":
+            details = evidence.get("details")
+            if not isinstance(details, dict):
+                return "UNVERIFIED"
             if details.get("status_code") != 200:
                 return "UNVERIFIED"
             if details.get("validation_errors") != []:
                 return "UNVERIFIED"
         return status
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return "UNVERIFIED"
-
-
-def run_label(result: str) -> str:
-    return {"PASS": "saqa-ci-pass", "FAIL": "saqa-ci-fail", "BLOCKED": "saqa-ci-blocked", "PENDING": "saqa-ci-pending", "UNVERIFIED": "saqa-ci-unverified"}[result]
-
 
 def transition_targets(result: str) -> tuple[str, ...]:
     if result == "PASS": return ("Done", "Closed")
