@@ -54,6 +54,7 @@ def main() -> int:
         "target": _redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
+        "source_sha": os.getenv("SAQA_GIT_SHA", ""),
         "observed_at": datetime.now(timezone.utc).isoformat(),
         "details": {"contract": str(CONTRACT), "endpoint": ENDPOINT},
     }
