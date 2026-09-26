@@ -184,6 +184,28 @@ jobs:
           with open(os.environ["RUNNER_TEMP"] + "/jira-performance.json", "w", encoding="utf-8") as handle:
               json.dump(records, handle, sort_keys=True)
           PY
+      - name: Collect exact contract evidence
+        if: steps.run.outputs.should_sync == ''true'' && steps.run.outputs.run_name == 'SAQA Contract Testing'
+        env:
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/contract-evidence"
+          ARTIFACT_ID="$(gh api "/repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[] | select(.name == "saqa-contract-evidence" and .expired == false and .workflow_run.id == ('"$RUN_ID"')) | .id' | head -n 1)"
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "No non-expired saqa-contract-evidence artifact exists for run $RUN_ID."
+            exit 0
+          fi
+          gh api "/repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID/zip" > "$RUNNER_TEMP/contract-evidence.zip"
+          unzip -q "$RUNNER_TEMP/contract-evidence.zip" -d "$RUNNER_TEMP/contract-evidence"
+          EVIDENCE="$(find "$RUNNER_TEMP/contract-evidence" -type f -name '*.json' -print -quit)"
+          if [ -z "$EVIDENCE" ]; then
+            echo "Contract evidence artifact contained no JSON evidence file."
+            exit 0
+          fi
+          cp "$EVIDENCE" "$RUNNER_TEMP/contract-evidence.json"
+          echo "Contract evidence collected from artifact $ARTIFACT_ID."
+
       - name: Synchronize Jira QA control plane
         if: steps.run.outputs.should_sync == 'true'
         env:
@@ -198,4 +220,5 @@ jobs:
           JIRA_JOBS_JSON: ${{ runner.temp }}/jira-jobs.json
           JIRA_ALL_RUNS_JSON: ${{ runner.temp }}/jira-runs.json
           JIRA_PERFORMANCE_JSON: ${{ runner.temp }}/jira-performance.json
+          JIRA_CONTRACT_EVIDENCE_JSON: ${{ runner.temp }}/contract-evidence.json
         run: python scripts/sync_jira_ci.py
