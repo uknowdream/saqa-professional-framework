@@ -39,3 +39,9 @@ def test_non_terminal_history_is_not_flaky() -> None:
 def test_unknown_status_is_rejected() -> None:
     with pytest.raises(ValueError, match="unsupported execution status"):
         analyze_history(["PASS", "BROKEN"])
+
+
+def test_flaky_transition_is_explicit():
+    result = analyze_history(["PASS", "FAIL", "PASS"])
+    assert result.status == "FLAKY"
+    assert result.transition_count == 2
