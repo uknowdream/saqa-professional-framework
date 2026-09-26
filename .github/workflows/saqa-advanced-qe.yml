@@ -83,18 +83,23 @@ jobs:
               "ADVANCED-QE", status, utc_now(), "saqa-framework",
               {"tested_sha": os.environ["SAQA_TESTED_SHA"], "source_sha": os.environ["SAQA_SOURCE_SHA"], "job_status": os.environ["SAQA_QE_STATUS"]},
           )
-          Path("artifacts/evidence/advanced-qe.json").write_text(json.dumps(record.__dict__, sort_keys=True, indent=2)+"
-", encoding="utf-8")
+          Path("artifacts/evidence/advanced-qe.json").write_text(json.dumps(record.__dict__, sort_keys=True), encoding="utf-8")
           write_manifest([record], Path("artifacts/evidence-manifest.json"))
           PY
           previous="$(find artifacts/previous -type f -name quality-history.jsonl -print -quit 2>/dev/null || true)"
           if [ -n "$previous" ]; then cp "$previous" artifacts/observability/quality-history.jsonl; fi
           SAQA_HISTORY_PATH=artifacts/observability/quality-history.jsonl python scripts/generate_qe_observability.py
+          observability_status=$?
           python scripts/generate_release_report.py
           release_status=$?
-          python scripts/generate_commit_dashboard.py || true
+          python scripts/generate_commit_dashboard.py
+          dashboard_status=$?
           SAQA_EVIDENCE_DIR=artifacts/evidence SAQA_RELEASE_REPORT=artifacts/release-certification.json SAQA_FLAKY_REPORT=artifacts/observability/flaky-telemetry.json python -c 'from scripts.saqa_metrics_exporter import collect; print(collect())'
-          exit $release_status
+          metrics_status=$?
+          if [ "$observability_status" -ne 0 ]; then exit "$observability_status"; fi
+          if [ "$release_status" -ne 0 ]; then exit "$release_status"; fi
+          if [ "$dashboard_status" -ne 0 ]; then exit "$dashboard_status"; fi
+          exit "$metrics_status"
       - name: Attest immutable release evidence index
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success'
         uses: actions/attest@v4
