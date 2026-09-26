@@ -9,7 +9,7 @@ import tempfile
 import urllib.parse
 import urllib.request
 
-from scripts.sync_jira_ci import classify_run, job_result
+from sync_jira_ci import classify_run, job_result
 
 WORKFLOWS = ("SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness", "SAQA k6 Performance")
 
