@@ -26,6 +26,19 @@ PASS_CONCLUSIONS = {"success"}
 FAIL_CONCLUSIONS = {"failure", "timed_out"}
 BLOCKED_CONCLUSIONS = {"cancelled", "action_required", "stale"}
 STATUS_LABELS = {"saqa-ci-pass", "saqa-ci-fail", "saqa-ci-blocked", "saqa-ci-pending", "saqa-ci-unverified"}
+VALID_EVIDENCE_STATUSES = {"PASS", "FAIL", "BLOCKED"}
+
+
+def classify_run(status: str, conclusion: str) -> str:
+    if status != "completed":
+        return "PENDING"
+    if conclusion in PASS_CONCLUSIONS:
+        return "PASS"
+    if conclusion in FAIL_CONCLUSIONS:
+        return "FAIL"
+    if conclusion in BLOCKED_CONCLUSIONS:
+        return "BLOCKED"
+    return "UNVERIFIED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,15 +54,7 @@ class RunSummary:
 
     @property
     def result(self) -> str:
-        if self.status != "completed":
-            return "PENDING"
-        if self.conclusion in PASS_CONCLUSIONS:
-            return "PASS"
-        if self.conclusion in FAIL_CONCLUSIONS:
-            return "FAIL"
-        if self.conclusion in BLOCKED_CONCLUSIONS:
-            return "BLOCKED"
-        return "UNVERIFIED"
+        return classify_run(self.status, self.conclusion)
 
 
 def load_json(path_value: str | None, default: Any) -> Any:
@@ -82,9 +87,9 @@ def job_result(jobs: list[dict[str, Any]], patterns: tuple[str, ...]) -> str:
     conclusions = {str(job.get("conclusion") or "") for job in matched}
     if conclusions == {"success"}:
         return "PASS"
-    if conclusions & {"failure", "timed_out"}:
+    if conclusions & FAIL_CONCLUSIONS:
         return "FAIL"
-    if conclusions & {"cancelled", "action_required", "stale"}:
+    if conclusions & BLOCKED_CONCLUSIONS:
         return "BLOCKED"
     return "UNVERIFIED"
 
@@ -104,6 +109,40 @@ def aggregate_performance_result(results: dict[str, str]) -> str:
     return "UNVERIFIED"
 
 
+def contract_evidence_result(path_value: str | None, expected_sha: str, expected_target: str = "http://127.0.0.1:3000") -> str:
+    """Classify contract status from exact-SHA evidence, never from workflow conclusion."""
+    if not path_value:
+        return "UNVERIFIED"
+    try:
+        evidence = load_json(path_value, None)
+        if not isinstance(evidence, dict):
+            return "UNVERIFIED"
+        if evidence.get("schema") != "saqa.contract-gate.v2":
+            return "UNVERIFIED"
+        if evidence.get("test_id") != "juice-shop.api.openapi-contract":
+            return "UNVERIFIED"
+        if evidence.get("target") != expected_target:
+            return "UNVERIFIED"
+        if evidence.get("http_methods") != ["GET"]:
+            return "UNVERIFIED"
+        if evidence.get("destructive_actions") is not False:
+            return "UNVERIFIED"
+        status = str(evidence.get("status") or "")
+        if status not in VALID_EVIDENCE_STATUSES:
+            return "UNVERIFIED"
+        details = evidence.get("details")
+        if not isinstance(details, dict):
+            return "UNVERIFIED"
+        if status == "PASS":
+            if details.get("status_code") != 200:
+                return "UNVERIFIED"
+            if details.get("validation_errors") != []:
+                return "UNVERIFIED"
+        return status
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return "UNVERIFIED"
+
+
 def run_label(result: str) -> str:
     return {"PASS": "saqa-ci-pass", "FAIL": "saqa-ci-fail", "BLOCKED": "saqa-ci-blocked", "PENDING": "saqa-ci-pending", "UNVERIFIED": "saqa-ci-unverified"}[result]
 
@@ -116,17 +155,7 @@ def transition_targets(result: str) -> tuple[str, ...]:
 
 
 def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
-    """Resolve pre-bootstrapped QA issues without creating them during CI sync.
-
-    The bootstrap is intentionally manual-only. CI synchronization must not perform
-    lookup-then-create self-healing because independent workflow runs can race and
-    Jira does not provide a uniqueness constraint on summaries. Missing control-plane
-    items are therefore a fail-closed configuration error requiring bootstrap/recovery.
-
-    Discovery and mutation are deliberately separated: if any managed issue is
-    missing, the function raises before performing any Jira label writes. This keeps
-    fail-closed synchronization free of partial side effects.
-    """
+    """Resolve pre-bootstrapped QA issues without creating them during CI sync."""
     project_issues = client.find_project_issues()
     managed: dict[str, JiraIssueResult] = {}
     missing: list[str] = []
@@ -136,14 +165,12 @@ def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
             missing.append(f"{key}: {summary}")
             continue
         managed[key] = existing
-
     if missing:
         details = "; ".join(missing)
         raise RuntimeError(
             "Jira managed QA issues are missing; CI synchronization will not self-heal them because "
             f"lookup-then-create is race-prone. Run the manual bootstrap/recovery workflow first. Missing: {details}"
         )
-
     for issue in managed.values():
         state = client.get_issue_state(issue.key)
         missing_labels = [label for label in ("saqa-bootstrap", "saqa-automation") if label not in state.labels]
@@ -213,7 +240,12 @@ def main() -> None:
     else: overall = "UNVERIFIED"
 
     api_ci_result = current_results.get("SAQA CI", "PENDING")
-    api_contract_result = current_results.get("SAQA Contract Testing", "PENDING")
+    api_contract_result = current_results.get("SAQA Contract Testing", "UNVERIFIED")
+    evidence_path = os.environ.get("JIRA_CONTRACT_EVIDENCE_JSON")
+    if run.name == "SAQA Contract Testing":
+        api_contract_result = contract_evidence_result(evidence_path, run.head_sha)
+    elif evidence_path:
+        api_contract_result = contract_evidence_result(evidence_path, run.head_sha)
     api_results = (api_ci_result, api_contract_result)
     if "FAIL" in api_results:
         api_overall = "FAIL"
