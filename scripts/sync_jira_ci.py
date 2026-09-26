@@ -117,7 +117,9 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
         evidence = load_json(path_value, None)
         if not isinstance(evidence, dict):
             return "UNVERIFIED"
-        if evidence.get("schema") != "saqa.contract-gate.v2":
+        if evidence.get("source_sha") != expected_sha:
+        return "UNVERIFIED"
+    if evidence.get("schema") != "saqa.contract-gate.v2":
             return "UNVERIFIED"
         if evidence.get("test_id") != "juice-shop.api.openapi-contract":
             return "UNVERIFIED"
