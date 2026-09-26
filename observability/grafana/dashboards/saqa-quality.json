@@ -1,0 +1,20 @@
+{
+  "title": "SAQA Quality Overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Evidence Records",
+      "targets": [{"expr": "saqa_quality_evidence_total"}],
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "type": "timeseries",
+      "title": "Quality Status",
+      "targets": [{"expr": "saqa_quality_status", "legendFormat": "{{test_id}} {{status}}"}],
+      "gridPos": {"h": 8, "w": 18, "x": 6, "y": 0}
+    }
+  ]
+}

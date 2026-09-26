@@ -1,0 +1,46 @@
+name: Jira Integration Bootstrap
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jira-qa-sync-bootstrap
+  cancel-in-progress: false
+
+env:
+  JIRA_BASE_URL: https://dreamedx.atlassian.net
+  JIRA_EMAIL: teukusaiful7@gmail.com
+  JIRA_PROJECT_KEY: QA
+
+jobs:
+  jira-cloud-bootstrap:
+    name: Jira Cloud verification and QA backlog bootstrap
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Verify Jira secret is available
+        run: |
+          if [ -z "$JIRA_API_TOKEN" ]; then
+            echo "ACTION REQUIRED: GitHub repository secret JIRA_API_TOKEN is missing or unavailable to this workflow."
+            exit 1
+          fi
+          echo "JIRA_API_TOKEN: configured (value hidden)"
+      - name: Verify Jira project access
+        run: bash scripts/verify_jira_ci.sh
+      - name: Bootstrap QA work items
+        run: python scripts/bootstrap_jira_ci.py

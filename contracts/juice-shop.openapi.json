@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "SAQA Juice Shop Reference Contract",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/rest/products/search": {
+      "get": {
+        "operationId": "searchProducts",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {"type": "string", "minLength": 1}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product search result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["id", "name"],
+                        "properties": {
+                          "id": {"type": "integer"},
+                          "name": {"type": "string"}
+                        },
+                        "additionalProperties": true
+                      }
+                    }
+                  },
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
