@@ -6,6 +6,7 @@
 - **FAIL** — verified quality or framework failure.
 - **BLOCKED** — execution cannot proceed because a required dependency is unavailable.
 - **UNVERIFIED** — evidence is insufficient to make a claim.
+- **PENDING** — execution or required evidence is still in progress; certification cannot proceed.
 - **N/A** — intentionally not applicable.
 
 A roadmap item is not marked complete merely because code exists; it requires implementation plus appropriate verification evidence.
@@ -67,4 +68,4 @@ A roadmap item is not marked complete merely because code exists; it requires im
 
 ## Engineering rule
 
-The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED control.
+The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED/PENDING control.
