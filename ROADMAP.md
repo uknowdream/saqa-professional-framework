@@ -55,8 +55,8 @@ A roadmap item is not marked complete merely because code exists; it requires im
 - [x] Expanded negative-path contract fixtures
 - [x] Advanced application-security regression on isolated targets
 - [x] Resilience and deterministic retry testing
-- [ ] Broader accessibility oracle coverage
-- [ ] Cross-service test-data lifecycle management
+- [x] Broader accessibility oracle coverage
+- [x] Cross-service test-data lifecycle management
 
 ## Phase 5 — Release Certification
 
