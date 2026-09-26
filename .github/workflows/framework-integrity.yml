@@ -52,7 +52,7 @@ jobs:
           import pathlib
           import re
 
-          pattern = re.compile(r"uses:\s*[^@\s]+@([^\s#]+)")
+          pattern = re.compile(r"^\s*uses:\s*[^@\s]+@([^\s#]+)$")
           failures = []
           for path in pathlib.Path(".github/workflows").glob("*.y*ml"):
               for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
