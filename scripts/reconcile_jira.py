@@ -8,11 +8,29 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+from urllib.parse import urlparse
 import zipfile
 
 from sync_jira_ci import classify_run, job_result
 
 WORKFLOWS = ("SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness", "SAQA k6 Performance")
+
+
+class SafeArtifactRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never forward GitHub credentials to a cross-host artifact redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is None:
+            return None
+        source = urlparse(req.full_url)
+        target = urlparse(newurl)
+        if source.netloc.casefold() != target.netloc.casefold():
+            redirected.headers.pop("Authorization", None)
+            redirected.unredirected_hdrs.pop("Authorization", None)
+        return redirected
+
+
 
 
 def gh_get(path: str) -> object:
@@ -125,7 +143,8 @@ def contract_evidence_path(run_id: int, expected_sha: str, directory: str) -> st
         headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
     )
     zip_path = os.path.join(directory, "contract-evidence.zip")
-    with urllib.request.urlopen(request, timeout=60) as response, open(zip_path, "wb") as handle:
+    opener = urllib.request.build_opener(SafeArtifactRedirectHandler())
+    with opener.open(request, timeout=60) as response, open(zip_path, "wb") as handle:
         handle.write(response.read())
     with zipfile.ZipFile(zip_path) as archive:
         json_names = [name for name in archive.namelist() if name.endswith(".json")]
