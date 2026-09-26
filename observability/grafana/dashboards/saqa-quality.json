@@ -1,32 +1,12 @@
 {
   "title": "SAQA Quality Overview",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "15s",
   "panels": [
-    {
-      "type": "stat",
-      "title": "Evidence Records",
-      "targets": [{"expr": "saqa_quality_evidence_total"}],
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0}
-    },
-    {
-      "type": "stat",
-      "title": "Release Certification",
-      "targets": [{"expr": "saqa_release_certified", "legendFormat": "{{commit_sha}}"}],
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0}
-    },
-    {
-      "type": "stat",
-      "title": "Flaky Tests",
-      "targets": [{"expr": "saqa_flaky_test_total"}],
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0}
-    },
-    {
-      "type": "timeseries",
-      "title": "Quality Status",
-      "targets": [{"expr": "saqa_quality_status", "legendFormat": "{{test_id}} {{status}}"}],
-      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 4}
-    }
+    {"type":"stat","title":"Evidence Records","targets":[{"expr":"saqa_quality_evidence_total"}],"gridPos":{"h":4,"w":8,"x":0,"y":0}},
+    {"type":"stat","title":"Release Certification","targets":[{"expr":"saqa_release_certified","legendFormat":"{{commit_sha}}"}],"gridPos":{"h":4,"w":8,"x":8,"y":0}},
+    {"type":"stat","title":"Flaky Tests","targets":[{"expr":"saqa_flaky_test_total"}],"gridPos":{"h":4,"w":8,"x":16,"y":0}},
+    {"type":"timeseries","title":"Quality Status","targets":[{"expr":"saqa_quality_status","legendFormat":"{{test_id}} {{status}}"}],"gridPos":{"h":8,"w":24,"x":0,"y":4}}
   ]
 }
