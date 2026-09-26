@@ -26,7 +26,7 @@ The framework treats automation as an engineering system: tests produce reproduc
 | Evidence | JSON evidence, SHA-256 manifests, canonical aggregation |
 | CI/CD | GitHub Actions multi-browser quality gates |
 | Jira | Project access/bootstrap and integration foundation |
-| Certification | Evidence-based certification semantics |
+| Certification | Evidence-based certification semantics, release reports, commit-bound evidence history |
 
 ## 🚀 Quick Start Tutorial
 
@@ -366,6 +366,10 @@ OWASP WebGoat:    webgoat/webgoat:v2026.4
 ```
 
 Use loopback bindings for local testing whenever possible. Pin versions to improve reproducibility and auditability.
+
+## 📈 Advanced QE Evidence
+
+The advanced QE layer now produces Allure-compatible result files, append-only hash-chained quality history, deterministic property-style API cases, safe loopback security regression, deterministic retry/resilience checks, and a commit-bound release certification report. These controls remain fail-closed: generated artifacts do not override real test outcomes.
 
 ## 🧪 Flaky-Test Engineering
 
