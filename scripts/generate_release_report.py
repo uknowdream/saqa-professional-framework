@@ -44,8 +44,7 @@ def main() -> int:
     mandatory_ok = bool(raw_records) and not statuses.intersection({"FAIL","BLOCKED","UNVERIFIED","PENDING"})
     report = {"schema":"saqa.release-certification.v1","commit_sha":sha,"source_shas":sorted(source_shas),"record_count":len(raw_records),"statuses":sorted(statuses),"certified":mandatory_ok,"manifest_verified":True}
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, sort_keys=True, indent=2) + "
-", encoding="utf-8")
+    output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if mandatory_ok else 1
 

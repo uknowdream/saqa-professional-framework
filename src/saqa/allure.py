@@ -26,8 +26,7 @@ def write_allure_results(records: list[EvidenceRecord], output_dir: Path, *, com
         for record, uid, timestamp in prepared:
             details_name = f"{uid}-details.json"
             (temp_dir / details_name).write_text(
-                json.dumps(record.details, sort_keys=True, indent=2, default=str) + "
-",
+                json.dumps(record.details, sort_keys=True, indent=2, default=str) + "\n",
                 encoding="utf-8",
             )
             payload = {
@@ -44,8 +43,7 @@ def write_allure_results(records: list[EvidenceRecord], output_dir: Path, *, com
                 "attachments": [{"name":"evidence-details","source":details_name,"type":"application/json"}],
             }
             (temp_dir / f"{uid}-result.json").write_text(
-                json.dumps(payload, sort_keys=True, indent=2) + "
-", encoding="utf-8"
+                json.dumps(payload, sort_keys=True, indent=2) + "\n", encoding="utf-8"
             )
 
         if backup_dir.exists():
