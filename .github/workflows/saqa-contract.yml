@@ -42,6 +42,8 @@ jobs:
           echo 'Juice Shop readiness probe did not succeed; the contract gate will classify the target as BLOCKED.'
           docker logs saqa-juice-shop-contract || true
       - name: Run contract gate
+        env:
+          SAQA_GIT_SHA: ${{ github.sha }}
         run: python scripts/contract_gate.py
       - name: Upload contract evidence
         if: always()
