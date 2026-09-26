@@ -28,3 +28,10 @@ def test_release_report_rejects_mismatched_commit(tmp_path, monkeypatch):
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","different-sha")
     with pytest.raises(SystemExit, match="tested-SHA provenance mismatch"):
         main()
+
+def test_release_report_rejects_non_object_details(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, "not-an-object")
+    out = tmp_path/"release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
+    with pytest.raises(SystemExit, match="tested-SHA provenance mismatch"):
+        main()

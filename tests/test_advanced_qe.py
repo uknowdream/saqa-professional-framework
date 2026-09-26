@@ -8,8 +8,8 @@ from saqa.history import append_history, verify_history
 from saqa.property_testing import deterministic_cases, assert_read_only_request, exercise_contract_cases
 from saqa.resilience import retry_read_only
 
-def record(status="PASS", details=None):
-    return EvidenceRecord("QE-1", status, "2026-09-27T00:00:00+00:00", "http://127.0.0.1:3000", details or {"metric":42})
+def record(status="PASS", details=None, observed_at="2026-09-27T00:00:00+00:00"):
+    return EvidenceRecord("QE-1", status, observed_at, "http://127.0.0.1:3000", details or {"metric":42})
 
 def test_allure_result_is_commit_bound_and_retains_details(tmp_path: Path):
     assert write_allure_results([record(), record("FAIL")], tmp_path, commit_sha="abc") == 2
@@ -23,6 +23,13 @@ def test_allure_result_is_commit_bound_and_retains_details(tmp_path: Path):
         assert data["historyId"]
         assert data["start"] == 1790467200000
         assert data["attachments"]
+
+def test_allure_invalid_record_does_not_delete_existing_results(tmp_path: Path):
+    write_allure_results([record()], tmp_path, commit_sha="abc")
+    before = sorted(p.name for p in tmp_path.iterdir())
+    with pytest.raises(ValueError):
+        write_allure_results([record(), record(observed_at="not-a-timestamp")], tmp_path, commit_sha="def")
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
 
 def test_history_is_append_only_and_tamper_evident(tmp_path: Path):
     path = tmp_path/"history.jsonl"
