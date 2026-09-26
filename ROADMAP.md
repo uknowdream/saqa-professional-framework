@@ -1,0 +1,70 @@
+# SAQA Professional Framework — Engineering Roadmap
+
+## Status model
+
+- **PASS** — verified by reproducible execution and preserved evidence.
+- **FAIL** — verified quality or framework failure.
+- **BLOCKED** — execution cannot proceed because a required dependency is unavailable.
+- **UNVERIFIED** — evidence is insufficient to make a claim.
+- **N/A** — intentionally not applicable.
+
+A roadmap item is not marked complete merely because code exists; it requires implementation plus appropriate verification evidence.
+
+## Phase 1 — Core Quality Engineering
+
+- [x] Web E2E automation with Playwright
+- [x] API validation and response-time gates
+- [x] Multi-browser execution
+- [x] Database quality gate with isolated SQLite
+- [x] Mobile readiness matrix
+- [x] Accessibility readiness with independent axe-core oracle
+- [x] Performance quality gate
+- [x] Dockerized authorized reference targets
+- [x] Evidence artifacts and SHA-256 integrity metadata
+- [x] Canonical evidence aggregation
+- [x] Fail-closed certification semantics
+
+## Phase 2 — CI/CD Quality Control Plane
+
+- [x] GitHub Actions quality-gate orchestration
+- [x] Unified PASS / FAIL / BLOCKED / UNVERIFIED classification
+- [x] Target authorization policy
+- [x] Dependency and secret hygiene
+- [x] Trusted Jira automation code from `main`
+- [x] Jira synchronization concurrency control
+- [x] Stale-main workflow protection
+- [x] Pre-bootstrapped Jira control-plane issue policy
+- [x] Exact-SHA contract evidence provenance
+- [x] Nightly reconciliation using the same contract evidence semantics
+
+## Phase 3 — Observability & Traceability
+
+- [x] Prometheus-compatible SAQA evidence exporter
+- [x] Container-safe Prometheus scrape target
+- [x] Grafana provisioning structure
+- [x] Evidence-to-Jira traceability
+- [ ] Full Allure execution/evidence lifecycle
+- [ ] Historical quality trend storage
+- [ ] Flaky-test intelligence and quarantine telemetry
+- [ ] Release-quality dashboard with commit-level certification history
+
+## Phase 4 — Advanced QE
+
+- [ ] Advanced API contract/property-based testing
+- [ ] Expanded negative-path contract fixtures
+- [ ] Advanced application-security regression on isolated targets
+- [ ] Resilience and deterministic retry testing
+- [ ] Broader accessibility oracle coverage
+- [ ] Cross-service test-data lifecycle management
+
+## Phase 5 — Release Certification
+
+- [ ] Automated post-merge main certification
+- [ ] Multi-domain certification release gate
+- [ ] Signed/attested evidence bundle
+- [ ] Immutable release evidence index
+- [ ] Final certification report generation
+
+## Engineering rule
+
+The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED control.
