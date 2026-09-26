@@ -43,7 +43,7 @@ jobs:
           docker logs saqa-juice-shop-contract || true
       - name: Run contract gate
         env:
-          SAQA_GIT_SHA: ${{ github.sha }}
+          SAQA_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python scripts/contract_gate.py
       - name: Upload contract evidence
         if: always()
