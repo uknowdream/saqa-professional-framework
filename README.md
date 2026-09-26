@@ -401,17 +401,25 @@ Do not turn the framework into an unrestricted external scanner.
 - [x] Serialized Jira synchronization and stale-main protection
 - [x] Exact-SHA contract evidence provenance and nightly reconciliation
 - [x] Local/containerized observability wiring (Prometheus → SAQA exporter → Grafana provisioning)
-- [ ] Advanced application security regression
-- [ ] Advanced API contract/property testing
-- [ ] Flaky-test intelligence
-- [ ] Unified failure classification
-- [ ] Full Allure execution/evidence lifecycle
-- [ ] Full Jira execution/result/defect/evidence lifecycle
-- [ ] Final multi-domain certification release gate
+- [x] Advanced application-security regression on isolated authorized targets
+- [x] Advanced API contract/property testing
+- [x] Flaky-test intelligence with report-only quarantine telemetry
+- [x] Unified failure classification and fail-closed certification semantics
+- [x] Full Allure-compatible execution/evidence lifecycle
+- [x] Full Jira execution/result/evidence control-plane integration
+- [x] Final multi-domain certification release gate
+- [x] Historical quality trend storage with tamper-evident hash chaining
+- [x] Immutable release evidence index and artifact attestation
+- [x] Cross-service test-data lifecycle management
+- [x] Failure-path observability and preserved evidence
 
 ### Current engineering status
 
-The framework is **implementation-complete for the currently defined reference gates**, subject to fresh post-merge certification evidence. A green pre-merge run proves the proposed commit; it does not by itself certify a later `main` commit. The project therefore distinguishes implementation completion from release certification and never converts missing runtime evidence into PASS.
+The framework has **40/40 roadmap controls implemented and verified in the current release baseline**. This is a roadmap-completion statement, not a claim of 100% code coverage. Release certification remains commit-specific and fail-closed: a release is certified only when fresh mandatory-domain evidence exists for the exact main commit and no mandatory control is FAIL, BLOCKED, UNVERIFIED, or PENDING.
+
+### Supply-chain hardening
+
+All GitHub Actions used by the framework are pinned to full 40-character commit SHAs and protected by a framework-integrity gate. This prevents a mutable action tag from silently changing the code executed by CI. Action pins should be updated through reviewed dependency updates rather than floating tags.
 
 ## 📦 Included Reference Package
 
