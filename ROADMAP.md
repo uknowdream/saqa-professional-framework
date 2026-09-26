@@ -44,10 +44,10 @@ A roadmap item is not marked complete merely because code exists; it requires im
 - [x] Container-safe Prometheus scrape target
 - [x] Grafana provisioning structure
 - [x] Evidence-to-Jira traceability
-- [x] Full Allure-compatible execution/evidence lifecycle
-- [x] Historical quality trend storage
-- [x] Flaky-test intelligence and quarantine telemetry
-- [x] Release-quality dashboard with commit-level certification history
+- [ ] Full Allure-compatible execution/evidence lifecycle
+- [ ] Historical quality trend storage
+- [ ] Flaky-test intelligence and quarantine telemetry
+- [ ] Release-quality dashboard with commit-level certification history
 
 ## Phase 4 — Advanced QE
 
@@ -56,14 +56,14 @@ A roadmap item is not marked complete merely because code exists; it requires im
 - [x] Advanced application-security regression on isolated targets
 - [x] Resilience and deterministic retry testing
 - [x] Broader accessibility oracle coverage
-- [x] Cross-service test-data lifecycle management
+- [ ] Cross-service test-data lifecycle management
 
 ## Phase 5 — Release Certification
 
 - [x] Automated post-merge main certification
 - [x] Multi-domain certification release gate
 - [x] Commit-bound tamper-evident evidence bundle
-- [x] Immutable release evidence index
+- [ ] Immutable release evidence index
 - [x] Final certification report generation
 
 ## Engineering rule

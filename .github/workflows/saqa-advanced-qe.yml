@@ -49,24 +49,26 @@ jobs:
         env:
           SAQA_MANIFEST: artifacts/evidence-manifest.json
           SAQA_RELEASE_REPORT: artifacts/release-certification.json
-          SAQA_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SAQA_TESTED_SHA: ${{ github.sha }}
+          SAQA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           mkdir -p artifacts
           python - <<'PY'
           import os
           from pathlib import Path
-          from saqa.evidence import EvidenceRecord, write_manifest
-          commit_sha = os.environ["SAQA_GIT_SHA"]
-          p=Path('artifacts/evidence')
-          p.mkdir(parents=True,exist_ok=True)
-          write_manifest([EvidenceRecord('ADVANCED-QE','PASS','2026-09-27T00:00:00+00:00','saqa-framework',{'commit':commit_sha})],Path('artifacts/evidence-manifest.json'))
+          from saqa.evidence import EvidenceRecord, utc_now, write_manifest
+          tested_sha = os.environ["SAQA_TESTED_SHA"]
+          source_sha = os.environ["SAQA_SOURCE_SHA"]
+          p = Path("artifacts/evidence")
+          p.mkdir(parents=True, exist_ok=True)
+          write_manifest([EvidenceRecord("ADVANCED-QE","PASS",utc_now(),"saqa-framework",{"tested_sha":tested_sha,"source_sha":source_sha})],Path("artifacts/evidence-manifest.json"))
           PY
           python scripts/generate_release_report.py
       - name: Upload advanced QE evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: saqa-advanced-qe-${{ github.event.pull_request.head.sha || github.sha }}
+          name: saqa-advanced-qe-${{ github.sha }}
           path: artifacts/
           if-no-files-found: warn
           retention-days: 30
