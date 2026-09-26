@@ -185,7 +185,7 @@ jobs:
               json.dump(records, handle, sort_keys=True)
           PY
       - name: Collect exact contract evidence
-        if: steps.run.outputs.should_sync == ''true'' && steps.run.outputs.run_name == 'SAQA Contract Testing'
+        if: steps.run.outputs.should_sync == 'true' && steps.run.outputs.run_name == 'SAQA Contract Testing'
         env:
           RUN_ID: ${{ steps.run.outputs.run_id }}
         run: |
