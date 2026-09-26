@@ -53,6 +53,11 @@ def test_job_result_is_unverified_when_no_job_matches() -> None:
     assert job_result([], ("missing job",)) == "UNVERIFIED"
 
 
+def test_run_label_rejects_unknown_results() -> None:
+    with pytest.raises(ValueError, match="Unsupported SAQA result"):
+        run_label("NOT_A_RESULT")
+
+
 def test_status_labels_and_transition_targets_are_deterministic() -> None:
     assert run_label("PASS") == "saqa-ci-pass"
     assert run_label("FAIL") == "saqa-ci-fail"
