@@ -270,6 +270,11 @@ def main() -> None:
     else:
         api_overall = "UNVERIFIED"
 
+    # QA-9 is a release-level claim. A contract workflow marked PASS is not
+    # sufficient unless its exact-SHA evidence was actually validated.
+    if current_results.get("SAQA Contract Testing") == "PASS" and api_contract_result != "PASS":
+        overall = "UNVERIFIED"
+
     performance_result = aggregate_performance_result({
         "SAQA CI performance": str(performance_records.get("SAQA CI performance", "UNVERIFIED")),
         "SAQA k6 Performance": str(performance_records.get("SAQA k6 Performance", "UNVERIFIED")),
