@@ -144,6 +144,21 @@ def contract_evidence_result(path_value: str | None, expected_sha: str, expected
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return "UNVERIFIED"
 
+def run_label(result: str) -> str:
+    """Map every supported result to exactly one Jira automation status label."""
+    labels = {
+        "PASS": "saqa-ci-pass",
+        "FAIL": "saqa-ci-fail",
+        "BLOCKED": "saqa-ci-blocked",
+        "PENDING": "saqa-ci-pending",
+        "UNVERIFIED": "saqa-ci-unverified",
+    }
+    try:
+        return labels[result]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported SAQA result: {result!r}") from exc
+
+
 def transition_targets(result: str) -> tuple[str, ...]:
     if result == "PASS": return ("Done", "Closed")
     if result == "FAIL": return ("In Progress", "Reopened")
