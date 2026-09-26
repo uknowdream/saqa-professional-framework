@@ -39,3 +39,11 @@ def test_release_report_rejects_non_object_details(tmp_path, monkeypatch):
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
     with pytest.raises(SystemExit, match="tested-SHA provenance mismatch"):
         main()
+
+def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha":"abc"}, status="FAIL")
+    out = tmp_path/"release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
+    assert main() == 1
+    data = json.loads(out.read_text())
+    assert data["certified"] is False
