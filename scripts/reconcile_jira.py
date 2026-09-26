@@ -9,6 +9,8 @@ import tempfile
 import urllib.parse
 import urllib.request
 
+from scripts.sync_jira_ci import classify_run, job_result
+
 WORKFLOWS = ("SAQA CI", "SAQA Contract Testing", "SAQA Accessibility", "SAQA Mobile Readiness", "SAQA k6 Performance")
 
 
@@ -81,9 +83,6 @@ def select_common_run() -> dict[str, dict[str, object]] | None:
     common = set.intersection(*sha_sets) if sha_sets else set()
     if not common:
         return None
-
-    # Certification/reconciliation follows the repository's main ancestry, not
-    # wall-clock completion time. An older rerun must never overwrite newer state.
     for sha in main_history():
         if sha not in common:
             continue
@@ -98,39 +97,14 @@ def select_common_run() -> dict[str, dict[str, object]] | None:
 
 
 def performance_evidence(selected: dict[str, dict[str, object]], repo: str) -> dict[str, str]:
-    """Derive QA-7 from the same common commit selected for reconciliation."""
+    """Derive QA-7 using the shared CI result classifier."""
     ci_run = selected["SAQA CI"]
     k6_run = selected["SAQA k6 Performance"]
     ci_jobs = gh_get(f"/repos/{repo}/actions/runs/{int(ci_run['id'])}/jobs?per_page=100")
     jobs = ci_jobs.get("jobs", []) if isinstance(ci_jobs, dict) else []
-    matched = [
-        job for job in jobs
-        if "juice shop performance" in str(job.get("name", "")).casefold()
-    ]
-    if not matched:
-        ci_result = "UNVERIFIED"
-    elif any(job.get("status") != "completed" for job in matched):
-        ci_result = "PENDING"
-    elif all(job.get("conclusion") == "success" for job in matched):
-        ci_result = "PASS"
-    elif any(job.get("conclusion") in {"failure", "timed_out"} for job in matched):
-        ci_result = "FAIL"
-    elif any(job.get("conclusion") in {"cancelled", "action_required", "stale"} for job in matched):
-        ci_result = "BLOCKED"
-    else:
-        ci_result = "UNVERIFIED"
+    ci_result = job_result(jobs, ("Juice Shop Performance",))
 
-    conclusion = str(k6_run.get("conclusion") or "")
-    if str(k6_run.get("status")) != "completed":
-        k6_result = "PENDING"
-    elif conclusion == "success":
-        k6_result = "PASS"
-    elif conclusion in {"failure", "timed_out"}:
-        k6_result = "FAIL"
-    elif conclusion in {"cancelled", "action_required", "stale"}:
-        k6_result = "BLOCKED"
-    else:
-        k6_result = "UNVERIFIED"
+    k6_result = classify_run(str(k6_run.get("status") or ""), str(k6_run.get("conclusion") or ""))
     return {"SAQA CI performance": ci_result, "SAQA k6 Performance": k6_result}
 
 
