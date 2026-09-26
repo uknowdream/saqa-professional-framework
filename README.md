@@ -347,6 +347,9 @@ A mandatory capability with FAIL, BLOCKED, or UNVERIFIED evidence cannot produce
 
 ## 🔗 Jira / Allure Integration
 
+Jira synchronization is fail-closed and evidence-driven. The trusted automation checks out `main`, rejects privileged synchronization for pull-request events, serializes Jira synchronization through a shared concurrency group, and ignores stale `main` workflow runs when their SHA is no longer the current `main` commit. Contract evidence is additionally bound to the exact workflow commit SHA before it can drive QA-4 classification. Nightly reconciliation downloads the same contract artifact for the selected common commit instead of silently falling back to workflow conclusion.
+
+
 The intended traceability chain is:
 
 ```text
@@ -391,6 +394,9 @@ Do not turn the framework into an unrestricted external scanner.
 - [x] Evidence integrity verification
 - [x] Certification fail-closed semantics
 - [x] Jira integration foundation
+- [x] Serialized Jira synchronization and stale-main protection
+- [x] Exact-SHA contract evidence provenance and nightly reconciliation
+- [x] Local/containerized observability wiring (Prometheus → SAQA exporter → Grafana provisioning)
 - [ ] Advanced application security regression
 - [ ] Advanced API contract/property testing
 - [ ] Flaky-test intelligence
@@ -398,6 +404,10 @@ Do not turn the framework into an unrestricted external scanner.
 - [ ] Full Allure execution/evidence lifecycle
 - [ ] Full Jira execution/result/defect/evidence lifecycle
 - [ ] Final multi-domain certification release gate
+
+### Current engineering status
+
+The framework is **implementation-complete for the currently defined reference gates**, subject to fresh post-merge certification evidence. A green pre-merge run proves the proposed commit; it does not by itself certify a later `main` commit. The project therefore distinguishes implementation completion from release certification and never converts missing runtime evidence into PASS.
 
 ## 📦 Included Reference Package
 
