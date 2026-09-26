@@ -87,6 +87,7 @@ jobs:
           write_manifest([record], Path("artifacts/evidence-manifest.json"))
           PY
           manifest_status=$?
+          if [ "$manifest_status" -ne 0 ]; then echo "Evidence manifest generation failed: $manifest_status"; fi
           previous="$(find artifacts/previous -type f -name quality-history.jsonl -print -quit 2>/dev/null || true)"
           if [ -n "$previous" ]; then cp "$previous" artifacts/observability/quality-history.jsonl; fi
           SAQA_HISTORY_PATH=artifacts/observability/quality-history.jsonl python scripts/generate_qe_observability.py
