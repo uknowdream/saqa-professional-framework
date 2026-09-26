@@ -13,6 +13,7 @@ OUTPUT = Path("artifacts/targets/juice-shop-accessibility.json")
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
 AXE_CORE_PATH = Path(os.getenv("SAQA_AXE_CORE_PATH", "node_modules/axe-core/axe.min.js"))
 AXE_RULES = ["aria-input-field-name", "button-name", "link-name"]
+AXE_DIAGNOSTIC_RULES = AXE_RULES + ["document-title", "html-has-lang", "image-alt", "heading-order", "landmark-one-main", "color-contrast"]
 ORACLE_CONFIRMATION_STATUS = "CONFIRMED_ORACLE"
 
 
@@ -120,7 +121,8 @@ def main() -> int:
                   const r = await axe.run(document, {runOnly: {type: 'rule', values: rules}});
                   return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));
                 }""", AXE_RULES)
-                evidence["details"]["independent_oracle"] = {"engine":"axe-core","rules":AXE_RULES,"violation_count":len(oracle),"violations":oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
+                diagnostic_oracle = page.evaluate("""async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""", AXE_DIAGNOSTIC_RULES)
+                evidence["details"]["independent_oracle"] = {"engine":"axe-core","gated_rules":AXE_RULES,"diagnostic_rules":AXE_DIAGNOSTIC_RULES,"violation_count":len(oracle),"violations":oracle,"diagnostic_violation_count":len(diagnostic_oracle),"diagnostic_violations":diagnostic_oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
                 disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []

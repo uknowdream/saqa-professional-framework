@@ -1,0 +1,74 @@
+name: SAQA Advanced QE
+
+on:
+  push:
+    branches: [main, 'saqa/**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saqa-advanced-qe-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  advanced-qe:
+    name: Advanced QE regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install -e '.[test,ci]'
+      - name: Compile
+        run: python -m compileall -q src scripts tests
+      - name: Advanced QE tests
+        run: python -m pytest tests/test_advanced_qe.py tests/test_release_report.py tests/test_flaky.py tests/test_test_data.py --timeout=120
+      - name: Contract negative/property regression
+        run: python -m pytest tests/test_contract_gate.py tests/test_mock_contract_service.py tests/test_api_contract.py --timeout=120
+      - name: Safe security regression against local Juice Shop
+        run: |
+          docker run --detach --rm --name saqa-advanced-security -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
+          trap 'docker stop saqa-advanced-security >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
+              python scripts/safe_security_regression.py
+              exit $?
+            fi
+            sleep 2
+          done
+          echo "Juice Shop did not become ready within 60 seconds"
+          docker logs saqa-advanced-security || true
+          exit 1
+      - name: Generate release report
+        env:
+          SAQA_MANIFEST: artifacts/evidence-manifest.json
+          SAQA_RELEASE_REPORT: artifacts/release-certification.json
+          SAQA_TESTED_SHA: ${{ github.sha }}
+          SAQA_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          mkdir -p artifacts
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from saqa.evidence import EvidenceRecord, utc_now, write_manifest
+          tested_sha = os.environ["SAQA_TESTED_SHA"]
+          source_sha = os.environ["SAQA_SOURCE_SHA"]
+          p = Path("artifacts/evidence")
+          p.mkdir(parents=True, exist_ok=True)
+          write_manifest([EvidenceRecord("ADVANCED-QE","PASS",utc_now(),"saqa-framework",{"tested_sha":tested_sha,"source_sha":source_sha})],Path("artifacts/evidence-manifest.json"))
+          PY
+          python scripts/generate_release_report.py
+      - name: Upload advanced QE evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: saqa-advanced-qe-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 30
