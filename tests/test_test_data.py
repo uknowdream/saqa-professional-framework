@@ -40,7 +40,7 @@ def test_cleanup_does_not_replace_body_failure():
     with pytest.raises(ValueError, match="body") as exc_info:
         with scope:
             raise ValueError("body")
-    assert "cleanup operation" in str(exc_info.value)
+    assert any("cleanup operation" in note for note in (exc_info.value.__notes__ or []))
 
 
 def test_register_after_close_is_rejected():
