@@ -55,11 +55,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/previous
-          previous_run="$(gh api "/repos/\${GITHUB_REPOSITORY}/actions/runs?branch=main&status=success&per_page=100" --jq '[.workflow_runs[] | select(.name=="SAQA Advanced QE" and .head_sha!="\${{ github.sha }}")] | first | .id // empty')"
-          if [ -n "$previous_run" ]; then
-            gh run download "$previous_run" -n "saqa-advanced-qe-\${{ github.sha }}" -D artifacts/previous || true
+          previous="$(gh api "/repos/\${GITHUB_REPOSITORY}/actions/runs?branch=main&status=success&per_page=100" --jq '[.workflow_runs[] | select(.name=="SAQA Advanced QE" and .head_sha!="\${{ github.sha }}")] | first // empty')"
+          previous_id="$(jq -r '.id // empty' <<< "$previous")"
+          previous_sha="$(jq -r '.head_sha // empty' <<< "$previous")"
+          if [ -n "$previous_id" ] && [ -n "$previous_sha" ]; then
+            gh run download "$previous_id" -n "saqa-advanced-qe-$previous_sha" -D artifacts/previous || true
           fi
-          find artifacts/previous -type f -name quality-history.jsonl -print -quit > artifacts/previous-history-path.txt || true
       - name: Generate release and observability evidence
         env:
           SAQA_MANIFEST: artifacts/evidence-manifest.json
@@ -83,6 +84,7 @@ jobs:
           python scripts/generate_commit_dashboard.py
           SAQA_EVIDENCE_DIR=artifacts/evidence SAQA_RELEASE_REPORT=artifacts/release-certification.json SAQA_FLAKY_REPORT=artifacts/observability/flaky-telemetry.json python -c 'from scripts.saqa_metrics_exporter import collect; print(collect())'
       - name: Attest immutable release evidence index
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/attest@v4
         with:
           subject-path: artifacts/observability/release-index-\${{ github.sha }}.json
