@@ -21,8 +21,8 @@ jobs:
     name: Advanced QE regression
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -104,12 +104,12 @@ jobs:
           exit "$metrics_status"
       - name: Attest immutable release evidence index
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && job.status == 'success'
-        uses: actions/attest@v4
+        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d # v4.2.1
         with:
           subject-path: artifacts/observability/release-index-${{ github.sha }}.json
       - name: Upload advanced QE evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-advanced-qe-${{ github.sha }}
           path: artifacts/

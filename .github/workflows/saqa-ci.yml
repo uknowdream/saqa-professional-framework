@@ -26,8 +26,8 @@ jobs:
       matrix:
         python: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -45,7 +45,7 @@ jobs:
           python -O -c "import saqa; from saqa import Evidence, ResultStatus; assert Evidence and ResultStatus"
       - name: Upload test and evidence artifacts
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-python-${{ matrix.python }}
           path: artifacts/
@@ -56,8 +56,8 @@ jobs:
     name: Dependency and secret hygiene
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       - name: Install project and audit tooling
@@ -75,15 +75,15 @@ jobs:
     name: Isolated database quality gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       - name: Run isolated database quality gate
         run: python scripts/database_quality_gate.py
       - name: Upload database evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-database-quality
           path: artifacts/targets/database-quality.json
@@ -94,8 +94,8 @@ jobs:
     name: Target authorization policy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       - name: Install project
@@ -111,8 +111,8 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -136,8 +136,8 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -163,7 +163,7 @@ jobs:
         run: python scripts/juice_shop_e2e.py
       - name: Upload E2E evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: juice-shop-e2e-${{ matrix.browser }}
           path: artifacts/targets/juice-shop-e2e-${{ matrix.browser }}.json
@@ -178,8 +178,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -199,7 +199,7 @@ jobs:
         run: python scripts/juice_shop_api_smoke.py
       - name: Upload API evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: juice-shop-api-smoke
           path: artifacts/targets/juice-shop-api.json
@@ -214,8 +214,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -235,7 +235,7 @@ jobs:
         run: python scripts/juice_shop_performance_gate.py
       - name: Upload performance evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: juice-shop-performance
           path: artifacts/targets/juice-shop-performance.json
@@ -254,8 +254,8 @@ jobs:
       matrix:
         browser: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
           cache: pip
@@ -282,7 +282,7 @@ jobs:
         run: python scripts/webgoat_e2e.py
       - name: Upload WebGoat evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: webgoat-e2e-${{ matrix.browser }}
           path: artifacts/targets/webgoat-e2e-${{ matrix.browser }}.json
@@ -298,35 +298,35 @@ jobs:
     needs: [juice-shop-e2e-matrix, juice-shop-api-smoke, juice-shop-performance, webgoat-e2e-matrix, database-quality, docker-target-smoke]
     if: ${{ always() && !cancelled() }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       - name: Install project
         run: python -m pip install -e .
       - name: Download target evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: '*-e2e-*'
           path: artifacts/executions
           merge-multiple: true
       - name: Download API evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: juice-shop-api-smoke
           path: artifacts/executions
       - name: Download performance evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: juice-shop-performance
           path: artifacts/executions
       - name: Download database evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: saqa-database-quality
           path: artifacts/executions
       - name: Download Docker target smoke evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: saqa-docker-target-smoke
           path: artifacts/executions
@@ -334,7 +334,7 @@ jobs:
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('evidence manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/evidence-manifest.json')))"
       - name: Upload canonical evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-canonical-evidence
           path: artifacts/evidence-manifest.json
@@ -346,8 +346,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       - name: Install pinned Playwright
@@ -360,7 +360,7 @@ jobs:
         run: bash scripts/qa_target_smoke.sh
       - name: Upload target evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-docker-target-smoke
           path: artifacts/targets/

@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Start Juice Shop
         run: docker run --detach --rm --name saqa-juice-shop-k6 -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
       - name: Wait for Juice Shop
@@ -31,7 +31,7 @@ jobs:
         run: python scripts/k6_gate.py
       - name: Upload k6 evidence
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: saqa-k6-evidence
           path: artifacts/targets/juice-shop-k6.json
