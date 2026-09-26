@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+import zipfile
 
 from sync_jira_ci import classify_run, job_result
 
@@ -96,6 +97,46 @@ def select_common_run() -> dict[str, dict[str, object]] | None:
     return None
 
 
+def contract_evidence_path(run_id: int, expected_sha: str, directory: str) -> str | None:
+    """Download the exact contract evidence artifact for one completed run."""
+    repo = os.environ["GITHUB_REPOSITORY"]
+    token = os.environ.get("GH_TOKEN")
+    if not token:
+        raise SystemExit("GH_TOKEN is required")
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
+        headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        payload = json.load(response)
+    artifacts = payload.get("artifacts", []) if isinstance(payload, dict) else []
+    matches = [
+        item for item in artifacts
+        if isinstance(item, dict)
+        and item.get("name") == "saqa-contract-evidence"
+        and item.get("expired") is False
+        and int((item.get("workflow_run") or {}).get("id") or 0) == run_id
+    ]
+    if not matches:
+        return None
+    artifact_id = int(matches[0]["id"])
+    request = urllib.request.Request(
+        f"https://api.github.com/repos/{repo}/actions/artifacts/{artifact_id}/zip",
+        headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
+    )
+    zip_path = os.path.join(directory, "contract-evidence.zip")
+    with urllib.request.urlopen(request, timeout=60) as response, open(zip_path, "wb") as handle:
+        handle.write(response.read())
+    with zipfile.ZipFile(zip_path) as archive:
+        json_names = [name for name in archive.namelist() if name.endswith(".json")]
+        if not json_names:
+            return None
+        evidence_path = os.path.join(directory, "contract-evidence.json")
+        with archive.open(json_names[0]) as source, open(evidence_path, "wb") as target:
+            target.write(source.read())
+    return evidence_path
+
+
 def performance_evidence(selected: dict[str, dict[str, object]], repo: str) -> dict[str, str]:
     """Derive QA-7 using the shared CI result classifier."""
     ci_run = selected["SAQA CI"]
@@ -150,6 +191,9 @@ def main() -> None:
             })
             with open(env["JIRA_PERFORMANCE_JSON"], "w", encoding="utf-8") as handle:
                 json.dump(performance, handle, sort_keys=True)
+            evidence_path = contract_evidence_path(int(run_id), common_sha, directory) if workflow_name == "SAQA Contract Testing" else None
+            if evidence_path:
+                env["JIRA_CONTRACT_EVIDENCE_JSON"] = evidence_path
 
             subprocess.run(["python3", "scripts/sync_jira_ci.py"], env=env, check=True)
             print(f"{workflow_name}: reconciled run {run_id} on {common_sha}")
