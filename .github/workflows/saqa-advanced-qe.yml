@@ -28,7 +28,7 @@ jobs:
       - name: Compile
         run: python -m compileall -q src scripts tests
       - name: Advanced QE tests
-        run: python -m pytest tests/test_advanced_qe.py tests/test_release_report.py tests/test_flaky.py --timeout=120
+        run: python -m pytest tests/test_advanced_qe.py tests/test_release_report.py tests/test_flaky.py tests/test_test_data.py --timeout=120
       - name: Contract negative/property regression
         run: python -m pytest tests/test_contract_gate.py tests/test_mock_contract_service.py tests/test_api_contract.py --timeout=120
       - name: Safe security regression against local Juice Shop
