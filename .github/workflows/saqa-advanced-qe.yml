@@ -86,6 +86,7 @@ jobs:
           Path("artifacts/evidence/advanced-qe.json").write_text(json.dumps(record.__dict__, sort_keys=True), encoding="utf-8")
           write_manifest([record], Path("artifacts/evidence-manifest.json"))
           PY
+          manifest_status=$?
           previous="$(find artifacts/previous -type f -name quality-history.jsonl -print -quit 2>/dev/null || true)"
           if [ -n "$previous" ]; then cp "$previous" artifacts/observability/quality-history.jsonl; fi
           SAQA_HISTORY_PATH=artifacts/observability/quality-history.jsonl python scripts/generate_qe_observability.py

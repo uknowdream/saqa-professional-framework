@@ -10,7 +10,11 @@ from saqa.history import append_history, verify_history
 from saqa.result_aggregation import load_results
 
 def load_canonical_records(evidence: Path, manifest: Path) -> list[EvidenceRecord]:
-    if not verify_manifest(manifest):
+    try:
+        manifest_ok = verify_manifest(manifest)
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        manifest_ok = False
+    if not manifest_ok:
         raise SystemExit("evidence manifest integrity verification failed")
     payload=json.loads(manifest.read_text(encoding="utf-8"))
     expected=payload.get("records")
