@@ -7,6 +7,7 @@ from scripts.sync_jira_ci import (
     RunSummary,
     ensure_managed_issues,
     aggregate_performance_result,
+    contract_evidence_result,
     job_result,
     run_label,
     transition_targets,
@@ -151,3 +152,35 @@ def test_aggregate_performance_result_precedence_is_fail_closed() -> None:
     assert aggregate_performance_result({"SAQA CI performance": "BLOCKED", "SAQA k6 Performance": "PENDING"}) == "BLOCKED"
     assert aggregate_performance_result({"SAQA CI performance": "PENDING", "SAQA k6 Performance": "PENDING"}) == "PENDING"
     assert aggregate_performance_result({}) == "UNVERIFIED"
+
+
+def test_contract_evidence_requires_exact_source_sha(tmp_path) -> None:
+    evidence = {
+        "schema": "saqa.contract-gate.v2",
+        "test_id": "juice-shop.api.openapi-contract",
+        "status": "PASS",
+        "target": "http://127.0.0.1:3000",
+        "http_methods": ["GET"],
+        "destructive_actions": False,
+        "source_sha": "expected",
+        "details": {"status_code": 200, "validation_errors": []},
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(__import__("json").dumps(evidence), encoding="utf-8")
+    assert contract_evidence_result(str(path), "expected") == "PASS"
+    assert contract_evidence_result(str(path), "different") == "UNVERIFIED"
+
+
+def test_contract_evidence_rejects_missing_provenance(tmp_path) -> None:
+    evidence = {
+        "schema": "saqa.contract-gate.v2",
+        "test_id": "juice-shop.api.openapi-contract",
+        "status": "PASS",
+        "target": "http://127.0.0.1:3000",
+        "http_methods": ["GET"],
+        "destructive_actions": False,
+        "details": {"status_code": 200, "validation_errors": []},
+    }
+    path = tmp_path / "contract.json"
+    path.write_text(__import__("json").dumps(evidence), encoding="utf-8")
+    assert contract_evidence_result(str(path), "expected") == "UNVERIFIED"
