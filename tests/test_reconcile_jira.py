@@ -54,7 +54,9 @@ def test_completed_runs_continues_after_full_filtered_page(monkeypatch):
 
     def fake_gh_get(path):
         calls.append(path)
-        return {"workflow_runs": first_page if "page=1" in path else second_page}
+        from urllib.parse import parse_qs
+        page = parse_qs(path.split("?", 1)[1])["page"][0]
+        return {"workflow_runs": first_page if page == "1" else second_page}
 
     monkeypatch.setenv("GITHUB_REPOSITORY", "example/repo")
     monkeypatch.setattr(module, "gh_get", fake_gh_get)
