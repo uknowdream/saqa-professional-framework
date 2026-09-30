@@ -74,7 +74,7 @@ def completed_runs(workflow_name: str, workflow_id: int, max_pages: int = 20) ->
         batch = payload.get("workflow_runs", []) if isinstance(payload, dict) else []
         if not isinstance(batch, list):
             break
-        typed = [run for run in batch if isinstance(run, dict) and run.get("event") != "pull_request"]
+        typed = [run for run in batch if isinstance(run, dict) and run.get("event") not in ("pull_request", "pull_request_target")]
         runs.extend(typed)
         if len(batch) < 100:
             break
