@@ -9,6 +9,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from saqa.url_safety import redact_url
+
 
 class TargetPolicyError(ValueError):
     """Raised when a real-web target violates the explicit authorization policy."""
@@ -36,19 +38,6 @@ def validate_target(url: str) -> tuple[str, str]:
 def _redirect_target(current: str, location: str) -> str:
     return urljoin(current, location)
 
-def _redact_url(url: str) -> str:
-    """Persist only scheme, host, and port; never credentials, paths, queries, or fragments."""
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname or ""
-        if ":" in host:
-            host = f"[{host}]"
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return parsed._replace(netloc=f"{host}{port}", path="", params="", query="", fragment="").geturl()
-    except ValueError:
-        return "<invalid-url>"
-
-
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
     """Read at most ``limit`` raw bytes so compressed responses cannot inflate before the cap."""
     chunks: list[bytes] = []
@@ -69,7 +58,7 @@ def run(target: str) -> dict[str, object]:
     started = time.perf_counter()
     evidence = {
         "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": "BLOCKED",
-        "target": _redact_url(target), "host": "", "http_methods": ["GET"], "destructive_actions": False,
+        "target": redact_url(target), "host": "", "http_methods": ["GET"], "destructive_actions": False,
         "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "details": {},
     }
     try:
