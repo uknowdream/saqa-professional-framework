@@ -6,7 +6,7 @@ from pathlib import Path
 
 OUTPUT=Path(os.getenv("SAQA_K6_OUTPUT","artifacts/targets/juice-shop-k6.json"))
 SCRIPT=Path(os.getenv("SAQA_K6_SCRIPT","performance/k6/juice-shop.js"))
-CONTAINER="saqa-k6-gate"
+CONTAINER=f"saqa-k6-gate-{os.getpid()}-{time.time_ns()}"
 
 def main()->int:
     OUTPUT.parent.mkdir(parents=True,exist_ok=True)
@@ -24,7 +24,10 @@ def main()->int:
         except OSError as exc:
             evidence["status"]="BLOCKED"; evidence["details"]["error"]=f"{type(exc).__name__}: {exc}"
         finally:
-            subprocess.run(["docker","rm","-f",CONTAINER],capture_output=True,text=True,timeout=15,check=False)
+            try:
+                subprocess.run(["docker","rm","-f",CONTAINER],capture_output=True,text=True,timeout=15,check=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                evidence["details"]["cleanup_error"]=f"{type(exc).__name__}: {exc}"
     OUTPUT.write_text(json.dumps(evidence,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print(json.dumps(evidence,indent=2,sort_keys=True))
     return 0 if evidence["status"]=="PASS" else 1
