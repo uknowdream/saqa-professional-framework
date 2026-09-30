@@ -1,8 +1,6 @@
 name: SAQA Release Certification
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -41,7 +39,7 @@ required={"SAQA CI","SAQA Contract Testing","SAQA Accessibility","SAQA Mobile Re
 event=os.environ["GITHUB_EVENT_NAME"]
 sha=os.environ["SAQA_HEAD_SHA"]
 runs=json.load(open("artifacts/runs.json",encoding="utf-8"))
-seen={r["name"] for r in runs if r.get("headSha")==sha and r.get("event")==event and r.get("name") in required}
+seen={r["name"] for r in runs if r.get("head_sha")==sha and r.get("head_branch")=="main" and r.get("event")==event and r.get("status")=="completed" and r.get("name") in required}
 print(json.dumps({"required":sorted(required),"observed":sorted(seen),"event":event,"sha":sha},indent=2))
 raise SystemExit(0 if required.issubset(seen) else 1)
 PY
