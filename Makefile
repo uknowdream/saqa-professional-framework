@@ -27,3 +27,5 @@ contract-test:
 
 k6-test:
 	$(PYTHON) scripts/k6_gate.py
+
+# QE hardening: runtime gates must execute with bounded pytest timeouts.
