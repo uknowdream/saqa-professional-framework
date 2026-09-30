@@ -29,3 +29,5 @@ k6-test:
 	$(PYTHON) scripts/k6_gate.py
 
 # QE hardening: runtime gates must execute with bounded pytest timeouts.
+
+# Runtime gates are validated by CI; this target remains intentionally dependency-light.
