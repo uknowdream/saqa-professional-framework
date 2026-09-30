@@ -44,7 +44,7 @@ def _redact_url(url: str) -> str:
         if ":" in host:
             host = f"[{host}]"
         port = f":{parsed.port}" if parsed.port is not None else ""
-        return parsed._replace(netloc=f"{host}{port}", path="", query="", fragment="").geturl()
+        return parsed._replace(netloc=f"{host}{port}", path="", params="", query="", fragment="").geturl()
     except ValueError:
         return "<invalid-url>"
 
