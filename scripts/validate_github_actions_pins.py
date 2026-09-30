@@ -23,6 +23,9 @@ def main() -> int:
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if not USES_START.match(line):
                 continue
+            reference = line.split(":", 1)[1].strip().strip("'\\\"")
+            if reference.startswith("./") or reference.startswith("docker://"):
+                continue
             references += 1
             if not PINNED_USES.match(line):
                 violations.append(f"{path.relative_to(ROOT)}:{line_number}: {line.strip()}")
