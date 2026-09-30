@@ -27,3 +27,17 @@ def test_preflight_run_accepts_success(monkeypatch):
 
     monkeypatch.setattr("scripts.quality_preflight.subprocess.run", lambda *args, **kwargs: Result())
     assert run("synthetic success", ["true"]) is None
+
+
+def test_preflight_main_rejects_missing_required_directory(monkeypatch, tmp_path):
+    import scripts.quality_preflight as module
+
+    (tmp_path / "src").mkdir()
+    (tmp_path / "tests").mkdir()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+    try:
+        module.main()
+    except SystemExit as exc:
+        assert "required directory missing: scripts" in str(exc)
+    else:
+        raise AssertionError("preflight accepted a missing required directory")
