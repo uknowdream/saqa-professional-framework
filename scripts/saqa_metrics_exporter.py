@@ -28,7 +28,7 @@ def collect()->str:
             report=json.loads(RELEASE_REPORT.read_text(encoding="utf-8"))
             if isinstance(report,dict):
                 release_available=1
-                certified=1 if report.get("certified") is True else 0
+                certified=1 if report.get("status") == "CERTIFIED" else 0
                 commit=str(report.get("commit_sha",""))
         except (OSError,json.JSONDecodeError): pass
     lines.append(f'saqa_release_report_info{{reported="{str(bool(release_available)).lower()}"}} 1')
