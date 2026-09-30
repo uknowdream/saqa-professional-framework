@@ -12,23 +12,13 @@ from urllib.parse import urlparse
 
 import httpx
 
+from saqa.url_safety import redact_url
+
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
 OUTPUT = Path("artifacts/targets/juice-shop-performance.json")
 REQUESTS = int(os.getenv("SAQA_PERF_REQUESTS", "5"))
 P95_BUDGET_MS = float(os.getenv("SAQA_API_P95_BUDGET_MS", "5000"))
-
-
-def _redact_url(url: str) -> str:
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname or ""
-        if ":" in host:
-            host = f"[{host}]"
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return parsed._replace(netloc=f"{host}{port}", path="", query="", fragment="").geturl()
-    except ValueError:
-        return "<invalid-url>"
 
 
 def _assert_loopback_http(url: str) -> None:
@@ -66,7 +56,7 @@ def main() -> None:
         "schema": "saqa.juice-shop-performance.v1",
         "test_id": "juice-shop.performance.products-search",
         "status": "BLOCKED",
-        "target": _redact_url(BASE_URL),
+        "target": redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
         "observed_at": observed_at,
