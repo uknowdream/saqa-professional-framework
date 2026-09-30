@@ -8,7 +8,9 @@ def redact_url(url: str) -> str:
     """Persist only scheme, host, and port; never credentials, path, params, query, or fragment."""
     try:
         parsed = urlparse(url)
-        host = parsed.hostname or ""
+        if not parsed.scheme or not parsed.hostname:
+            return "<invalid-url>"
+        host = parsed.hostname
         if ":" in host:
             host = f"[{host}]"
         port = f":{parsed.port}" if parsed.port is not None else ""
