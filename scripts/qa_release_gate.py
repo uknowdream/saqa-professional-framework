@@ -38,7 +38,7 @@ def decide(results:dict[str,str])->Decision:
     return Decision("CERTIFIED","All mandatory quality domains have verified PASS evidence.")
 
 def select_runs(raw:object,sha:str,event:str|None=None)->list[dict[str,str]]:
-    return [run for run in normalize_runs(raw) if run["head_sha"]==sha and (not event or run["event"]==event)]
+    return [run for run in normalize_runs(raw) if run["head_sha"]==sha and run["head_branch"]=="main" and (not event or run["event"]==event)]
 
 def main()->int:
     path=Path(os.environ.get("SAQA_RUNS_JSON",""))
