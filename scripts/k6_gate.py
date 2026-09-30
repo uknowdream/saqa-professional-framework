@@ -16,11 +16,11 @@ def main()->int:
         evidence["status"]="FAIL"; evidence["details"]["error"]=f"k6 script not found: {SCRIPT}"
     else:
         try:
-            completed=subprocess.run(["docker","run","--name",CONTAINER,"--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=90,check=False)
+            completed=subprocess.run(["docker","run","--rm","--name",CONTAINER,"--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=90,check=False)
             evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
             evidence["status"]="PASS" if completed.returncode==0 else "FAIL"
         except subprocess.TimeoutExpired as exc:
-            evidence["status"]="BLOCKED"; evidence["details"].update({"error":f"TimeoutExpired: {exc}","elapsed_ms":round((time.perf_counter()-started)*1000,2)})
+            evidence["status"]="BLOCKED"; evidence["details"].update({"error":f"TimeoutExpired: {exc}","elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":str(exc.stdout or "")[-4000:],"stderr_tail":str(exc.stderr or "")[-4000:]})
         except OSError as exc:
             evidence["status"]="BLOCKED"; evidence["details"]["error"]=f"{type(exc).__name__}: {exc}"
         finally:
