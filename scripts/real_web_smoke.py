@@ -37,9 +37,16 @@ def _redirect_target(current: str, location: str) -> str:
     return urljoin(current, location)
 
 def _redact_url(url: str) -> str:
-    """Remove query and fragment components before persisting URL evidence."""
-    parsed = urlparse(url)
-    return parsed._replace(query="", fragment="").geturl()
+    """Persist only scheme, host, and port; never credentials, paths, queries, or fragments."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return parsed._replace(netloc=f"{host}{port}", path="", query="", fragment="").geturl()
+    except ValueError:
+        return "<invalid-url>"
 
 
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
@@ -71,7 +78,7 @@ def run(target: str) -> dict[str, object]:
         max_redirects = int(os.getenv("SAQA_REAL_WEB_MAX_REDIRECTS", "3"))
         redirects: list[str] = []
         body = b""
-        with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
             for _ in range(max_redirects + 1):
                 validated, host = validate_target(current)
                 with client.stream("GET", validated) as response:
@@ -97,7 +104,7 @@ def run(target: str) -> dict[str, object]:
         evidence["target"] = _redact_url(validated)
         evidence["details"] = {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": "<title" in lower and "</title>" in lower, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "security_headers_present": sorted(name for name in ("content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy") if headers.get(name)), "redirects": redirects}
         if evidence["status"] != "PASS": raise AssertionError(f"Authorized real-web smoke returned HTTP {status_code}")
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:
