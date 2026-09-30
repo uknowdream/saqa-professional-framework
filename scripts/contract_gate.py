@@ -87,7 +87,7 @@ def main() -> int:
                 "validation_errors": [],
             }
         )
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:
