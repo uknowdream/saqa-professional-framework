@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from saqa.url_safety import redact_url
+_redact_url = redact_url
 
 
 class TargetPolicyError(ValueError):
