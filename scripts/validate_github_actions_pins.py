@@ -7,8 +7,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-USES_START = re.compile(r'^\s*(?:-\s*)?["\']?uses["\']?\s*:\s*')
-PINNED_USES = re.compile(r'^\s*(?:-\s*)?["\']?uses["\']?\s*:\s*["\']?[^@\s"\']+@([0-9a-fA-F]{40})["\']?(?:\s+#.*)?\s*
+USES_START = re.compile(r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*""")
+PINNED_USES = re.compile(r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*["']?[^@\s"']+@([0-9a-fA-F]{40})["']?(?:\s+#.*)?\s*$""")
 
 
 def main() -> int:
