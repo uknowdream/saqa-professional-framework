@@ -41,3 +41,13 @@ def test_aggregate_rejects_scalar_json(tmp_path: Path) -> None:
     (tmp_path / "scalar.json").write_text("null", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid result envelope"):
         load_results(tmp_path)
+
+def test_aggregate_rejects_unknown_or_whitespace_observed_at(tmp_path: Path) -> None:
+    for index, observed_at in enumerate(("unknown", " UNKNOWN ", "   ")):
+        (tmp_path / f"bad-{index}.json").write_text(
+            '{"test_id":"T-001","status":"PASS","target":"local","observed_at":%s,"details":{}}'
+            % __import__("json").dumps(observed_at),
+            encoding="utf-8",
+        )
+    with pytest.raises(ValueError, match="missing observed_at"):
+        load_results(tmp_path)
