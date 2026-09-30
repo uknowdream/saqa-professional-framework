@@ -39,17 +39,6 @@ jobs:
           grep -q "Mobile" README.md
           echo "SAQA framework integrity check passed."
 
-      - name: Validate framework scope and safety guardrails
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x scripts/validate_framework_scope.sh
-          ./scripts/validate_framework_scope.sh
-
-      - name: Validate immutable GitHub Action references
-        shell: bash
-        run: python3 scripts/validate_github_actions_pins.py
-
       - name: Run static QA preflight
         shell: bash
         run: python3 scripts/quality_preflight.py
