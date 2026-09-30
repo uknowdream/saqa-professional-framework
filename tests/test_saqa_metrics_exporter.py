@@ -30,7 +30,7 @@ def test_collect_escapes_prometheus_label_values(tmp_path, monkeypatch):
 
 def test_collect_exposes_commit_certification_and_flaky_metrics(tmp_path, monkeypatch):
     evidence_dir=tmp_path/"targets"; evidence_dir.mkdir()
-    report=tmp_path/"release.json"; report.write_text(json.dumps({"certified":True,"commit_sha":"abc"}))
+    report=tmp_path/"release.json"; report.write_text(json.dumps({"status":"CERTIFIED","commit_sha":"abc"}))
     flaky=tmp_path/"flaky.json"; flaky.write_text(json.dumps({"tests":{"A":{"status":"FLAKY"},"B":{"status":"STABLE_PASS"}}}))
     monkeypatch.setattr("scripts.saqa_metrics_exporter.EVIDENCE_DIR",evidence_dir); monkeypatch.setattr("scripts.saqa_metrics_exporter.RELEASE_REPORT",report); monkeypatch.setattr("scripts.saqa_metrics_exporter.FLAKY_REPORT",flaky)
     metrics=collect()
