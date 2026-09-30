@@ -2,7 +2,7 @@ SHELL := /bin/bash
 PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 
-.PHONY: install test test-serial compile target-smoke contract-test k6-test
+.PHONY: install test test-serial compile preflight target-smoke contract-test k6-test
 
 install:
 	$(PIP) install -e '.[test,ci,contract]'
@@ -15,6 +15,9 @@ test-serial:
 
 compile:
 	$(PYTHON) -m compileall -q src tests
+
+preflight:
+	$(PYTHON) scripts/quality_preflight.py
 
 target-smoke:
 	bash scripts/qa_target_smoke.sh
