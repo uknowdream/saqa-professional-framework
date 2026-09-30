@@ -34,3 +34,15 @@ def test_validator_rejects_mutable_reference(monkeypatch, tmp_path):
     monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
     with pytest.raises(SystemExit, match="Mutable"):
         validator.main()
+
+
+def test_validator_accepts_local_and_digest_container_references(monkeypatch, tmp_path):
+    (tmp_path / "ci.yml").write_text(
+        "steps:\n"
+        "  - uses: ./actions/local-check\n"
+        "  - uses: docker://alpine@sha256:abc123\n"
+        "  - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
+    assert validator.main() == 0
