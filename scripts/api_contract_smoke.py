@@ -14,22 +14,11 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from saqa.api import request
 from saqa.api_contract import validate_json_contract
+from saqa.url_safety import redact_url
 
 BASE_URL = os.environ.get("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 PATH = "/rest/products/search?q=apple"
 ARTIFACT_DIR = Path(os.environ.get("SAQA_ARTIFACT_DIR", "artifacts/targets"))
-
-
-def _redact_url(url: str) -> str:
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname or ""
-        if ":" in host:
-            host = f"[{host}]"
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return parsed._replace(netloc=f"{host}{port}", path="", query="", fragment="").geturl()
-    except ValueError:
-        return "<invalid-url>"
 
 
 def _assert_loopback_http(url: str) -> None:
@@ -43,7 +32,7 @@ def _assert_loopback_http(url: str) -> None:
 def main() -> int:
     started = time.perf_counter()
     result = {
-        "schema": "saqa.api-contract.v2", "test_id": "juice-shop.api-contract.search", "target": _redact_url(BASE_URL), "observed_at": datetime.now(timezone.utc).isoformat(), "path": PATH, "method": "GET",
+        "schema": "saqa.api-contract.v2", "test_id": "juice-shop.api-contract.search", "target": redact_url(BASE_URL), "observed_at": datetime.now(timezone.utc).isoformat(), "path": PATH, "method": "GET",
         "status_code": 0, "content_type": "", "elapsed_ms": 0, "contract": {"required_fields": ["data"], "list_fields": ["data"]},
         "destructive_actions": False, "status": "BLOCKED", "details": {},
     }
