@@ -28,7 +28,8 @@ def main() -> int:
                 continue
             references += 1
             if not PINNED_USES.match(line):
-                violations.append(f"{path.relative_to(ROOT)}:{line_number}: {line.strip()}")
+                display_path = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+                violations.append(f"{display_path}:{line_number}: {line.strip()}")
 
     if references == 0:
         raise SystemExit("No GitHub Actions 'uses:' references found; integrity scan is invalid.")
