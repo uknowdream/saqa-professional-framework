@@ -58,6 +58,7 @@ def main() -> None:
 
     started = time.perf_counter()
     browser = None
+    context = None
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
@@ -82,7 +83,6 @@ def main() -> None:
             body_text = page.locator("body").inner_text().strip()
             if not body_text:
                 raise AssertionError("WebGoat page body is empty")
-            evidence["status"] = "PASS"
             evidence["details"] = {
                 "title": title,
                 "final_url": final_url,
@@ -91,8 +91,10 @@ def main() -> None:
                 "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
             }
             context.close()
+            context = None
             browser.close()
             browser = None
+            evidence["status"] = "PASS"
     except Exception as exc:
         evidence["details"] = {
             **evidence.get("details", {}),
@@ -100,6 +102,11 @@ def main() -> None:
             "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception as exc:
+                evidence["details"]["context_close_error"] = f"{type(exc).__name__}: {exc}"
         if browser is not None:
             try:
                 browser.close()
