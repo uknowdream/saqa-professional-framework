@@ -76,7 +76,7 @@ def run(target: str) -> dict[str, object]:
                         if not location: raise TargetPolicyError("Redirect response has no Location header")
                         current = _redirect_target(validated, location)
                         validate_target(current)
-                        redirects.append(_redact_url(current))
+                        redirects.append(redact_url(current))
                         continue
                     status_code = response.status_code
                     headers = response.headers
