@@ -19,10 +19,16 @@ ENDPOINT = "/rest/products/search?q=apple"
 
 
 def _redact_url(url: str) -> str:
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
-    port = f":{parsed.port}" if parsed.port is not None else ""
-    return parsed._replace(netloc=f"{hostname}{port}", query="", fragment="").geturl()
+    """Persist only scheme, host, and port; never credentials, paths, queries, or fragments."""
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return parsed._replace(netloc=f"{hostname}{port}", path="", query="", fragment="").geturl()
+    except ValueError:
+        return "<invalid-url>"
 
 
 def _assert_loopback_http(url: str) -> None:
