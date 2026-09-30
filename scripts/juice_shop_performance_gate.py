@@ -19,6 +19,18 @@ REQUESTS = int(os.getenv("SAQA_PERF_REQUESTS", "5"))
 P95_BUDGET_MS = float(os.getenv("SAQA_API_P95_BUDGET_MS", "5000"))
 
 
+def _redact_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if ":" in host:
+            host = f"[{host}]"
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        return parsed._replace(netloc=f"{host}{port}", path="", query="", fragment="").geturl()
+    except ValueError:
+        return "<invalid-url>"
+
+
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
     if (
@@ -54,7 +66,7 @@ def main() -> None:
         "schema": "saqa.juice-shop-performance.v1",
         "test_id": "juice-shop.performance.products-search",
         "status": "BLOCKED",
-        "target": BASE_URL,
+        "target": _redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
         "observed_at": observed_at,
@@ -99,7 +111,7 @@ def main() -> None:
         })
         if evidence["status"] != "PASS":
             raise AssertionError(f"p95 latency exceeded budget: {p95_ms} ms > {P95_BUDGET_MS} ms")
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:
