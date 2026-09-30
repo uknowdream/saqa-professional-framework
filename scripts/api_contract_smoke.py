@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from saqa.api import request
 from saqa.api_contract import validate_json_contract
 from saqa.url_safety import redact_url
+_redact_url = redact_url
 
 BASE_URL = os.environ.get("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 PATH = "/rest/products/search?q=apple"
