@@ -11,6 +11,7 @@ USES_START = re.compile(r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*""")
 PINNED_USES = re.compile(
     r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*["']?[^@\s"']+@([0-9a-fA-F]{40})["']?(?:\s+#.*)?\s*$"""
 )
+DOCKER_DIGEST = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-fA-F]{64}$")
 
 
 def main() -> int:
@@ -18,17 +19,28 @@ def main() -> int:
         raise SystemExit(f"Workflow directory not found: {WORKFLOWS}")
 
     references = 0
+    pinnable_references = 0
     violations: list[str] = []
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if not USES_START.match(line):
                 continue
-            reference = line.split(":", 1)[1].strip().strip("'\\\"")
-            if reference.startswith("./") or reference.startswith("docker://"):
-                continue
             references += 1
+            reference = line.split(":", 1)[1].strip().strip("'\\\"")
+            display_path = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+
+            if reference.startswith("./"):
+                continue
+
+            if reference.startswith("docker://"):
+                if not DOCKER_DIGEST.fullmatch(reference):
+                    violations.append(
+                        f"{display_path}:{line_number}: Docker action reference must use a full sha256 digest: {line.strip()}"
+                    )
+                continue
+
+            pinnable_references += 1
             if not PINNED_USES.match(line):
-                display_path = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
                 violations.append(f"{display_path}:{line_number}: {line.strip()}")
 
     if references == 0:
@@ -36,7 +48,10 @@ def main() -> int:
     if violations:
         raise SystemExit("Mutable or malformed GitHub Action reference(s):\n" + "\n".join(violations))
 
-    print(f"GITHUB_ACTION_PINNING_PASS references={references}")
+    print(
+        "GITHUB_ACTION_PINNING_PASS "
+        f"references={references} pinnable_external_references={pinnable_references}"
+    )
     return 0
 
 
