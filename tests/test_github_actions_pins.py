@@ -46,3 +46,27 @@ def test_validator_accepts_local_and_digest_container_references(monkeypatch, tm
     )
     monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
     assert validator.main() == 0
+
+
+def test_validator_counts_non_external_uses_references(monkeypatch, tmp_path):
+    (tmp_path / "ci.yml").write_text(
+        "steps:\n"
+        "  - uses: ./actions/local-check\n"
+        "  - uses: docker://alpine@sha256:"
+        + "a" * 64
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
+    assert validator.main() == 0
+
+
+def test_validator_rejects_non_digest_docker_reference(monkeypatch, tmp_path):
+    (tmp_path / "ci.yml").write_text(
+        "steps:\n"
+        "  - uses: docker://alpine:latest\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
+    with pytest.raises(SystemExit, match="Docker action reference"):
+        validator.main()
