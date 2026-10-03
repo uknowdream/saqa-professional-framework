@@ -65,3 +65,13 @@ def test_validator_rejects_non_digest_docker_reference(monkeypatch, tmp_path):
     monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
     with pytest.raises(SystemExit, match="Docker action reference"):
         validator.main()
+
+
+def test_validator_accepts_digest_container_reference_with_yaml_comment(monkeypatch, tmp_path):
+    (tmp_path / "ci.yml").write_text(
+        "steps:\n"
+        "  - uses: docker://alpine@sha256:" + "a" * 64 + " # pinned\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(validator, "WORKFLOWS", tmp_path)
+    assert validator.main() == 0
