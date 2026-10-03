@@ -33,7 +33,8 @@ def main() -> int:
                 continue
 
             if reference.startswith("docker://"):
-                if not DOCKER_DIGEST.fullmatch(reference):
+                docker_reference = reference.split("#", 1)[0].strip().strip('"\'')
+                if not DOCKER_DIGEST.fullmatch(docker_reference):
                     violations.append(
                         f"{display_path}:{line_number}: Docker action reference must use a full sha256 digest: {line.strip()}"
                     )
