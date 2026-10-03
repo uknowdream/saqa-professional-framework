@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -40,4 +41,14 @@ def test_aggregate_rejects_invalid_result(tmp_path: Path) -> None:
 def test_aggregate_rejects_scalar_json(tmp_path: Path) -> None:
     (tmp_path / "scalar.json").write_text("null", encoding="utf-8")
     with pytest.raises(ValueError, match="invalid result envelope"):
+        load_results(tmp_path)
+
+@pytest.mark.parametrize("observed_at", ["unknown", " UNKNOWN ", "   "])
+def test_aggregate_rejects_invalid_observed_at_variants(tmp_path: Path, observed_at: str) -> None:
+    (tmp_path / "bad.json").write_text(
+        '{"test_id":"T-001","status":"PASS","target":"local","observed_at":%s,"details":{}}'
+        % json.dumps(observed_at),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="missing observed_at"):
         load_results(tmp_path)

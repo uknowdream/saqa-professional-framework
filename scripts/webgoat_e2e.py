@@ -57,42 +57,57 @@ def main() -> None:
     }
 
     started = time.perf_counter()
-    browser = None
     try:
         from playwright.sync_api import sync_playwright
         with sync_playwright() as playwright:
-            browser = getattr(playwright, BROWSER).launch(headless=True)
-            context = browser.new_context(viewport={"width": 1440, "height": 900})
-            context.route("**/*", guard_request)
-            page = context.new_page()
-            response = page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
-            validate_target(page.url)
-            if response is None or response.status >= 400:
-                raise RuntimeError(f"WebGoat page load failed: HTTP {response.status if response else 'none'}")
-            page.wait_for_load_state("networkidle", timeout=30_000)
-            title = page.title().strip()
-            final_url = page.url
-            parsed_final = urlparse(final_url)
-            if parsed_final.hostname not in LOOPBACK_HOSTS:
-                raise AssertionError(f"unexpected final host: {parsed_final.hostname!r}")
-            if "/WebGoat" not in parsed_final.path:
-                raise AssertionError(f"unexpected final path: {parsed_final.path!r}")
-            if not title or title.lower() not in {"login page", "webgoat"}:
-                raise AssertionError(f"unexpected page title: {title!r}")
-            body_text = page.locator("body").inner_text().strip()
-            if not body_text:
-                raise AssertionError("WebGoat page body is empty")
-            evidence["status"] = "PASS"
-            evidence["details"] = {
-                "title": title,
-                "final_url": final_url,
-                "http_status": response.status,
-                "body_text_nonempty": True,
-                "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
-            }
-            context.close()
-            browser.close()
             browser = None
+            context = None
+            passed = False
+            try:
+                browser = getattr(playwright, BROWSER).launch(headless=True)
+                context = browser.new_context(viewport={"width": 1440, "height": 900})
+                context.route("**/*", guard_request)
+                page = context.new_page()
+                response = page.goto(BASE_URL, wait_until="domcontentloaded", timeout=30_000)
+                validate_target(page.url)
+                if response is None or response.status >= 400:
+                    raise RuntimeError(f"WebGoat page load failed: HTTP {response.status if response else 'none'}")
+                page.wait_for_load_state("networkidle", timeout=30_000)
+                title = page.title().strip()
+                final_url = page.url
+                parsed_final = urlparse(final_url)
+                if parsed_final.hostname not in LOOPBACK_HOSTS:
+                    raise AssertionError(f"unexpected final host: {parsed_final.hostname!r}")
+                if "/WebGoat" not in parsed_final.path:
+                    raise AssertionError(f"unexpected final path: {parsed_final.path!r}")
+                if not title or title.lower() not in {"login page", "webgoat"}:
+                    raise AssertionError(f"unexpected page title: {title!r}")
+                body_text = page.locator("body").inner_text().strip()
+                if not body_text:
+                    raise AssertionError("WebGoat page body is empty")
+                evidence["details"] = {
+                    "title": title,
+                    "final_url": final_url,
+                    "http_status": response.status,
+                    "body_text_nonempty": True,
+                    "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
+                }
+                passed = True
+            finally:
+                if context is not None:
+                    try:
+                        context.close()
+                    except Exception as exc:
+                        evidence["details"]["context_close_error"] = f"{type(exc).__name__}: {exc}"
+                    context = None
+                if browser is not None:
+                    try:
+                        browser.close()
+                    except Exception as exc:
+                        evidence["details"]["browser_close_error"] = f"{type(exc).__name__}: {exc}"
+                    browser = None
+            if passed and "context_close_error" not in evidence["details"] and "browser_close_error" not in evidence["details"]:
+                evidence["status"] = "PASS"
     except Exception as exc:
         evidence["details"] = {
             **evidence.get("details", {}),
@@ -100,6 +115,11 @@ def main() -> None:
             "elapsed_ms": round((time.perf_counter() - started) * 1000, 2),
         }
     finally:
+        if context is not None:
+            try:
+                context.close()
+            except Exception as exc:
+                evidence["details"]["context_close_error"] = f"{type(exc).__name__}: {exc}"
         if browser is not None:
             try:
                 browser.close()
