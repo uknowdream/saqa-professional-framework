@@ -40,6 +40,7 @@ def test_comment_stripping_preserves_hash_inside_quotes():
         "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af67726",
         "uses: actions/checkout@not-a-sha",
         f"uses: actions/checkout@{SHA} extra",
+        f"uses: actions/checkout@{SHA}#suffix",
     ],
 )
 def test_action_pin_parser_rejects_mutable_and_malformed_refs(line):
