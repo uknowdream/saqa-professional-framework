@@ -8,10 +8,37 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 USES_START = re.compile(r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*""")
-PINNED_USES = re.compile(
-    r"""^\s*(?:-\s*)?["']?uses["']?\s*:\s*["']?[^@\s"']+@([0-9a-fA-F]{40})["']?(?:\s+#.*)?\s*$"""
-)
+PINNED_REFERENCE = re.compile(r"""^[^@\s"']+@([0-9a-fA-F]{40})$""")
 DOCKER_DIGEST = re.compile(r"^docker://[^@\s]+@sha256:[0-9a-fA-F]{64}$")
+
+
+def _strip_yaml_comment(value: str) -> str:
+    """Remove a YAML comment only when '#' occurs outside a quoted scalar."""
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(value):
+        if quote:
+            if quote == '"' and escaped:
+                escaped = False
+            elif quote == '"' and char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in {"'", '"'}:
+            quote = char
+        elif char == "#":
+            return value[:index].rstrip()
+    return value.rstrip()
+
+
+def _extract_reference(line: str) -> str:
+    """Extract the uses scalar while preserving quoted '#' characters."""
+    value = line.split(":", 1)[1].strip()
+    value = _strip_yaml_comment(value).strip()
+    if len(value) >= 2 and value[0] in {"'", '"'} and value[-1] == value[0]:
+        value = value[1:-1]
+    return value.strip()
 
 
 def main() -> int:
@@ -26,22 +53,21 @@ def main() -> int:
             if not USES_START.match(line):
                 continue
             references += 1
-            reference = line.split(":", 1)[1].strip().strip("'\\\"")
+            reference = _extract_reference(line)
             display_path = path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
 
             if reference.startswith("./"):
                 continue
 
             if reference.startswith("docker://"):
-                docker_reference = reference.split("#", 1)[0].strip().strip('"\'')
-                if not DOCKER_DIGEST.fullmatch(docker_reference):
+                if not DOCKER_DIGEST.fullmatch(reference):
                     violations.append(
                         f"{display_path}:{line_number}: Docker action reference must use a full sha256 digest: {line.strip()}"
                     )
                 continue
 
             pinnable_references += 1
-            if not PINNED_USES.match(line):
+            if not PINNED_REFERENCE.fullmatch(reference):
                 violations.append(f"{display_path}:{line_number}: {line.strip()}")
 
     if references == 0:
