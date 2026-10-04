@@ -27,7 +27,7 @@ def _strip_yaml_comment(value: str) -> str:
             continue
         if char in {"'", '"'}:
             quote = char
-        elif char == "#":
+        elif char == "#" and (index == 0 or value[index - 1].isspace()):
             return value[:index].rstrip()
     return value.rstrip()
 
