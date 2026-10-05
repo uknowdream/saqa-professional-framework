@@ -9,6 +9,9 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from saqa.url_safety import redact_url
+_redact_url = redact_url
+
 
 class TargetPolicyError(ValueError):
     """Raised when a real-web target violates the explicit authorization policy."""
@@ -36,12 +39,6 @@ def validate_target(url: str) -> tuple[str, str]:
 def _redirect_target(current: str, location: str) -> str:
     return urljoin(current, location)
 
-def _redact_url(url: str) -> str:
-    """Remove query and fragment components before persisting URL evidence."""
-    parsed = urlparse(url)
-    return parsed._replace(query="", fragment="").geturl()
-
-
 def _bounded_body(response: httpx.Response, limit: int = 500_000) -> bytes:
     """Read at most ``limit`` raw bytes so compressed responses cannot inflate before the cap."""
     chunks: list[bytes] = []
@@ -62,7 +59,7 @@ def run(target: str) -> dict[str, object]:
     started = time.perf_counter()
     evidence = {
         "schema": "saqa.real-web-smoke.v2", "test_id": "real-web.authorized-read-only-smoke", "status": "BLOCKED",
-        "target": _redact_url(target), "host": "", "http_methods": ["GET"], "destructive_actions": False,
+        "target": redact_url(target), "host": "", "http_methods": ["GET"], "destructive_actions": False,
         "observed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "details": {},
     }
     try:
@@ -71,7 +68,7 @@ def run(target: str) -> dict[str, object]:
         max_redirects = int(os.getenv("SAQA_REAL_WEB_MAX_REDIRECTS", "3"))
         redirects: list[str] = []
         body = b""
-        with httpx.Client(timeout=timeout, follow_redirects=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
+        with httpx.Client(timeout=timeout, follow_redirects=False, trust_env=False, headers={"User-Agent": "SAQA-Authorized-Web-Smoke/1.0", "Accept-Encoding": "identity"}) as client:
             for _ in range(max_redirects + 1):
                 validated, host = validate_target(current)
                 with client.stream("GET", validated) as response:
@@ -80,7 +77,7 @@ def run(target: str) -> dict[str, object]:
                         if not location: raise TargetPolicyError("Redirect response has no Location header")
                         current = _redirect_target(validated, location)
                         validate_target(current)
-                        redirects.append(_redact_url(current))
+                        redirects.append(redact_url(current))
                         continue
                     status_code = response.status_code
                     headers = response.headers
@@ -97,7 +94,7 @@ def run(target: str) -> dict[str, object]:
         evidence["target"] = _redact_url(validated)
         evidence["details"] = {"status_code": status_code, "content_type": content_type, "content_encoding": content_encoding, "title_present": "<title" in lower and "</title>" in lower, "response_time_ms": elapsed_ms, "response_bytes_sampled": len(body), "response_body_limit_bytes": 500_000, "security_headers_present": sorted(name for name in ("content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy") if headers.get(name)), "redirects": redirects}
         if evidence["status"] != "PASS": raise AssertionError(f"Authorized real-web smoke returned HTTP {status_code}")
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:

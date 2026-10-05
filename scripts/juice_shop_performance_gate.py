@@ -12,6 +12,9 @@ from urllib.parse import urlparse
 
 import httpx
 
+from saqa.url_safety import redact_url
+_redact_url = redact_url
+
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 ENDPOINT = "/rest/products/search?q=apple"
 OUTPUT = Path("artifacts/targets/juice-shop-performance.json")
@@ -54,7 +57,7 @@ def main() -> None:
         "schema": "saqa.juice-shop-performance.v1",
         "test_id": "juice-shop.performance.products-search",
         "status": "BLOCKED",
-        "target": BASE_URL,
+        "target": redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
         "observed_at": observed_at,
@@ -99,7 +102,7 @@ def main() -> None:
         })
         if evidence["status"] != "PASS":
             raise AssertionError(f"p95 latency exceeded budget: {p95_ms} ms > {P95_BUDGET_MS} ms")
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:

@@ -37,7 +37,7 @@ def load_results(directory: Path, *, exclude: Path | None = None) -> list[Eviden
             if status == "N/A":
                 status = "NOT_APPLICABLE"
             observed_at = item.get("observed_at")
-            if not isinstance(observed_at, str) or not observed_at.strip() or observed_at == "unknown":
+            if not isinstance(observed_at, str) or not observed_at.strip() or observed_at.strip().lower() == "unknown":
                 raise ValueError(f"result missing observed_at: {path}")
             preserved = {
                 key: item[key]

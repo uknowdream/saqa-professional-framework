@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 
 @dataclass
 class TestDataScope:
+    # Prevent pytest from treating this imported runtime helper as a test class.
+    __test__ = False
     _cleanup: list[Callable[[], None]] = field(default_factory=list)
     closed: bool = False
 
