@@ -108,7 +108,7 @@ def test_validator_rejects_non_digest_docker_reference(monkeypatch, tmp_path):
         validator.main()
 
 
-def test_validator_rejects_quoted_digest_with_trailing_comment_only_after_unquoting(monkeypatch, tmp_path):
+def test_validator_accepts_quoted_digest_container_reference_with_yaml_comment(monkeypatch, tmp_path):
     (tmp_path / "ci.yml").write_text(
         'steps:\n'
         '  - uses: "docker://alpine@sha256:' + DIGEST + '" # pinned\n',
