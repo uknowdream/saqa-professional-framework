@@ -56,7 +56,7 @@ jobs:
             runs="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
           fi
           MAX_AGE_HOURS="${SAQA_RELEASE_MAX_AGE_HOURS:-6}"
-          if ! MAX_AGE_SECONDS="$(python -c 'import math,sys; v=float(sys.argv[1]); seconds=v*3600; valid=math.isfinite(v) and v > 0 and math.isfinite(seconds) and seconds >= 1; print(int(seconds)) if valid else sys.exit(2)' "$MAX_AGE_HOURS" 2>/dev/null)"; then
+          if ! MAX_AGE_SECONDS="$(python -c 'import math,sys; v=float(sys.argv[1]); seconds=v*3600; valid=math.isfinite(v) and v > 0 and math.isfinite(seconds) and seconds >= 1 and seconds <= 86399999999999; print(int(seconds)) if valid else sys.exit(2)' "$MAX_AGE_HOURS" 2>/dev/null)"; then
             echo "SAQA_RELEASE_MAX_AGE_HOURS must be finite and positive."
             exit 2
           fi

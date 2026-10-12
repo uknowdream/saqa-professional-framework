@@ -96,8 +96,14 @@ def result(
         return "BLOCKED"
     if run.get("conclusion") != "success":
         return "UNVERIFIED"
-    if not math.isfinite(max_age_hours) or max_age_hours <= 0:
-        raise ValueError("max_age_hours must be finite and greater than zero")
+    max_age_seconds = max_age_hours * 3600
+    if (
+        not math.isfinite(max_age_hours)
+        or max_age_hours <= 0
+        or not math.isfinite(max_age_seconds)
+        or max_age_seconds > timedelta.max.total_seconds()
+    ):
+        raise ValueError("max_age_hours must be finite, positive, and representable as a timedelta")
     attempt = run.get("run_attempt", "")
     if not attempt.isdigit() or int(attempt) <= 0:
         return "UNVERIFIED"
@@ -111,7 +117,7 @@ def result(
     age = (current.astimezone(timezone.utc) - started).total_seconds()
     if age < -timedelta(minutes=FUTURE_SKEW_MINUTES).total_seconds():
         return "UNVERIFIED"
-    if age > timedelta(hours=max_age_hours).total_seconds():
+    if age > max_age_seconds
         return "STALE"
     return "PASS"
 
@@ -219,9 +225,15 @@ def main() -> int:
     except ValueError:
         max_age = DEFAULT_MAX_AGE_HOURS
         policy_error = "SAQA_RELEASE_MAX_AGE_HOURS must be numeric"
-    if not math.isfinite(max_age) or max_age <= 0:
+    max_age_seconds = max_age * 3600
+    if (
+        not math.isfinite(max_age)
+        or max_age <= 0
+        or not math.isfinite(max_age_seconds)
+        or max_age_seconds > timedelta.max.total_seconds()
+    ):
         max_age = DEFAULT_MAX_AGE_HOURS
-        policy_error = "SAQA_RELEASE_MAX_AGE_HOURS must be finite and greater than zero"
+        policy_error = "SAQA_RELEASE_MAX_AGE_HOURS must be finite, positive, and representable as a timedelta"
     try:
         if policy_error:
             raise ValueError(policy_error)

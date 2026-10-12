@@ -123,7 +123,7 @@ def test_release_event_allowlist_is_exact():
     assert ALLOWED_RELEASE_EVENTS == {"push", "workflow_dispatch"}
 
 
-@pytest.mark.parametrize("policy", ["nan", "inf", "not-a-number", "0", "-1"])
+@pytest.mark.parametrize("policy", ["nan", "inf", "1e308", "1e11", "not-a-number", "0", "-1"])
 def test_invalid_freshness_policy_emits_valid_not_certified_json(tmp_path, monkeypatch, policy):
     runs_path = tmp_path / "runs.json"
     runs_path.write_text(json.dumps({"workflow_runs": []}), encoding="utf-8")
