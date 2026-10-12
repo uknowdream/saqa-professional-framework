@@ -212,13 +212,22 @@ def main() -> int:
     event = os.environ.get("SAQA_REQUIRED_EVENT", "").strip()
     if event and event not in ALLOWED_RELEASE_EVENTS:
         raise SystemExit("SAQA_REQUIRED_EVENT must be push or workflow_dispatch")
+    raw_max_age = os.environ.get("SAQA_RELEASE_MAX_AGE_HOURS", str(DEFAULT_MAX_AGE_HOURS))
+    policy_error = None
     try:
+        max_age = float(raw_max_age)
+    except ValueError:
+        max_age = DEFAULT_MAX_AGE_HOURS
+        policy_error = "SAQA_RELEASE_MAX_AGE_HOURS must be numeric"
+    if not math.isfinite(max_age) or max_age <= 0:
+        max_age = DEFAULT_MAX_AGE_HOURS
+        policy_error = "SAQA_RELEASE_MAX_AGE_HOURS must be finite and greater than zero"
+    try:
+        if policy_error:
+            raise ValueError(policy_error)
         raw = json.loads(path.read_text(encoding="utf-8"))
         runs = select_runs(raw, sha, event or None)
         latest = latest_by_workflow(runs)
-        max_age = float(os.environ.get("SAQA_RELEASE_MAX_AGE_HOURS", str(DEFAULT_MAX_AGE_HOURS)))
-        if not math.isfinite(max_age) or max_age <= 0:
-            raise ValueError("SAQA_RELEASE_MAX_AGE_HOURS must be finite and greater than zero")
         results = {name: result(latest.get(name), max_age_hours=max_age) for name in MANDATORY}
         decision = decide(results)
         selection_error = None
@@ -233,7 +242,7 @@ def main() -> int:
         "required_branch": "main",
         "required_event": event or None,
         "allowed_events": sorted(ALLOWED_RELEASE_EVENTS),
-        "max_age_hours": float(os.environ.get("SAQA_RELEASE_MAX_AGE_HOURS", str(DEFAULT_MAX_AGE_HOURS))),
+        "max_age_hours": max_age,
         "status": decision.status,
         "reason": decision.reason,
         "selection_error": selection_error,

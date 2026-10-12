@@ -121,3 +121,23 @@ def test_duplicate_identity_with_conflicting_conclusion_fails_closed():
 
 def test_release_event_allowlist_is_exact():
     assert ALLOWED_RELEASE_EVENTS == {"push", "workflow_dispatch"}
+
+
+@pytest.mark.parametrize("policy", ["nan", "inf", "not-a-number", "0", "-1"])
+def test_invalid_freshness_policy_emits_valid_not_certified_json(tmp_path, monkeypatch, policy):
+    runs_path = tmp_path / "runs.json"
+    runs_path.write_text(json.dumps({"workflow_runs": []}), encoding="utf-8")
+    output_path = tmp_path / "certification.json"
+    monkeypatch.setenv("SAQA_RUNS_JSON", str(runs_path))
+    monkeypatch.setenv("SAQA_HEAD_SHA", SHA)
+    monkeypatch.delenv("SAQA_REQUIRED_EVENT", raising=False)
+    monkeypatch.setenv("SAQA_RELEASE_MAX_AGE_HOURS", policy)
+    monkeypatch.setenv("SAQA_CERTIFICATION_OUTPUT", str(output_path))
+
+    from scripts import qa_release_gate as gate
+    assert gate.main() == 1
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["status"] == "NOT_CERTIFIED"
+    assert payload["max_age_hours"] == 6.0
+    assert payload["selection_error"] is not None
+    assert "NaN" not in output_path.read_text(encoding="utf-8")

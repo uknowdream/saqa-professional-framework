@@ -76,7 +76,7 @@ jobs:
           SAQA Accessibility|.github/workflows/saqa-accessibility.yml|355591975
           SAQA Mobile Readiness|.github/workflows/saqa-mobile.yml|355328607
           SAQA k6 Performance|.github/workflows/saqa-k6.yml|364897799
-SAQA_MANDATORY_WORKFLOWS
+          SAQA_MANDATORY_WORKFLOWS
           if [ "$ready" = true ]; then
             reason="All mandatory domains completed on main with fresh, exact-workflow evidence."
           else
