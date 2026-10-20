@@ -26,3 +26,15 @@ def test_missing_metric_fails_closed():
 def test_unsupported_policy_schema_is_rejected():
     with pytest.raises(ValueError,match="unsupported"):
         evaluate_summary(summary(),{**POLICY,"schema":"unknown"})
+
+
+@pytest.mark.parametrize("bad_value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_measurements_are_rejected(bad_value):
+    with pytest.raises(ValueError, match="must be finite"):
+        evaluate_summary(summary(p95=bad_value), POLICY)
+
+
+def test_non_numeric_policy_limit_is_rejected():
+    bad_policy = {**POLICY, "limits": {**POLICY["limits"], "p95_max_ms": float("nan")}}
+    with pytest.raises(ValueError, match="must be a finite number"):
+        evaluate_summary(summary(), bad_policy)
