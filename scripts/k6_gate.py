@@ -1,6 +1,6 @@
 """Run a local k6 gate and compare measured percentiles to a versioned guardrail."""
 from __future__ import annotations
-import hashlib, json, os, subprocess, time
+import hashlib, json, math, os, re, shutil, subprocess, time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +26,12 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         raise ValueError("performance policy version must be a positive integer")
     if not isinstance(policy.get("target_profile"), str) or not policy["target_profile"].strip():
         raise ValueError("performance policy requires a non-empty target_profile")
+    metric_names = policy.get("metrics")
+    required_metric_keys = {"latency", "error_rate", "throughput", "functional_checks"}
+    if not isinstance(metric_names, dict) or not required_metric_keys.issubset(metric_names):
+        raise ValueError("performance policy is missing required metric mappings")
+    if any(not isinstance(metric_names[key], str) or not metric_names[key].strip() for key in required_metric_keys):
+        raise ValueError("performance policy metric mappings must be non-empty strings")
     required = {"p95_max_ms", "p99_max_ms", "error_rate_max", "throughput_min_rps", "check_pass_rate_min"}
     limits = policy.get("limits")
     if not isinstance(limits, dict) or not required.issubset(limits):
@@ -40,19 +46,19 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"k6 summary missing numeric metric {name}.{key}")
         number = float(value)
-        if not __import__("math").isfinite(number):
+        if not math.isfinite(number):
             raise ValueError(f"k6 summary metric {name}.{key} must be finite")
         return number
     observed = {
-        "p95_ms": metric("http_req_duration", "p(95)"),
-        "p99_ms": metric("http_req_duration", "p(99)"),
-        "error_rate": metric("http_req_failed", "rate"),
-        "throughput_rps": metric("http_reqs", "rate"),
-        "check_pass_rate": metric("checks", "rate"),
+        "p95_ms": metric(metric_names["latency"], "p(95)"),
+        "p99_ms": metric(metric_names["latency"], "p(99)"),
+        "error_rate": metric(metric_names["error_rate"], "rate"),
+        "throughput_rps": metric(metric_names["throughput"], "rate"),
+        "check_pass_rate": metric(metric_names["functional_checks"], "rate"),
     }
     for key in required:
         value = limits[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or not __import__("math").isfinite(float(value)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
             raise ValueError(f"performance policy limit {key} must be a finite number")
     for key in ("p95_max_ms", "p99_max_ms", "throughput_min_rps"):
         if limits[key] < 0:
@@ -80,10 +86,26 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
     failed = [item["id"] for item in checks if not item["passed"]]
     return {"status":"FAIL" if failed else "PASS","policy_id":policy.get("policy_id"),"policy_version":policy.get("version"),"target_profile":policy.get("target_profile"),"metrics":observed,"checks":checks,"failed_checks":failed}
 
+def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None:
+    """Prevent the k6 runtime thresholds from drifting from the versioned policy."""
+    checks = {
+        "http_req_failed": (r'http_req_failed:\\s*\\["rate<=([0-9.eE+-]+)"\\]', policy["limits"]["error_rate_max"]),
+        "p95": (r'"p\\(95\\)<=([0-9.eE+-]+)"', policy["limits"]["p95_max_ms"]),
+        "p99": (r'"p\\(99\\)<=([0-9.eE+-]+)"', policy["limits"]["p99_max_ms"]),
+        "checks": (r'checks:\\s*\\["rate>=(?:=)?([0-9.eE+-]+)"\\]', policy["limits"]["check_pass_rate_min"]),
+    }
+    for name, (pattern, expected) in checks.items():
+        match = re.search(pattern, script_text)
+        if not match or not math.isclose(float(match.group(1)), float(expected), rel_tol=0.0, abs_tol=1e-12):
+            raise ValueError(f"k6 script threshold {name} does not match the versioned policy")
+
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     summary_path = OUTPUT.with_name("k6-summary.json")
     summary_path.unlink(missing_ok=True)
+    scratch = OUTPUT.parent / f".k6-scratch-{os.getpid()}-{time.time_ns()}"
+    scratch.mkdir(parents=True, exist_ok=False)
+    scratch_summary = scratch / "k6-summary.json"
     started = time.perf_counter()
     evidence = {"schema":"saqa.k6-gate.v3","test_id":"juice-shop.performance.k6-products-search","status":"BLOCKED","target":"http://127.0.0.1:3000","http_methods":["GET"],"destructive_actions":False,"observed_at":datetime.now(timezone.utc).isoformat(),"details":{"script":str(SCRIPT),"policy":str(POLICY),"summary_file":str(summary_path)}}
     if not SCRIPT.is_file() or not POLICY.is_file():
@@ -91,6 +113,8 @@ def main() -> int:
         evidence["details"]["error"] = f"required file missing: script={SCRIPT.is_file()} policy={POLICY.is_file()}"
     else:
         try:
+            policy = json.loads(POLICY.read_text(encoding="utf-8"))
+            validate_script_thresholds(SCRIPT.read_text(encoding="utf-8"), policy)
             command = ["docker", "run", "--rm", "--name", CONTAINER]
             # --user is needed on POSIX to keep exported artifacts writable;
             # os.getuid/getgid are not available on Windows.
@@ -99,10 +123,12 @@ def main() -> int:
             command.extend([
                 "--network", "host",
                 "-v", f"{SCRIPT.parent.resolve()}:/scripts:ro",
-                "-v", f"{OUTPUT.parent.resolve()}:/artifacts:rw",
+                "-v", f"{scratch.resolve()}:/artifacts:rw",
                 "grafana/k6:1.2.0", "run", f"/scripts/{SCRIPT.name}",
             ])
             completed = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+            if scratch_summary.is_file():
+                shutil.copy2(scratch_summary, summary_path)
             evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
             if summary_path.is_file():
                 try:
@@ -120,7 +146,9 @@ def main() -> int:
                 evidence["details"]["error"] = "k6 did not produce the required summary export"
         except subprocess.TimeoutExpired as exc:
             evidence["status"] = "BLOCKED"
-            evidence["details"].update({"error":f"TimeoutExpired: {exc}","elapsed_ms":round((time.perf_counter()-started)*1000,2)})
+            stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+            stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            evidence["details"].update({"error":f"TimeoutExpired: {exc}","elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":stdout[-4000:],"stderr_tail":stderr[-4000:]})
         except OSError as exc:
             evidence["status"] = "BLOCKED"
             evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
@@ -129,6 +157,7 @@ def main() -> int:
                 subprocess.run(["docker","rm","-f",CONTAINER],capture_output=True,text=True,timeout=15,check=False)
             except (OSError, subprocess.TimeoutExpired) as exc:
                 evidence["details"]["cleanup_error"] = f"{type(exc).__name__}: {exc}"
+    shutil.rmtree(scratch, ignore_errors=True)
     OUTPUT.write_text(json.dumps(evidence,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     print(json.dumps(evidence,indent=2,sort_keys=True))
     return 0 if evidence["status"] == "PASS" else 1
