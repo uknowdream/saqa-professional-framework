@@ -1,0 +1,21 @@
+{
+  "schema": "saqa.performance-guardrails.v1",
+  "policy_id": "juice-shop-local-performance",
+  "version": 1,
+  "target_profile": "juice-shop-v20.2.0-local-loopback",
+  "description": "Initial versioned guardrails for the local reference target; not a claim of production performance or a historical statistical baseline.",
+  "limits": {
+    "p95_max_ms": 1000,
+    "p99_max_ms": 1500,
+    "error_rate_max": 0.01,
+    "throughput_min_rps": 1.0,
+    "check_pass_rate_min": 1.0
+  },
+  "metrics": {
+    "latency": "http_req_duration",
+    "error_rate": "http_req_failed",
+    "throughput": "http_reqs",
+    "functional_checks": "checks"
+  },
+  "change_control": "Increment version and document rationale when changing thresholds. Do not relax a limit solely to make a failing run pass."
+}
