@@ -4,7 +4,7 @@ from scripts.k6_gate import evaluate_summary
 POLICY = {"schema":"saqa.performance-guardrails.v1","policy_id":"juice-shop-local-performance","version":1,"target_profile":"juice-shop-v20.2.0-local-loopback","limits":{"p95_max_ms":1000,"p99_max_ms":1500,"error_rate_max":0.01,"throughput_min_rps":1.0,"check_pass_rate_min":1.0}}
 
 def summary(*, p95=400, p99=700, error_rate=0, throughput=8, check_rate=1):
-    return {"metrics":{"http_req_duration":{"values":{"p(95)":p95,"p(99)":p99}},"http_req_failed":{"values":{"rate":error_rate}},"http_reqs":{"values":{"rate":throughput}},"checks":{"values":{"value":check_rate}}}}
+    return {"metrics":{"http_req_duration":{"values":{"p(95)":p95,"p(99)":p99}},"http_req_failed":{"values":{"rate":error_rate}},"http_reqs":{"values":{"rate":throughput}},"checks":{"values":{"rate":check_rate}}}}
 
 def test_performance_summary_passes_and_is_versioned():
     result=evaluate_summary(summary(),POLICY)
@@ -38,3 +38,15 @@ def test_non_numeric_policy_limit_is_rejected():
     bad_policy = {**POLICY, "limits": {**POLICY["limits"], "p95_max_ms": float("nan")}}
     with pytest.raises(ValueError, match="must be a finite number"):
         evaluate_summary(summary(), bad_policy)
+
+
+def test_k6_rate_metric_shape_is_consumed_directly():
+    raw_k6_shape = summary(check_rate=0.75)
+    assert evaluate_summary(raw_k6_shape, POLICY)["metrics"]["check_pass_rate"] == 0.75
+
+
+def test_missing_checks_rate_fails_closed():
+    broken = summary()
+    broken["metrics"]["checks"]["values"] = {"passes": 10, "fails": 1}
+    with pytest.raises(ValueError, match="checks.rate"):
+        evaluate_summary(broken, POLICY)
