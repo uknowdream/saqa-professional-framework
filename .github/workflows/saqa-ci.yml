@@ -53,23 +53,58 @@ jobs:
           retention-days: 14
 
   dependency-and-security:
-    name: Dependency and secret hygiene
+    name: Dependency, SBOM, and secret hygiene
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
+          cache: pip
       - name: Install project and audit tooling
         run: |
           python -m pip install -e .
-          python -m pip install pip-audit
-      - name: Dependency audit
-        run: pip-audit
+          python -m pip install pip-audit cyclonedx-bom
+          mkdir -p artifacts/security
+      - name: Generate CycloneDX SBOM
+        run: cyclonedx-py environment --output-format JSON --output-file artifacts/security/sbom.cdx.json
+      - name: Dependency vulnerability audit
+        id: dependency-audit
+        continue-on-error: true
+        run: pip-audit --format=json > artifacts/security/pip-audit.json
+      - name: Validate audit output
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path('artifacts/security/pip-audit.json')
+          if not path.is_file():
+              raise SystemExit('pip-audit did not produce its JSON report')
+          data = json.loads(path.read_text(encoding='utf-8'))
+          if not isinstance(data, list):
+              raise SystemExit('pip-audit JSON report must be a list')
+          print(f'Validated pip-audit report with {len(data)} vulnerable package record(s).')
+          PY
       - name: Secret pattern scan
         run: |
           ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
-            --exclude-dir=.git --exclude='*.zip'
+            --exclude-dir=.git --exclude='*.zip' --exclude='pip-audit.json' --exclude='sbom.cdx.json'
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-security-evidence
+          path: artifacts/security/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce dependency audit
+        if: steps.dependency-audit.outcome != 'success'
+        run: |
+          echo 'Dependency vulnerability audit failed; inspect the JSON artifact and remediate or review a documented exception.'
+          exit 1
 
   database-quality:
     name: Isolated database quality gate

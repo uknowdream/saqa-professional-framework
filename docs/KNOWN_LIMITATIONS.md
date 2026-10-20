@@ -20,7 +20,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - **Mobile:** current mobile readiness coverage is browser/device-oriented readiness in the CI matrix. It is not equivalent to end-to-end testing on a physical Android/iOS device or a native application test suite.
 - **Accessibility:** automated axe-core checks cover selected rules and pages. They do not replace full WCAG conformance evaluation, manual keyboard/screen-reader testing, or human review.
 - **Performance:** the mandatory CI gate validates a short reference workload; separate local-only smoke/load/stress/spike/soak profiles support exploratory characterization. Neither alone predicts production capacity without representative traffic, infrastructure, repeated runs, and service-level objectives.
-- **Security:** authorized isolated-target regressions and dependency/secret checks are a safety baseline, not a full penetration test, threat model, or external vulnerability assessment.
+- **Security:** CI generates a CycloneDX SBOM and retains a JSON dependency-audit report alongside dependency/secret checks. This is not a full penetration test, container-image scan, threat-model execution, or external vulnerability assessment; the SBOM covers the installed CI Python environment.
 - **Targets:** CI uses authorized, reproducible reference targets such as Juice Shop and WebGoat. Results should not be interpreted as proof about an unrelated product or deployment.
 - **Evidence:** SHA-256 manifests provide integrity/tamper evidence for collected records; they are not a digital signature or proof of a trusted identity by themselves.
 - **Integrations:** Jira automation depends on repository configuration, permissions, and secrets being correctly provisioned. A passing repository workflow does not prove every external Jira project or tenant is configured correctly.
@@ -43,8 +43,9 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - Define a separate baseline-comparison gate before making regression claims; current profiles are not yet mandatory CI evidence.
 
 ### P2 — Security coverage
-- Add a threat-model template and a risk-to-test traceability matrix.
-- Add SBOM generation and artifact publication, plus vulnerability scanning with explicit severity policy and exception expiry.
+- [x] Add a threat-model template and a risk-to-test traceability matrix.
+- [x] Generate and publish a CycloneDX SBOM and retain machine-readable dependency-audit output in CI.
+- Add container-image scanning with a reviewed severity policy and exception expiry.
 - Keep active security tests restricted to isolated, explicitly authorized targets.
 
 ### P2 — Evidence trust and operations
