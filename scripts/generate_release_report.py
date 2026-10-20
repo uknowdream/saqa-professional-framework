@@ -1,6 +1,7 @@
 """Generate a commit-bound release certification report from canonical evidence."""
 from __future__ import annotations
 import json, os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from saqa.evidence import verify_manifest
 
@@ -19,8 +20,16 @@ def main() -> int:
     if not isinstance(raw_records, list) or not raw_records:
         raise SystemExit("release certification requires at least one evidence record")
     mismatched = []
+    stale = []
     statuses = set()
     source_shas = set()
+    try:
+        max_age_hours = float(os.getenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "24"))
+    except ValueError as exc:
+        raise SystemExit("SAQA_MAX_EVIDENCE_AGE_HOURS must be a non-negative number") from exc
+    if max_age_hours < 0 or max_age_hours != max_age_hours or max_age_hours == float("inf"):
+        raise SystemExit("SAQA_MAX_EVIDENCE_AGE_HOURS must be a finite non-negative number")
+    now = datetime.now(timezone.utc)
     for record in raw_records:
         if not isinstance(record, dict):
             mismatched.append("unknown")
@@ -31,6 +40,16 @@ def main() -> int:
             mismatched.append(record.get("test_id","unknown"))
             statuses.add("UNVERIFIED")
             continue
+        observed_at = record.get("observed_at")
+        try:
+            observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00")) if isinstance(observed_at, str) else None
+            if observed is None or observed.tzinfo is None:
+                raise ValueError("timestamp must include a timezone")
+            age = now - observed.astimezone(timezone.utc)
+            if age < timedelta(minutes=-5) or age > timedelta(hours=max_age_hours):
+                stale.append(record.get("test_id", "unknown"))
+        except (ValueError, OverflowError):
+            stale.append(record.get("test_id", "unknown"))
         record_sha = str(details.get("tested_sha",""))
         if record_sha != sha:
             mismatched.append(record.get("test_id","unknown"))
@@ -41,10 +60,12 @@ def main() -> int:
         statuses.add(status if status in CANONICAL_STATUSES else "UNVERIFIED")
     if mismatched:
         raise SystemExit(f"evidence tested-SHA provenance mismatch: {mismatched}")
+    if stale:
+        raise SystemExit(f"stale or invalid evidence timestamps (max age {max_age_hours:g} hours): {stale}")
     # A release report is certified only when every included record explicitly PASSes.
     # NOT_APPLICABLE is valid for individual evidence, but cannot satisfy release certification.
     mandatory_ok = bool(raw_records) and statuses == {"PASS"}
-    report = {"schema":"saqa.release-certification.v1","commit_sha":sha,"source_shas":sorted(source_shas),"record_count":len(raw_records),"statuses":sorted(statuses),"certified":mandatory_ok,"manifest_verified":True}
+    report = {"schema":"saqa.release-certification.v1","commit_sha":sha,"source_shas":sorted(source_shas),"record_count":len(raw_records),"statuses":sorted(statuses),"certified":mandatory_ok,"manifest_verified":True,"evidence_max_age_hours":max_age_hours,"freshness_verified":True}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2, sort_keys=True))
