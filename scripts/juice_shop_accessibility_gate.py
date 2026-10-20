@@ -114,6 +114,43 @@ def main() -> int:
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
                 }""")
                 evidence["details"] = {"status_code": response.status if response else None, **metrics}
+                # Diagnostic-only keyboard traversal sample. This records the sequence
+                # without asserting WCAG conformance or changing the release gate.
+                page.evaluate("if (document.activeElement) document.activeElement.blur()")
+                keyboard_focus = []
+                for _ in range(12):
+                    page.keyboard.press("Tab")
+                    keyboard_focus.append(page.evaluate("""() => {
+                      const e = document.activeElement;
+                      if (!e || e === document.body || e === document.documentElement) {
+                        return {kind: "document", tag: e?.tagName?.toLowerCase() || null};
+                      }
+                      const text = (e.getAttribute("aria-label")
+                        || e.getAttribute("title")
+                        || e.innerText
+                        || e.value
+                        || "").replace(/\s+/g, " ").trim().slice(0, 120);
+                      const r = e.getBoundingClientRect();
+                      const s = getComputedStyle(e);
+                      return {
+                        kind: "element",
+                        tag: e.tagName.toLowerCase(),
+                        id: e.id || "",
+                        role: e.getAttribute("role") || "",
+                        name: text,
+                        tab_index: e.tabIndex,
+                        visible: !e.hidden && s.display !== "none" && s.visibility !== "hidden"
+                          && r.width > 0 && r.height > 0
+                      };
+                    }"""))
+                evidence["details"]["keyboard_focus_diagnostic"] = {
+                    "status": "DIAGNOSTIC_ONLY",
+                    "tab_steps": len(keyboard_focus),
+                    "element_focus_steps": sum(item["kind"] == "element" for item in keyboard_focus),
+                    "document_focus_steps": sum(item["kind"] == "document" for item in keyboard_focus),
+                    "sequence": keyboard_focus,
+                    "note": "A sampled Tab sequence is not a WCAG conformance result; visible focus indicators and full keyboard workflows require manual review."
+                }
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
                 page.add_script_tag(content=axe_source)
