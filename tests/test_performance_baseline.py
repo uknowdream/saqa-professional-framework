@@ -90,3 +90,35 @@ def test_malformed_json_rejected(tmp_path):
     path.write_text("{", encoding="utf-8")
     with pytest.raises(ValueError, match="cannot read run set"):
         load_run_set(path)
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("error_rate", 1.5, "rates must be between 0 and 1"),
+    ("check_pass_rate", -0.1, "rates must be between 0 and 1"),
+    ("p95_ms", -1, "latency/throughput must be non-negative"),
+    ("throughput_rps", -1, "latency/throughput must be non-negative"),
+    ("p95_ms", float("nan"), "finite number"),
+])
+def test_comparison_api_validates_samples_even_without_loader(field, value, message):
+    baseline = run_set()
+    candidate = run_set()
+    candidate["samples"][0][field] = value
+    with pytest.raises(ValueError, match=message):
+        compare_run_sets(baseline, candidate)
+
+
+def test_comparison_api_rejects_wrong_schema_without_loader():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["schema"] = "unknown"
+    with pytest.raises(ValueError, match="unsupported run-set schema"):
+        compare_run_sets(baseline, candidate)
+
+
+def test_comparison_api_rejects_boolean_policy_version():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["policy_version"] = True
+    baseline["policy_version"] = True
+    with pytest.raises(ValueError, match="positive integer"):
+        compare_run_sets(baseline, candidate)
