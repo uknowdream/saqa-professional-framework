@@ -23,3 +23,25 @@ export default function () {
   });
   sleep(0.2);
 }
+
+// Export an explicit, stable summary shape instead of relying on the legacy
+// --summary-export serializer, which omitted percentile keys in CI.
+export function handleSummary(data) {
+  const metrics = data.metrics || {};
+  const pick = (name) => {
+    const metric = metrics[name];
+    return metric && metric.values ? { values: metric.values } : undefined;
+  };
+  const summary = {
+    schema: "saqa.k6-summary.v1",
+    metrics: {
+      http_req_duration: pick("http_req_duration"),
+      http_req_failed: pick("http_req_failed"),
+      http_reqs: pick("http_reqs"),
+      checks: pick("checks"),
+    },
+  };
+  return {
+    "/artifacts/k6-summary.json": JSON.stringify(summary, null, 2) + "\n",
+  };
+}
