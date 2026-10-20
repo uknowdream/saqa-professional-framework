@@ -55,7 +55,7 @@ def _valid_record(record: Any) -> bool:
         return False
     if not isinstance(record["test_id"], str) or not record["test_id"].strip():
         return False
-    if record["status"] not in STATUSES:
+    if not isinstance(record["status"], str) or record["status"] not in STATUSES:
         return False
     if not isinstance(record["observed_at"], str) or not record["observed_at"].strip():
         return False
