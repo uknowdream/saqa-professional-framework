@@ -24,6 +24,8 @@ def load_run_set(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise ValueError(f"{path}: unsupported run-set schema")
     for field in METADATA:
+        if field == "policy_version":
+            continue
         if not isinstance(data.get(field), str) or not data[field].strip():
             raise ValueError(f"{path}: {field} must be a non-empty string")
     if isinstance(data.get("policy_version"), bool) or not isinstance(data.get("policy_version"), int) or data["policy_version"] < 1:
