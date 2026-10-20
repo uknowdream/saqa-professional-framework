@@ -52,3 +52,20 @@ def test_aggregate_rejects_invalid_observed_at_variants(tmp_path: Path, observed
     )
     with pytest.raises(ValueError, match="missing observed_at"):
         load_results(tmp_path)
+
+
+def test_aggregate_preserves_top_level_provenance_when_nested_value_is_null(tmp_path: Path) -> None:
+    (tmp_path / "provenance.json").write_text(
+        json.dumps({
+            "test_id": "API-PROV-001",
+            "status": "PASS",
+            "target": "local-api",
+            "observed_at": "2026-10-20T00:00:00Z",
+            "provenance": {"run_id": "123", "commit_sha": "abc123"},
+            "details": {"provenance": None, "status_code": 200},
+        }),
+        encoding="utf-8",
+    )
+    records = load_results(tmp_path)
+    assert records[0].details["provenance"] == {"run_id": "123", "commit_sha": "abc123"}
+    assert records[0].details["status_code"] == 200
