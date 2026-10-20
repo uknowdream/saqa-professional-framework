@@ -62,6 +62,14 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         if baseline.get(field) != candidate.get(field):
             raise ValueError(f"baseline/candidate metadata mismatch: {field}")
     for label, value in (("baseline", baseline), ("candidate", candidate)):
+        if not isinstance(value.get("schema"), str) or value["schema"] != SCHEMA:
+            raise ValueError(f"{label} has unsupported run-set schema")
+        for field in METADATA:
+            if field == "policy_version":
+                if isinstance(value.get(field), bool) or not isinstance(value.get(field), int) or value[field] < 1:
+                    raise ValueError(f"{label} policy_version must be a positive integer")
+            elif not isinstance(value.get(field), str) or not value[field].strip():
+                raise ValueError(f"{label} {field} must be a non-empty string")
         if not isinstance(value.get("samples"), list) or len(value["samples"]) < MIN_SAMPLES:
             raise ValueError(f"{label} requires at least {MIN_SAMPLES} samples")
 
@@ -70,8 +78,15 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         for i, sample in enumerate(run_set["samples"]):
             if not isinstance(sample, dict):
                 raise ValueError(f"samples[{i}] must be an object")
+            row = {key: number(sample.get(key), f"samples[{i}].{key}") for key in METRICS}
+            if any(row[key] < 0 for key in ("p95_ms", "p99_ms", "throughput_rps")):
+                raise ValueError(f"samples[{i}] latency/throughput must be non-negative")
+            if row["p95_ms"] > row["p99_ms"]:
+                raise ValueError(f"samples[{i}] p95_ms must not exceed p99_ms")
+            if any(not 0 <= row[key] <= 1 for key in ("error_rate", "check_pass_rate")):
+                raise ValueError(f"samples[{i}] rates must be between 0 and 1")
             for key in METRICS:
-                values[key].append(number(sample.get(key), f"samples[{i}].{key}"))
+                values[key].append(row[key])
         return {key: statistics.median(items) for key, items in values.items()}
 
     before, after = medians(baseline), medians(candidate)
