@@ -72,3 +72,25 @@ def test_out_of_range_policy_limits_are_rejected(limit, value, message):
     bad_policy = {**POLICY, "limits": {**POLICY["limits"], limit: value}}
     with pytest.raises(ValueError, match=message):
         evaluate_summary(summary(), bad_policy)
+
+
+def test_policy_metadata_is_validated():
+    for bad_policy, message in [
+        ({**POLICY, "policy_id": " "}, "policy_id"),
+        ({**POLICY, "version": True}, "positive integer"),
+        ({**POLICY, "version": 0}, "positive integer"),
+        ({**POLICY, "target_profile": ""}, "target_profile"),
+    ]:
+        with pytest.raises(ValueError, match=message):
+            evaluate_summary(summary(), bad_policy)
+
+
+def test_policy_rejects_p95_limit_above_p99_limit():
+    bad_policy = {**POLICY, "limits": {**POLICY["limits"], "p95_max_ms": 1600}}
+    with pytest.raises(ValueError, match="p95_max_ms must not exceed p99_max_ms"):
+        evaluate_summary(summary(), bad_policy)
+
+
+def test_summary_rejects_p95_above_p99():
+    with pytest.raises(ValueError, match="p95_ms must not exceed p99_ms"):
+        evaluate_summary(summary(p95=800, p99=700), POLICY)
