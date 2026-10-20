@@ -6,15 +6,26 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTPUT = Path(os.getenv("SAQA_K6_OUTPUT", "artifacts/targets/juice-shop-k6.json"))
-SCRIPT = Path(os.getenv("SAQA_K6_SCRIPT", "performance/k6/juice-shop.js"))
-POLICY = Path(os.getenv("SAQA_K6_POLICY", "performance/baselines/juice-shop-local-v1.json"))
+def repo_path(env_name: str, default: str) -> Path:
+    """Resolve configured paths consistently, independent of the caller's cwd."""
+    value = Path(os.getenv(env_name, default)).expanduser()
+    return value if value.is_absolute() else ROOT / value
+
+OUTPUT = repo_path("SAQA_K6_OUTPUT", "artifacts/targets/juice-shop-k6.json")
+SCRIPT = repo_path("SAQA_K6_SCRIPT", "performance/k6/juice-shop.js")
+POLICY = repo_path("SAQA_K6_POLICY", "performance/baselines/juice-shop-local-v1.json")
 CONTAINER = f"saqa-k6-gate-{os.getpid()}-{time.time_ns()}"
 
 def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     """Return normalized measurements and fail-closed guardrail results."""
     if policy.get("schema") != "saqa.performance-guardrails.v1":
         raise ValueError("unsupported performance policy schema")
+    if not isinstance(policy.get("policy_id"), str) or not policy["policy_id"].strip():
+        raise ValueError("performance policy requires a non-empty policy_id")
+    if isinstance(policy.get("version"), bool) or not isinstance(policy.get("version"), int) or policy["version"] < 1:
+        raise ValueError("performance policy version must be a positive integer")
+    if not isinstance(policy.get("target_profile"), str) or not policy["target_profile"].strip():
+        raise ValueError("performance policy requires a non-empty target_profile")
     required = {"p95_max_ms", "p99_max_ms", "error_rate_max", "throughput_min_rps", "check_pass_rate_min"}
     limits = policy.get("limits")
     if not isinstance(limits, dict) or not required.issubset(limits):
@@ -49,9 +60,13 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
     for key in ("error_rate_max", "check_pass_rate_min"):
         if not 0 <= limits[key] <= 1:
             raise ValueError(f"performance policy limit {key} must be between 0 and 1")
+    if limits["p95_max_ms"] > limits["p99_max_ms"]:
+        raise ValueError("performance policy p95_max_ms must not exceed p99_max_ms")
     for key in ("p95_ms", "p99_ms", "throughput_rps"):
         if observed[key] < 0:
             raise ValueError(f"k6 summary metric {key} must be non-negative")
+    if observed["p95_ms"] > observed["p99_ms"]:
+        raise ValueError("k6 summary p95_ms must not exceed p99_ms")
     for key in ("error_rate", "check_pass_rate"):
         if not 0 <= observed[key] <= 1:
             raise ValueError(f"k6 summary metric {key} must be between 0 and 1")
