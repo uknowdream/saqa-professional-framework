@@ -34,7 +34,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 ### P1 — Accessibility depth
 - Add keyboard-only navigation checks and focus-order assertions for representative flows.
-- Add documented manual screen-reader test cases and a WCAG mapping for automated/manual coverage.
+- [x] Add a manual keyboard-only and screen-reader test matrix mapped to WCAG 2.2 criteria (`docs/ACCESSIBILITY_MANUAL_TEST_PLAN.md`).
+- Manual execution and results remain UNVERIFIED until a tester records environment-specific evidence.
 - Keep unsupported criteria labelled `UNVERIFIED`; do not infer full conformance from an automated scan.
 
 ### P1 — Performance confidence
