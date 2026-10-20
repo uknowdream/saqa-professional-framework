@@ -62,6 +62,43 @@ def _guard_request(route) -> None:
     route.continue_()
 
 
+def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
+    """Record keyboard-only Tab traversal without claiming full WCAG conformance."""
+    sequence = []
+    for _ in range(steps):
+        page.keyboard.press("Tab")
+        state = page.evaluate("""() => {
+          const e = document.activeElement;
+          if (!e) return null;
+          const text = (e.innerText || e.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 100);
+          const style = getComputedStyle(e);
+          const rect = e.getBoundingClientRect();
+          return {
+            tag: e.tagName.toLowerCase(),
+            id: e.id || "",
+            role: e.getAttribute("role") || "",
+            text,
+            tab_index: e.tabIndex,
+            focus_visible: e.matches(":focus-visible"),
+            rendered: rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none",
+            outline_style: style.outlineStyle,
+            outline_width: style.outlineWidth
+          };
+        }""")
+        if state and state["tag"] not in {"body", "html"}:
+            sequence.append(state)
+    identities = {(item["tag"], item["id"], item["role"], item["text"]) for item in sequence}
+    return {
+        "method": "keyboard Tab only",
+        "requested_steps": steps,
+        "focused_steps": len(sequence),
+        "unique_focus_targets": len(identities),
+        "focus_visible_steps": sum(1 for item in sequence if item["focus_visible"]),
+        "sequence": sequence,
+        "scope_note": "diagnostic smoke only; manual focus-order, keyboard-trap, and visible-indicator verification remains required"
+    }
+
+
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
@@ -114,6 +151,8 @@ def main() -> int:
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
                 }""")
                 evidence["details"] = {"status_code": response.status if response else None, **metrics}
+                keyboard = _keyboard_focus_sequence(page)
+                evidence["details"]["keyboard_navigation"] = keyboard
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
                 page.add_script_tag(content=axe_source)
@@ -126,6 +165,7 @@ def main() -> int:
                 disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
+                if keyboard["unique_focus_targets"] == 0: failures.append("keyboard Tab sequence did not reach a focusable target")
                 if not metrics["lang_present"]: failures.append("document language is missing")
                 if not metrics["title_present"]: failures.append("document title is missing")
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
