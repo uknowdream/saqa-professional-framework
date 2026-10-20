@@ -13,7 +13,7 @@ def test_performance_summary_passes_and_is_versioned():
     assert result["metrics"]["throughput_rps"]==8
 
 @pytest.mark.parametrize(("measurement","expected"),[
-    ({"p95":1001},"p95_latency"),({"p99":1501},"p99_latency"),({"error_rate":0.02},"http_error_rate"),
+    ({"p95":1001,"p99":1200},"p95_latency"),({"p99":1501},"p99_latency"),({"error_rate":0.02},"http_error_rate"),
     ({"throughput":0.5},"throughput"),({"check_rate":0.99},"check_pass_rate")])
 def test_each_guardrail_fails_closed(measurement,expected):
     result=evaluate_summary(summary(**measurement),POLICY)
