@@ -144,6 +144,9 @@ def main() -> int:
             else:
                 evidence["status"] = "FAIL"
                 evidence["details"]["error"] = "k6 did not produce the required summary export"
+        except (json.JSONDecodeError, ValueError) as exc:
+            evidence["status"] = "FAIL"
+            evidence["details"]["configuration_error"] = f"{type(exc).__name__}: {exc}"
         except subprocess.TimeoutExpired as exc:
             evidence["status"] = "BLOCKED"
             stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
