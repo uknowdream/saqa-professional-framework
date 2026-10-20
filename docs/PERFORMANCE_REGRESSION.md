@@ -4,7 +4,7 @@ The local k6 workflow measures the pinned OWASP Juice Shop reference target over
 
 ## Versioned guardrails
 
-The policy is in \`performance/baselines/juice-shop-local-v1.json\`. Every run records its policy ID/version and measured metrics in commit-specific evidence.
+The policy is in `performance/baselines/juice-shop-local-v1.json`. Runs with a valid summary and policy record the policy ID/version and measured metrics in commit-specific evidence. Blocked runs or runs with invalid inputs instead record the relevant failure details.
 
 | Metric | Guardrail | Purpose |
 | --- | --- | --- |
@@ -22,4 +22,4 @@ Do not tune a limit merely to obtain a green workflow. Record the rationale and 
 
 ## Safety and scope
 
-The workload sends only GET requests to the local reference target at \`127.0.0.1:3000\`. It does not test production services and does not perform destructive operations. Throughput should only be compared across runs with the same workload, target version, and comparable environment.
+The workload sends only GET requests to the local reference target at `127.0.0.1:3000`. It does not test production services and does not perform destructive operations. Throughput should only be compared across runs with the same workload, target version, and comparable environment.
