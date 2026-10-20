@@ -88,3 +88,11 @@ def test_semantic_disabled_controls_are_excluded_by_browser_logic():
 def test_accessibility_oracle_path_is_explicitly_configurable():
     assert "SAQA_AXE_CORE_PATH" in SOURCE
     assert "node_modules/axe-core/axe.min.js" in SOURCE
+
+
+def test_keyboard_only_focus_traversal_is_recorded_in_evidence():
+    assert "_keyboard_focus_sequence" in SOURCE
+    assert 'page.keyboard.press("Tab")' in SOURCE
+    assert '"keyboard_navigation"' in SOURCE
+    assert '"unique_focus_targets"' in SOURCE
+    assert "keyboard Tab sequence did not reach a focusable target" in SOURCE
