@@ -93,23 +93,77 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
     return {"status":"FAIL" if failed else "PASS","policy_id":policy.get("policy_id"),"policy_version":policy.get("version"),"target_profile":policy.get("target_profile"),"metrics":observed,"checks":checks,"failed_checks":failed}
 
 def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None:
-    """Prevent the k6 runtime thresholds from drifting from the versioned policy."""
+    """Validate executable k6 thresholds against the versioned performance policy."""
+    if not isinstance(script_text, str):
+        raise ValueError("k6 script must be text")
     if not isinstance(policy, dict):
         raise ValueError("performance policy must be a JSON object")
     limits = policy.get("limits")
-    required = {"error_rate_max", "p95_max_ms", "p99_max_ms", "check_pass_rate_min"}
-    if not isinstance(limits, dict) or not required.issubset(limits):
+    required = ("error_rate_max", "p95_max_ms", "p99_max_ms", "check_pass_rate_min")
+    if not isinstance(limits, dict) or any(key not in limits for key in required):
         raise ValueError("performance policy is missing required limits for k6 thresholds")
-    checks = {
-        "http_req_failed": (r'http_req_failed:\s*\["rate<=([0-9.eE+-]+)"\]', limits["error_rate_max"]),
-        "p95": (r'"p\(95\)<=([0-9.eE+-]+)"', limits["p95_max_ms"]),
-        "p99": (r'"p\(99\)<=([0-9.eE+-]+)"', limits["p99_max_ms"]),
-        "checks": (r'checks:\s*\["rate>=([0-9.eE+-]+)"\]', limits["check_pass_rate_min"]),
+
+    def finite_limit(key: str) -> float:
+        value = limits[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+            raise ValueError(f"performance policy limit {key} must be a finite number")
+        return float(value)
+
+    p95 = finite_limit("p95_max_ms")
+    p99 = finite_limit("p99_max_ms")
+    error_rate = finite_limit("error_rate_max")
+    check_rate = finite_limit("check_pass_rate_min")
+    if p95 < 0 or p99 < 0:
+        raise ValueError("performance policy latency limits must be non-negative")
+    if p95 > p99:
+        raise ValueError("performance policy p95_max_ms must not exceed p99_max_ms")
+    if not 0 <= error_rate <= 1:
+        raise ValueError("performance policy limit error_rate_max must be between 0 and 1")
+    if not 0 <= check_rate <= 1:
+        raise ValueError("performance policy limit check_pass_rate_min must be between 0 and 1")
+
+    expected = {
+        "http_req_failed": [("http_req_failed", "rate<=", error_rate)],
+        "http_req_duration": [("p95", "p(95)<=", p95), ("p99", "p(99)<=", p99)],
+        "checks": [("checks", "rate>=", check_rate)],
     }
-    for name, (pattern, expected) in checks.items():
-        match = re.search(pattern, script_text)
-        if not match or not math.isclose(float(match.group(1)), float(expected), rel_tol=0.0, abs_tol=1e-12):
-            raise ValueError(f"k6 script threshold {name} does not match the versioned policy")
+    # Preserve string literals while removing comments, so comments cannot mask drift.
+    comment_token = re.compile(
+        r'("(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`)|//[^\r\n]*|/\*[\s\S]*?\*/'
+    )
+    def strip_comments(match: re.Match[str]) -> str:
+        if match.group(1) is not None:
+            return match.group(1)
+        return re.sub(r"[^\r\n]", " ", match.group(0))
+
+    code = comment_token.sub(strip_comments, script_text)
+    string_token = re.compile(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|`(?:\\.|[^`\\])*`')
+    code_without_strings = string_token.sub(lambda match: " " * len(match.group(0)), code)
+    declarations = list(re.finditer(r"\bthresholds\s*:", code_without_strings))
+    if len(declarations) != 1:
+        raise ValueError("k6 script must declare exactly one executable thresholds object")
+
+    tail = code[declarations[0].start():]
+    object_match = re.match(r"thresholds\s*:\s*\{([^{}]*)\}", tail, re.S)
+    if object_match is None:
+        raise ValueError("k6 thresholds object is missing or malformed")
+    block = object_match.group(1)
+    masked_block = string_token.sub(lambda match: " " * len(match.group(0)), block)
+
+    for key, required_values in expected.items():
+        key_pattern = re.compile(r"(?<![\w$])" + re.escape(key) + r"\s*:\s*\[([^\]]*)\]")
+        matches = list(key_pattern.finditer(masked_block))
+        if len(matches) != 1:
+            raise ValueError(f"k6 script threshold {key} must be declared exactly once")
+        body = block[matches[0].start(1):matches[0].end(1)]
+        values = re.findall(r'"((?:[^"\\]|\\.)*)"', body)
+        remainder = re.sub(r'"(?:[^"\\]|\\.)*"', "", body)
+        if re.sub(r"[\s,]", "", remainder) or len(values) != len(required_values):
+            raise ValueError(f"k6 script threshold {key} does not match the versioned policy")
+        for value, (label, operator, expected_value) in zip(values, required_values):
+            match = re.fullmatch(re.escape(operator) + r"([0-9.eE+-]+)", value)
+            if not match or not math.isclose(float(match.group(1)), expected_value, rel_tol=0.0, abs_tol=1e-12):
+                raise ValueError(f"k6 script threshold {label} does not match the versioned policy")
 
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)

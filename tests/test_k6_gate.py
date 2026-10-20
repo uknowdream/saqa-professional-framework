@@ -208,3 +208,45 @@ def test_repo_path_preserves_absolute_overrides(monkeypatch, tmp_path):
     absolute = tmp_path / "summary.json"
     monkeypatch.setenv("SAQA_TEST_PATH", str(absolute))
     assert repo_path("SAQA_TEST_PATH", "unused.json") == absolute
+
+
+def test_threshold_validator_rejects_comment_masking():
+    script_text = K6_SCRIPT.read_text(encoding="utf-8").replace('"p(95)<=1000"', '"p(95)<=999"')
+    script_text = '// thresholds: { http_req_duration: ["p(95)<=1000"] }\\n' + script_text
+    with pytest.raises(ValueError, match="p95 does not match"):
+        validate_script_thresholds(script_text, POLICY)
+
+
+def test_threshold_validator_rejects_duplicate_metric_declaration():
+    script_text = K6_SCRIPT.read_text(encoding="utf-8").replace(
+        'checks: ["rate>=1.00"],', 'checks: ["rate>=1.00"], checks: ["rate>=1.00"],'
+    )
+    with pytest.raises(ValueError, match="checks must be declared exactly once"):
+        validate_script_thresholds(script_text, POLICY)
+
+
+def test_threshold_validator_rejects_duplicate_thresholds_objects():
+    script_text = 'const decoy = { thresholds: {} };\\n' + K6_SCRIPT.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="exactly one executable thresholds object"):
+        validate_script_thresholds(script_text, POLICY)
+
+
+def test_threshold_validator_rejects_malformed_threshold_array():
+    script_text = K6_SCRIPT.read_text(encoding="utf-8").replace(
+        'checks: ["rate>=1.00"],', 'checks: ["rate>=1.00" "rate>=1.00"],'
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        validate_script_thresholds(script_text, POLICY)
+
+
+@pytest.mark.parametrize("bad_limit", [True, float("nan"), float("inf"), "1000"])
+def test_threshold_validator_rejects_invalid_policy_limit(bad_limit):
+    policy = {**POLICY, "limits": {**POLICY["limits"], "p95_max_ms": bad_limit}}
+    with pytest.raises(ValueError, match="must be a finite number"):
+        validate_script_thresholds(K6_SCRIPT.read_text(encoding="utf-8"), policy)
+
+
+def test_threshold_validator_rejects_inverted_percentile_limits():
+    policy = {**POLICY, "limits": {**POLICY["limits"], "p95_max_ms": 1600}}
+    with pytest.raises(ValueError, match="must not exceed"):
+        validate_script_thresholds(K6_SCRIPT.read_text(encoding="utf-8"), policy)
