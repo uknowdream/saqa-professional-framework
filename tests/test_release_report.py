@@ -47,3 +47,31 @@ def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monke
     assert main() == 1
     data = json.loads(out.read_text())
     assert data["certified"] is False
+
+
+@pytest.mark.parametrize("status", ["NOT_APPLICABLE", "UNVERIFIED", "BLOCKED", "PENDING"])
+def test_release_report_does_not_certify_non_pass_evidence(tmp_path, monkeypatch, status):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"}, status=status)
+    out = tmp_path / "release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    assert main() == 1
+    data = json.loads(out.read_text())
+    assert data["certified"] is False
+
+
+def test_release_report_does_not_certify_mixed_pass_and_not_applicable(tmp_path, monkeypatch):
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "pass.json").write_text(json.dumps({"test_id":"A","status":"PASS","target":"local","observed_at":"2026-10-20T00:00:00Z","details":{"tested_sha":"abc"}}))
+    (evidence / "na.json").write_text(json.dumps({"test_id":"B","status":"NOT_APPLICABLE","target":"local","observed_at":"2026-10-20T00:00:01Z","details":{"tested_sha":"abc"}}))
+    from saqa.result_aggregation import aggregate
+    manifest = evidence / "evidence-manifest.json"
+    aggregate(evidence, manifest)
+    out = tmp_path / "release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    assert main() == 1
+    assert json.loads(out.read_text())["certified"] is False
