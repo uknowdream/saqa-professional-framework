@@ -37,7 +37,7 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         "p99_ms": metric("http_req_duration", "p(99)"),
         "error_rate": metric("http_req_failed", "rate"),
         "throughput_rps": metric("http_reqs", "rate"),
-        "check_pass_rate": metric("checks", "value"),
+        "check_pass_rate": metric("checks", "rate"),
     }
     for key in required:
         value = limits[key]
@@ -64,7 +64,18 @@ def main() -> int:
         evidence["details"]["error"] = f"required file missing: script={SCRIPT.is_file()} policy={POLICY.is_file()}"
     else:
         try:
-            completed = subprocess.run(["docker","run","--rm","--name",CONTAINER,"--user",f"{os.getuid()}:{os.getgid()}","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","-v",f"{OUTPUT.parent.resolve()}:/artifacts:rw","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=120,check=False)
+            command = ["docker", "run", "--rm", "--name", CONTAINER]
+            # --user is needed on POSIX to keep exported artifacts writable;
+            # os.getuid/getgid are not available on Windows.
+            if hasattr(os, "getuid") and hasattr(os, "getgid"):
+                command.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+            command.extend([
+                "--network", "host",
+                "-v", f"{SCRIPT.parent.resolve()}:/scripts:ro",
+                "-v", f"{OUTPUT.parent.resolve()}:/artifacts:rw",
+                "grafana/k6:1.2.0", "run", f"/scripts/{SCRIPT.name}",
+            ])
+            completed = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
             evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
             if summary_path.is_file():
                 try:
