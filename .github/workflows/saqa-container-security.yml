@@ -1,0 +1,63 @@
+name: SAQA Container Security
+on:
+  push:
+    branches: [main, 'saqa/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: saqa-container-security-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  scan-reference-image:
+    name: Scan pinned reference image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Pull pinned reference target
+        run: docker pull bkimminich/juice-shop:v20.2.0
+      - name: Scan image for vulnerabilities, secrets, and misconfiguration
+        run: |
+          mkdir -p artifacts/security
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" aquasec/trivy:0.69.3 image             --scanners vuln,secret,misconfig             --format json             --output /out/juice-shop-trivy.json             bkimminich/juice-shop:v20.2.0
+      - name: Validate scanner report and summarize findings
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("artifacts/security/juice-shop-trivy.json")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          if not isinstance(report, dict) or not isinstance(report.get("Results"), list):
+              raise SystemExit("Trivy report schema invalid: expected Results array")
+          findings = []
+          for result in report["Results"]:
+              if not isinstance(result, dict):
+                  raise SystemExit("Trivy Results entries must be objects")
+              for item in result.get("Vulnerabilities") or []:
+                  if isinstance(item, dict):
+                      findings.append({"type":"vulnerability","target":result.get("Target"),"id":item.get("VulnerabilityID"),"severity":item.get("Severity"),"fixed_version":item.get("FixedVersion")})
+              for item in result.get("Secrets") or []:
+                  if isinstance(item, dict):
+                      findings.append({"type":"secret","target":result.get("Target"),"id":item.get("RuleID"),"severity":item.get("Severity")})
+              for item in result.get("Misconfigurations") or []:
+                  if isinstance(item, dict):
+                      findings.append({"type":"misconfiguration","target":result.get("Target"),"id":item.get("ID"),"severity":item.get("Severity")})
+          summary = {"schema":"saqa.container-security-summary.v1","image":"bkimminich/juice-shop:v20.2.0","scanner":"trivy-0.69.3","finding_count":len(findings),"findings":findings,"enforcement":"report-only pending triage; not release certification"}
+          Path("artifacts/security/juice-shop-trivy-summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
+          counts = {}
+          for finding in findings:
+              key = str(finding.get("severity") or "UNKNOWN").upper()
+              counts[key] = counts.get(key,0)+1
+          print(json.dumps({"finding_count":len(findings),"by_severity":counts},indent=2))
+          PY
+      - name: Upload container security evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-container-security-${{ github.sha }}
+          path: artifacts/security/
+          if-no-files-found: error
+          retention-days: 30
