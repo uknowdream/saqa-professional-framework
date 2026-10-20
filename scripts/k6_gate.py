@@ -43,6 +43,18 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         value = limits[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not __import__("math").isfinite(float(value)):
             raise ValueError(f"performance policy limit {key} must be a finite number")
+    for key in ("p95_max_ms", "p99_max_ms", "throughput_min_rps"):
+        if limits[key] < 0:
+            raise ValueError(f"performance policy limit {key} must be non-negative")
+    for key in ("error_rate_max", "check_pass_rate_min"):
+        if not 0 <= limits[key] <= 1:
+            raise ValueError(f"performance policy limit {key} must be between 0 and 1")
+    for key in ("p95_ms", "p99_ms", "throughput_rps"):
+        if observed[key] < 0:
+            raise ValueError(f"k6 summary metric {key} must be non-negative")
+    for key in ("error_rate", "check_pass_rate"):
+        if not 0 <= observed[key] <= 1:
+            raise ValueError(f"k6 summary metric {key} must be between 0 and 1")
     checks = [
         {"id":"p95_latency","observed":observed["p95_ms"],"operator":"<=","limit":limits["p95_max_ms"],"passed":observed["p95_ms"] <= limits["p95_max_ms"]},
         {"id":"p99_latency","observed":observed["p99_ms"],"operator":"<=","limit":limits["p99_max_ms"],"passed":observed["p99_ms"] <= limits["p99_max_ms"]},
