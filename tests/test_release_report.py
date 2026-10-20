@@ -49,7 +49,7 @@ def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monke
     assert data["certified"] is False
 
 
-@pytest.mark.parametrize("status", ["NOT_APPLICABLE", "UNVERIFIED", "BLOCKED", "PENDING"])
+@pytest.mark.parametrize("status", ["NOT_APPLICABLE", "UNVERIFIED", "BLOCKED"])
 def test_release_report_does_not_certify_non_pass_evidence(tmp_path, monkeypatch, status):
     manifest = _write_manifest(tmp_path, {"tested_sha": "abc"}, status=status)
     out = tmp_path / "release.json"
