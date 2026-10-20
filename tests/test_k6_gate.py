@@ -21,6 +21,18 @@ def summary(*, p95=400, p99=700, error_rate=0, throughput=8, check_rate=1):
     }
 
 
+@pytest.mark.parametrize("invalid", [None, [], "policy"])
+def test_non_object_policy_is_rejected(invalid):
+    with pytest.raises(ValueError, match="policy must be a JSON object"):
+        evaluate_summary(summary(), invalid)
+
+
+@pytest.mark.parametrize("invalid", [None, [], "summary"])
+def test_non_object_summary_is_rejected(invalid):
+    with pytest.raises(ValueError, match="summary must be a JSON object"):
+        evaluate_summary(invalid, POLICY)
+
+
 def test_shipped_policy_is_versioned_and_evaluable():
     result = evaluate_summary(summary(), POLICY)
     assert result["status"] == "PASS"
@@ -163,6 +175,11 @@ def test_policy_rejects_p95_limit_above_p99_limit():
 def test_summary_rejects_p95_above_p99():
     with pytest.raises(ValueError, match="p95_ms must not exceed p99_ms"):
         evaluate_summary(summary(p95=800, p99=700), POLICY)
+
+
+def test_threshold_validator_rejects_non_object_policy():
+    with pytest.raises(ValueError, match="policy must be a JSON object"):
+        validate_script_thresholds(K6_SCRIPT.read_text(encoding="utf-8"), None)
 
 
 def test_k6_runtime_thresholds_match_versioned_policy():
