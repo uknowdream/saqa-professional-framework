@@ -40,7 +40,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 ### P1 — Performance confidence
 - [x] Add local-only smoke/load/stress/spike/soak workload profiles for the authorized Juice Shop target.
 - Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata for exploratory profiles.
-- Define a separate baseline-comparison gate before making regression claims; current profiles are not yet mandatory CI evidence.
+- [x] Add a deterministic repeated-run median comparator that blocks on fewer than five samples, invalid metrics, and mismatched target/workload/policy/environment metadata.
+- The comparator is an explicit CLI workflow, not a mandatory release-certification domain; no synthetic baseline is committed.
 
 ### P2 — Security coverage
 - [x] Add a threat-model template and a risk-to-test traceability matrix.
