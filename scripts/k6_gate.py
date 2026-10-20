@@ -28,7 +28,10 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         value = values.get(key) if isinstance(values, dict) else None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             raise ValueError(f"k6 summary missing numeric metric {name}.{key}")
-        return float(value)
+        number = float(value)
+        if not __import__("math").isfinite(number):
+            raise ValueError(f"k6 summary metric {name}.{key} must be finite")
+        return number
     observed = {
         "p95_ms": metric("http_req_duration", "p(95)"),
         "p99_ms": metric("http_req_duration", "p(99)"),
@@ -36,6 +39,10 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         "throughput_rps": metric("http_reqs", "rate"),
         "check_pass_rate": metric("checks", "value"),
     }
+    for key in required:
+        value = limits[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not __import__("math").isfinite(float(value)):
+            raise ValueError(f"performance policy limit {key} must be a finite number")
     checks = [
         {"id":"p95_latency","observed":observed["p95_ms"],"operator":"<=","limit":limits["p95_max_ms"],"passed":observed["p95_ms"] <= limits["p95_max_ms"]},
         {"id":"p99_latency","observed":observed["p99_ms"],"operator":"<=","limit":limits["p99_max_ms"],"passed":observed["p99_ms"] <= limits["p99_max_ms"]},
@@ -57,7 +64,7 @@ def main() -> int:
         evidence["details"]["error"] = f"required file missing: script={SCRIPT.is_file()} policy={POLICY.is_file()}"
     else:
         try:
-            completed = subprocess.run(["docker","run","--rm","--name",CONTAINER,"--user",f"{os.getuid()}:{os.getgid()}","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","-v",f"{OUTPUT.parent.resolve()}:/artifacts:rw","grafana/k6:1.2.0","run","--summary-export=/artifacts/k6-summary.json","--summary-trend-stats=avg,min,med,max,p(90),p(95),p(99)",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=120,check=False)
+            completed = subprocess.run(["docker","run","--rm","--name",CONTAINER,"--user",f"{os.getuid()}:{os.getgid()}","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","-v",f"{OUTPUT.parent.resolve()}:/artifacts:rw","grafana/k6:1.2.0","run",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=120,check=False)
             evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
             if summary_path.is_file():
                 try:
