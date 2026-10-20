@@ -121,7 +121,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Browser smoke
         env:
           SAQA_BROWSER: ${{ matrix.browser }}
@@ -146,7 +149,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start Juice Shop
         run: docker run --detach --rm --name saqa-juice-shop -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
       - name: Wait for Juice Shop
@@ -264,7 +270,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start WebGoat
         run: docker run --detach --rm --name saqa-webgoat -p 127.0.0.1:8080:8080 webgoat/webgoat:v2026.4
       - name: Wait for WebGoat login page
@@ -353,7 +362,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps chromium
       - name: Validate Docker Compose definition
         run: docker compose -f docker-compose.qa-targets.yml config
       - name: Start and validate local OWASP targets
