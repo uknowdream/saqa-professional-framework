@@ -117,7 +117,7 @@ def result(
     age = (current.astimezone(timezone.utc) - started).total_seconds()
     if age < -timedelta(minutes=FUTURE_SKEW_MINUTES).total_seconds():
         return "UNVERIFIED"
-    if age > max_age_seconds
+    if age > max_age_seconds:
         return "STALE"
     return "PASS"
 
