@@ -84,9 +84,10 @@ jobs:
           if not path.is_file():
               raise SystemExit('pip-audit did not produce its JSON report')
           data = json.loads(path.read_text(encoding='utf-8'))
-          if not isinstance(data, list):
-              raise SystemExit('pip-audit JSON report must be a list')
-          print(f'Validated pip-audit report with {len(data)} vulnerable package record(s).')
+          if not isinstance(data, dict) or not isinstance(data.get('dependencies'), list):
+              raise SystemExit('pip-audit JSON report must contain a dependencies list')
+          vulnerable = sum(len(item.get('vulns', [])) for item in data['dependencies'] if isinstance(item, dict))
+          print(f'Validated pip-audit report with {len(data["dependencies"])} dependencies and {vulnerable} vulnerability record(s).')
           PY
       - name: Secret pattern scan
         run: |
