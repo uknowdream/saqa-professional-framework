@@ -47,7 +47,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 ### P2 — Security coverage
 - [x] Add a threat-model template and a risk-to-test traceability matrix.
 - [x] Generate and publish a CycloneDX SBOM and retain machine-readable dependency-audit output in CI.
-- Add container-image scanning with a reviewed severity policy and exception expiry.
+- [x] Add a dedicated Trivy image/secret/misconfiguration scan workflow for the pinned Juice Shop reference image and retain JSON evidence.
+- The initial scan is report-only pending finding triage; it does not yet enforce a release-blocking severity policy or exception expiry.
 - Keep active security tests restricted to isolated, explicitly authorized targets.
 
 ### P2 — Evidence trust and operations
