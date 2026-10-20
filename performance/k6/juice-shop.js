@@ -13,7 +13,7 @@ export const options = {
 };
 
 export default function () {
-  const response = http.get("http://127.0.0.1:3000/rest/products/search?q=apple", {
+  const response = get("http://127.0.0.1:3000/rest/products/search?q=apple", {
     tags: { endpoint: "products-search" },
   });
   check(response, {
