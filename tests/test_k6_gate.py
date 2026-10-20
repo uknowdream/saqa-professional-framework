@@ -50,3 +50,25 @@ def test_missing_checks_rate_fails_closed():
     broken["metrics"]["checks"]["values"] = {"passes": 10, "fails": 1}
     with pytest.raises(ValueError, match="checks.rate"):
         evaluate_summary(broken, POLICY)
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("error_rate", -0.1, "between 0 and 1"),
+    ("error_rate", 1.1, "between 0 and 1"),
+    ("check_rate", 1.1, "between 0 and 1"),
+    ("p95", -1, "non-negative"),
+    ("throughput", -1, "non-negative"),
+])
+def test_out_of_range_measurements_are_rejected(field, value, message):
+    with pytest.raises(ValueError, match=message):
+        evaluate_summary(summary(**{field: value}), POLICY)
+
+@pytest.mark.parametrize(("limit", "value", "message"), [
+    ("error_rate_max", 1.1, "between 0 and 1"),
+    ("check_pass_rate_min", -0.1, "between 0 and 1"),
+    ("p95_max_ms", -1, "non-negative"),
+    ("throughput_min_rps", -1, "non-negative"),
+])
+def test_out_of_range_policy_limits_are_rejected(limit, value, message):
+    bad_policy = {**POLICY, "limits": {**POLICY["limits"], limit: value}}
+    with pytest.raises(ValueError, match=message):
+        evaluate_summary(summary(), bad_policy)
