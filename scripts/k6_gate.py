@@ -22,6 +22,8 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
         raise ValueError("k6 summary must be a JSON object")
     if not isinstance(policy, dict):
         raise ValueError("performance policy must be a JSON object")
+    if summary.get("schema") != "saqa.k6-summary.v1":
+        raise ValueError("unsupported k6 summary schema")
     if policy.get("schema") != "saqa.performance-guardrails.v1":
         raise ValueError("unsupported performance policy schema")
     if not isinstance(policy.get("policy_id"), str) or not policy["policy_id"].strip():
