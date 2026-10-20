@@ -12,6 +12,7 @@ K6_SCRIPT = ROOT / "performance/k6/juice-shop.js"
 
 def summary(*, p95=400, p99=700, error_rate=0, throughput=8, check_rate=1):
     return {
+        "schema": "saqa.k6-summary.v1",
         "metrics": {
             "http_req_duration": {"values": {"p(95)": p95, "p(99)": p99}},
             "http_req_failed": {"values": {"rate": error_rate}},
@@ -87,6 +88,11 @@ def test_missing_later_metrics_fail_closed(mutate, expected):
 def test_boolean_measurement_is_rejected_as_non_numeric():
     with pytest.raises(ValueError, match="http_req_failed.rate"):
         evaluate_summary(summary(error_rate=True), POLICY)
+
+
+def test_unsupported_summary_schema_is_rejected():
+    with pytest.raises(ValueError, match="unsupported k6 summary schema"):
+        evaluate_summary({**summary(), "schema": "unknown"}, POLICY)
 
 
 def test_unsupported_policy_schema_is_rejected():
