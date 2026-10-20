@@ -57,7 +57,7 @@ def main() -> int:
         evidence["details"]["error"] = f"required file missing: script={SCRIPT.is_file()} policy={POLICY.is_file()}"
     else:
         try:
-            completed = subprocess.run(["docker","run","--rm","--name",CONTAINER,"--user",f"{os.getuid()}:{os.getgid()}","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","-v",f"{OUTPUT.parent.resolve()}:/artifacts:rw","grafana/k6:1.2.0","run","--summary-export=/artifacts/k6-summary.json",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=120,check=False)
+            completed = subprocess.run(["docker","run","--rm","--name",CONTAINER,"--user",f"{os.getuid()}:{os.getgid()}","--network","host","-v",f"{SCRIPT.parent.resolve()}:/scripts:ro","-v",f"{OUTPUT.parent.resolve()}:/artifacts:rw","grafana/k6:1.2.0","run","--summary-export=/artifacts/k6-summary.json","--summary-trend-stats=avg,min,med,max,p(90),p(95),p(99)",f"/scripts/{SCRIPT.name}"],capture_output=True,text=True,timeout=120,check=False)
             evidence["details"].update({"exit_code":completed.returncode,"elapsed_ms":round((time.perf_counter()-started)*1000,2),"stdout_tail":completed.stdout[-4000:],"stderr_tail":completed.stderr[-4000:]})
             if summary_path.is_file():
                 try:
