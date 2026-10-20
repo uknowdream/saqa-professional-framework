@@ -69,3 +69,45 @@ def test_aggregate_preserves_top_level_provenance_when_nested_value_is_null(tmp_
     records = load_results(tmp_path)
     assert records[0].details["provenance"] == {"run_id": "123", "commit_sha": "abc123"}
     assert records[0].details["status_code"] == 200
+
+
+def test_verify_manifest_returns_false_for_malformed_json_and_wrong_root(tmp_path: Path) -> None:
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text("{not-json", encoding="utf-8")
+    assert verify_manifest(malformed) is False
+
+    wrong_root = tmp_path / "wrong-root.json"
+    wrong_root.write_text("[]", encoding="utf-8")
+    assert verify_manifest(wrong_root) is False
+
+
+def test_verify_manifest_rejects_tampered_records(tmp_path: Path) -> None:
+    (tmp_path / "result.json").write_text(
+        json.dumps({"test_id": "T-001", "status": "PASS", "target": "local",
+                    "observed_at": "2026-10-20T00:00:00Z", "details": {"count": 1}}),
+        encoding="utf-8",
+    )
+    manifest = tmp_path / "manifest.json"
+    aggregate(tmp_path, manifest)
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["records"][0]["details"]["count"] = 2
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    assert verify_manifest(manifest) is False
+
+
+def test_verify_manifest_rejects_invalid_record_even_with_matching_digest(tmp_path: Path) -> None:
+    import hashlib
+    from saqa.evidence import canonical_json
+
+    records = [{"test_id": "T-001", "status": ["PASS"], "observed_at": "now",
+                "target": "local", "details": {}}]
+    digest = hashlib.sha256(canonical_json(records)).hexdigest()
+    manifest = tmp_path / "invalid-record.json"
+    manifest.write_text(json.dumps({"records": records, "sha256": digest}), encoding="utf-8")
+    assert verify_manifest(manifest) is False
+
+
+def test_verify_manifest_rejects_malformed_digest(tmp_path: Path) -> None:
+    manifest = tmp_path / "bad-digest.json"
+    manifest.write_text(json.dumps({"records": [], "sha256": "not-a-sha256"}), encoding="utf-8")
+    assert verify_manifest(manifest) is False
