@@ -88,11 +88,15 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
 
 def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None:
     """Prevent the k6 runtime thresholds from drifting from the versioned policy."""
+    limits = policy.get("limits")
+    required = {"error_rate_max", "p95_max_ms", "p99_max_ms", "check_pass_rate_min"}
+    if not isinstance(limits, dict) or not required.issubset(limits):
+        raise ValueError("performance policy is missing required limits for k6 thresholds")
     checks = {
-        "http_req_failed": (r'http_req_failed:\s*\["rate<=([0-9.eE+-]+)"\]', policy["limits"]["error_rate_max"]),
-        "p95": (r'"p\(95\)<=([0-9.eE+-]+)"', policy["limits"]["p95_max_ms"]),
-        "p99": (r'"p\(99\)<=([0-9.eE+-]+)"', policy["limits"]["p99_max_ms"]),
-        "checks": (r'checks:\s*\["rate>=([0-9.eE+-]+)"\]', policy["limits"]["check_pass_rate_min"]),
+        "http_req_failed": (r'http_req_failed:\s*\["rate<=([0-9.eE+-]+)"\]', limits["error_rate_max"]),
+        "p95": (r'"p\(95\)<=([0-9.eE+-]+)"', limits["p95_max_ms"]),
+        "p99": (r'"p\(99\)<=([0-9.eE+-]+)"', limits["p99_max_ms"]),
+        "checks": (r'checks:\s*\["rate>=([0-9.eE+-]+)"\]', limits["check_pass_rate_min"]),
     }
     for name, (pattern, expected) in checks.items():
         match = re.search(pattern, script_text)
@@ -144,7 +148,7 @@ def main() -> int:
             else:
                 evidence["status"] = "FAIL"
                 evidence["details"]["error"] = "k6 did not produce the required summary export"
-        except (json.JSONDecodeError, ValueError) as exc:
+        except (json.JSONDecodeError, ValueError, KeyError, TypeError) as exc:
             evidence["status"] = "FAIL"
             evidence["details"]["configuration_error"] = f"{type(exc).__name__}: {exc}"
         except subprocess.TimeoutExpired as exc:
