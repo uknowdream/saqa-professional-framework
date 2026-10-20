@@ -15,18 +15,26 @@ jobs:
     name: Scan pinned reference image
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      TRIVY_VERSION: "0.76.0"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Pull pinned reference target
         run: docker pull bkimminich/juice-shop:v20.2.0
+      - name: Verify pinned Trivy runtime
+        run: |
+          mkdir -p artifacts/security
+          docker run --rm "aquasec/trivy:${TRIVY_VERSION}" --version | tee artifacts/security/trivy-version.txt
+          grep -F "Version: ${TRIVY_VERSION}" artifacts/security/trivy-version.txt
       - name: Scan image for vulnerabilities, secrets, and misconfiguration
         run: |
           mkdir -p artifacts/security
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" aquasec/trivy:0.69.3 image             --scanners vuln,secret,misconfig             --format json             --output /out/juice-shop-trivy.json             bkimminich/juice-shop:v20.2.0
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" aquasec/trivy:${TRIVY_VERSION} image             --scanners vuln,secret,misconfig             --format json             --output /out/juice-shop-trivy.json             bkimminich/juice-shop:v20.2.0
       - name: Validate scanner report and summarize findings
         run: |
           python - <<'PY'
           import json
+          import os
           from pathlib import Path
           path = Path("artifacts/security/juice-shop-trivy.json")
           report = json.loads(path.read_text(encoding="utf-8"))
@@ -45,7 +53,7 @@ jobs:
               for item in result.get("Misconfigurations") or []:
                   if isinstance(item, dict):
                       findings.append({"type":"misconfiguration","target":result.get("Target"),"id":item.get("ID"),"severity":item.get("Severity")})
-          summary = {"schema":"saqa.container-security-summary.v1","image":"bkimminich/juice-shop:v20.2.0","scanner":"trivy-0.69.3","finding_count":len(findings),"findings":findings,"enforcement":"report-only pending triage; not release certification"}
+          summary = {"schema":"saqa.container-security-summary.v1","image":"bkimminich/juice-shop:v20.2.0","scanner":f"trivy-{os.environ['TRIVY_VERSION']}","finding_count":len(findings),"findings":findings,"enforcement":"report-only pending triage; not release certification"}
           Path("artifacts/security/juice-shop-trivy-summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
           counts = {}
           for finding in findings:
