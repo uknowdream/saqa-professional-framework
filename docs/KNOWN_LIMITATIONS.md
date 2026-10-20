@@ -1,7 +1,7 @@
 # SAQA Professional Framework — Known Limitations and Next Priorities
 
 Last reviewed: 2026-10-20  
-Certified commit at review: `02a4fda27fc63f234809000082bc9a498cf9af98`
+Main-branch certified commit at review: `872bf0d182f3287d7e519947a259cc3313e51ed0`
 
 ## Current verified baseline
 
