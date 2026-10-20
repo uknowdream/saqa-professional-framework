@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: saqa-supply-chain-\${{ github.event.pull_request.number || github.ref }}
+  group: saqa-supply-chain-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -58,7 +58,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: saqa-supply-chain-evidence-\${{ github.sha }}
+          name: saqa-supply-chain-evidence-${{ github.sha }}
           path: artifacts/security/
           if-no-files-found: error
           retention-days: 30
