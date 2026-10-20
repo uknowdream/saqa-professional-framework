@@ -18,6 +18,10 @@ CONTAINER = f"saqa-k6-gate-{os.getpid()}-{time.time_ns()}"
 
 def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[str, Any]:
     """Return normalized measurements and fail-closed guardrail results."""
+    if not isinstance(summary, dict):
+        raise ValueError("k6 summary must be a JSON object")
+    if not isinstance(policy, dict):
+        raise ValueError("performance policy must be a JSON object")
     if policy.get("schema") != "saqa.performance-guardrails.v1":
         raise ValueError("unsupported performance policy schema")
     if not isinstance(policy.get("policy_id"), str) or not policy["policy_id"].strip():
@@ -88,6 +92,8 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
 
 def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None:
     """Prevent the k6 runtime thresholds from drifting from the versioned policy."""
+    if not isinstance(policy, dict):
+        raise ValueError("performance policy must be a JSON object")
     limits = policy.get("limits")
     required = {"error_rate_max", "p95_max_ms", "p99_max_ms", "check_pass_rate_min"}
     if not isinstance(limits, dict) or not required.issubset(limits):
