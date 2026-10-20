@@ -37,7 +37,7 @@ def test_release_report_rejects_non_object_details(tmp_path, monkeypatch):
     manifest.write_text(json.dumps({"records":records,"sha256":hashlib.sha256(canonical_json(records)).hexdigest()}))
     out = tmp_path/"release.json"
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
-    with pytest.raises(SystemExit, match="tested-SHA provenance mismatch"):
+    with pytest.raises(SystemExit, match="evidence manifest integrity verification failed"):
         main()
 
 def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monkeypatch):
