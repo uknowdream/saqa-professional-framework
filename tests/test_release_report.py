@@ -1,13 +1,14 @@
 import hashlib
 import json
+from datetime import datetime, timezone, timedelta
 import pytest
 from scripts.generate_release_report import main
-from saqa.evidence import canonical_json
+from saqa.evidence import canonical_json, utc_now
 
 def _write_manifest(tmp_path, details, status="PASS"):
     evidence = tmp_path/"evidence"
     evidence.mkdir()
-    (evidence/"one.json").write_text(json.dumps({"test_id":"A","status":status,"target":"http://127.0.0.1:3000","observed_at":"2026-09-27T00:00:00+00:00","details":details}))
+    (evidence/"one.json").write_text(json.dumps({"test_id":"A","status":status,"target":"http://127.0.0.1:3000","observed_at":utc_now(),"details":details}))
     from saqa.result_aggregation import aggregate
     manifest = evidence/"evidence-manifest.json"
     aggregate(evidence, manifest)
@@ -64,8 +65,8 @@ def test_release_report_does_not_certify_non_pass_evidence(tmp_path, monkeypatch
 def test_release_report_does_not_certify_mixed_pass_and_not_applicable(tmp_path, monkeypatch):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
-    (evidence / "pass.json").write_text(json.dumps({"test_id":"A","status":"PASS","target":"local","observed_at":"2026-10-20T00:00:00Z","details":{"tested_sha":"abc"}}))
-    (evidence / "na.json").write_text(json.dumps({"test_id":"B","status":"NOT_APPLICABLE","target":"local","observed_at":"2026-10-20T00:00:01Z","details":{"tested_sha":"abc"}}))
+    (evidence / "pass.json").write_text(json.dumps({"test_id":"A","status":"PASS","target":"local","observed_at":utc_now(),"details":{"tested_sha":"abc"}}))
+    (evidence / "na.json").write_text(json.dumps({"test_id":"B","status":"NOT_APPLICABLE","target":"local","observed_at":utc_now(),"details":{"tested_sha":"abc"}}))
     from saqa.result_aggregation import aggregate
     manifest = evidence / "evidence-manifest.json"
     aggregate(evidence, manifest)
@@ -75,3 +76,43 @@ def test_release_report_does_not_certify_mixed_pass_and_not_applicable(tmp_path,
     monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
     assert main() == 1
     assert json.loads(out.read_text())["certified"] is False
+
+
+def test_release_report_rejects_stale_evidence(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    from saqa.evidence import canonical_json
+    payload["records"][0]["observed_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    payload["sha256"] = __import__("hashlib").sha256(canonical_json(payload["records"])).hexdigest()
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
+        main()
+
+
+def test_release_report_rejects_timestamp_without_timezone(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["records"][0]["observed_at"] = "2026-10-20T00:00:00"
+    payload["sha256"] = __import__("hashlib").sha256(canonical_json(payload["records"])).hexdigest()
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
+        main()
+
+
+def test_release_report_exposes_freshness_policy(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    out = tmp_path / "release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "48")
+    assert main() == 0
+    report = json.loads(out.read_text(encoding="utf-8"))
+    assert report["freshness_verified"] is True
+    assert report["evidence_max_age_hours"] == 48
