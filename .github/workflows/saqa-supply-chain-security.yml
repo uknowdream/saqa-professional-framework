@@ -37,7 +37,7 @@ jobs:
       - name: Generate CycloneDX SBOM
         run: |
           mkdir -p artifacts/security
-          cyclonedx-py environment --output-format JSON --output-file artifacts/security/saqa-sbom.cdx.json
+          cyclonedx-py environment --output-format JSON --output-file-name artifacts/security/saqa-sbom.cdx.json
           python -m json.tool artifacts/security/saqa-sbom.cdx.json >/dev/null
       - name: Audit Python dependencies
         continue-on-error: true
