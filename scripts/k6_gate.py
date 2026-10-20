@@ -89,10 +89,10 @@ def evaluate_summary(summary: dict[str, Any], policy: dict[str, Any]) -> dict[st
 def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None:
     """Prevent the k6 runtime thresholds from drifting from the versioned policy."""
     checks = {
-        "http_req_failed": (r'http_req_failed:\\s*\\["rate<=([0-9.eE+-]+)"\\]', policy["limits"]["error_rate_max"]),
-        "p95": (r'"p\\(95\\)<=([0-9.eE+-]+)"', policy["limits"]["p95_max_ms"]),
-        "p99": (r'"p\\(99\\)<=([0-9.eE+-]+)"', policy["limits"]["p99_max_ms"]),
-        "checks": (r'checks:\\s*\\["rate>=([0-9.eE+-]+)"\\]', policy["limits"]["check_pass_rate_min"]),
+        "http_req_failed": (r'http_req_failed:\s*\["rate<=([0-9.eE+-]+)"\]', policy["limits"]["error_rate_max"]),
+        "p95": (r'"p\(95\)<=([0-9.eE+-]+)"', policy["limits"]["p95_max_ms"]),
+        "p99": (r'"p\(99\)<=([0-9.eE+-]+)"', policy["limits"]["p99_max_ms"]),
+        "checks": (r'checks:\s*\["rate>=([0-9.eE+-]+)"\]', policy["limits"]["check_pass_rate_min"]),
     }
     for name, (pattern, expected) in checks.items():
         match = re.search(pattern, script_text)
