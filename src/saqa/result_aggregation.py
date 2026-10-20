@@ -41,7 +41,7 @@ def load_results(directory: Path, *, exclude: Path | None = None) -> list[Eviden
                 raise ValueError(f"result missing observed_at: {path}")
             preserved = {
                 key: item[key]
-                for key in ("schema", "browser", "http_methods", "redirects_followed", "destructive_actions")
+                for key in ("schema", "browser", "http_methods", "redirects_followed", "destructive_actions", "provenance")
                 if key in item
             }
             preserved.update(details)
