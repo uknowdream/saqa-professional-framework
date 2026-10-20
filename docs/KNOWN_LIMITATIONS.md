@@ -19,7 +19,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 - **Mobile:** current mobile readiness coverage is browser/device-oriented readiness in the CI matrix. It is not equivalent to end-to-end testing on a physical Android/iOS device or a native application test suite.
 - **Accessibility:** automated axe-core checks cover selected rules and pages. They do not replace full WCAG conformance evaluation, manual keyboard/screen-reader testing, or human review.
-- **Performance:** k6 and response-time gates validate the configured reference workload and thresholds. They do not predict production capacity without representative traffic models, infrastructure, and service-level objectives.
+- **Performance:** the mandatory CI gate validates a short reference workload; separate local-only smoke/load/stress/spike/soak profiles support exploratory characterization. Neither alone predicts production capacity without representative traffic, infrastructure, repeated runs, and service-level objectives.
 - **Security:** authorized isolated-target regressions and dependency/secret checks are a safety baseline, not a full penetration test, threat model, or external vulnerability assessment.
 - **Targets:** CI uses authorized, reproducible reference targets such as Juice Shop and WebGoat. Results should not be interpreted as proof about an unrelated product or deployment.
 - **Evidence:** SHA-256 manifests provide integrity/tamper evidence for collected records; they are not a digital signature or proof of a trusted identity by themselves.
@@ -38,9 +38,9 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - Keep unsupported criteria labelled `UNVERIFIED`; do not infer full conformance from an automated scan.
 
 ### P1 — Performance confidence
-- Version workload profiles and thresholds alongside the application target.
-- Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata.
-- Define a separate baseline-comparison gate before making regression claims.
+- [x] Add local-only smoke/load/stress/spike/soak workload profiles for the authorized Juice Shop target.
+- Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata for exploratory profiles.
+- Define a separate baseline-comparison gate before making regression claims; current profiles are not yet mandatory CI evidence.
 
 ### P2 — Security coverage
 - Add a threat-model template and a risk-to-test traceability matrix.
