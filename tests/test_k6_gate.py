@@ -212,7 +212,7 @@ def test_repo_path_preserves_absolute_overrides(monkeypatch, tmp_path):
 
 def test_threshold_validator_rejects_comment_masking():
     script_text = K6_SCRIPT.read_text(encoding="utf-8").replace('"p(95)<=1000"', '"p(95)<=999"')
-    script_text = '// thresholds: { http_req_duration: ["p(95)<=1000"] }\\n' + script_text
+    script_text = '// thresholds: { http_req_duration: ["p(95)<=1000"] }\n' + script_text
     with pytest.raises(ValueError, match="p95 does not match"):
         validate_script_thresholds(script_text, POLICY)
 
@@ -226,7 +226,7 @@ def test_threshold_validator_rejects_duplicate_metric_declaration():
 
 
 def test_threshold_validator_rejects_duplicate_thresholds_objects():
-    script_text = 'const decoy = { thresholds: {} };\\n' + K6_SCRIPT.read_text(encoding="utf-8")
+    script_text = 'const decoy = { thresholds: {} };\n' + K6_SCRIPT.read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="exactly one executable thresholds object"):
         validate_script_thresholds(script_text, POLICY)
 
