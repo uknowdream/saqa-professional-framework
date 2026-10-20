@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.k6_gate import evaluate_summary, validate_script_thresholds
+from scripts.k6_gate import evaluate_summary, repo_path, validate_script_thresholds
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
@@ -118,6 +118,7 @@ def test_k6_rate_metric_shape_is_consumed_directly():
         ("error_rate", 1.1, "between 0 and 1"),
         ("check_rate", 1.1, "between 0 and 1"),
         ("p95", -1, "non-negative"),
+        ("p99", -1, "non-negative"),
         ("throughput", -1, "non-negative"),
     ],
 )
@@ -132,6 +133,7 @@ def test_out_of_range_measurements_are_rejected(field, value, message):
         ("error_rate_max", 1.1, "between 0 and 1"),
         ("check_pass_rate_min", -0.1, "between 0 and 1"),
         ("p95_max_ms", -1, "non-negative"),
+        ("p99_max_ms", -1, "non-negative"),
         ("throughput_min_rps", -1, "non-negative"),
     ],
 )
@@ -171,3 +173,15 @@ def test_k6_runtime_threshold_drift_is_rejected():
     script_text = K6_SCRIPT.read_text(encoding="utf-8").replace('"p(95)<=1000"', '"p(95)<=999"')
     with pytest.raises(ValueError, match="p95 does not match"):
         validate_script_thresholds(script_text, POLICY)
+
+
+def test_repo_path_resolves_relative_overrides_from_repo_root(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("SAQA_TEST_PATH", "custom/summary.json")
+    assert repo_path("SAQA_TEST_PATH", "unused.json") == ROOT / "custom/summary.json"
+
+
+def test_repo_path_preserves_absolute_overrides(monkeypatch, tmp_path):
+    absolute = tmp_path / "summary.json"
+    monkeypatch.setenv("SAQA_TEST_PATH", str(absolute))
+    assert repo_path("SAQA_TEST_PATH", "unused.json") == absolute
