@@ -14,7 +14,7 @@ The policy is in \`performance/baselines/juice-shop-local-v1.json\`. Every run r
 | Throughput | >= 1 request/second | Detect severe throughput collapse |
 | Functional check pass rate | 100% | Prevent fast but incorrect responses from passing |
 
-k6 emits a JSON summary export. SAQA normalizes p95/p99 latency, error rate, throughput, and check pass rate, evaluates each against the versioned policy, and includes the raw-summary SHA-256 in the evidence. Missing metrics or invalid policy are failures, not silent passes.
+The k6 script exports a versioned JSON summary through `handleSummary`, preserving the metric values consumed by the gate rather than depending on the legacy CLI summary serializer. SAQA normalizes p95/p99 latency, error rate, throughput, and check pass rate, evaluates each against the versioned policy, and includes the raw-summary SHA-256 in the evidence. Non-numeric or non-finite measurements and policy limits fail closed. Missing metrics or invalid policy are failures, not silent passes.
 
 ## Changing guardrails
 
