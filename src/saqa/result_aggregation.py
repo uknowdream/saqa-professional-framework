@@ -44,7 +44,11 @@ def load_results(directory: Path, *, exclude: Path | None = None) -> list[Eviden
                 for key in ("schema", "browser", "http_methods", "redirects_followed", "destructive_actions", "provenance")
                 if key in item
             }
-            preserved.update(details)
+            preserved.update({
+                key: value
+                for key, value in details.items()
+                if key != "provenance" or value is not None
+            })
             records.append(EvidenceRecord(
                 test_id=str(item["test_id"]),
                 status=status,
