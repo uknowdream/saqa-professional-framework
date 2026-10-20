@@ -116,3 +116,27 @@ def test_release_report_exposes_freshness_policy(tmp_path, monkeypatch):
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["freshness_verified"] is True
     assert report["evidence_max_age_hours"] == 48
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "inf", "not-a-number"])
+def test_release_report_rejects_invalid_freshness_policy(tmp_path, monkeypatch, value):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", value)
+    with pytest.raises(SystemExit, match="SAQA_MAX_EVIDENCE_AGE_HOURS"):
+        main()
+
+
+def test_release_report_rejects_far_future_evidence(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    payload["records"][0]["observed_at"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    payload["sha256"] = hashlib.sha256(canonical_json(payload["records"])).hexdigest()
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
+        main()
