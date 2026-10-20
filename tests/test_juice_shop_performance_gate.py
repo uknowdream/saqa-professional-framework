@@ -58,3 +58,7 @@ def test_main_records_fail_evidence_when_p95_exceeds_budget(monkeypatch, tmp_pat
     evidence = __import__("json").loads((tmp_path / "performance.json").read_text(encoding="utf-8"))
     assert evidence["status"] == "FAIL"
     assert evidence["details"]["p95_ms"] == 1.0
+
+def test_performance_target_redaction_removes_sensitive_components():
+    assert module._redact_url("http://user:secret@127.0.0.1:3000/private?q=token#x") == "http://127.0.0.1:3000"
+    assert module._redact_url("http://[::1]:3000/private") == "http://[::1]:3000"

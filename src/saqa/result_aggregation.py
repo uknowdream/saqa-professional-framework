@@ -37,14 +37,18 @@ def load_results(directory: Path, *, exclude: Path | None = None) -> list[Eviden
             if status == "N/A":
                 status = "NOT_APPLICABLE"
             observed_at = item.get("observed_at")
-            if not isinstance(observed_at, str) or not observed_at.strip() or observed_at == "unknown":
+            if not isinstance(observed_at, str) or not observed_at.strip() or observed_at.strip().lower() == "unknown":
                 raise ValueError(f"result missing observed_at: {path}")
             preserved = {
                 key: item[key]
-                for key in ("schema", "browser", "http_methods", "redirects_followed", "destructive_actions")
+                for key in ("schema", "browser", "http_methods", "redirects_followed", "destructive_actions", "provenance")
                 if key in item
             }
-            preserved.update(details)
+            preserved.update({
+                key: value
+                for key, value in details.items()
+                if key != "provenance" or value is not None
+            })
             records.append(EvidenceRecord(
                 test_id=str(item["test_id"]),
                 status=status,

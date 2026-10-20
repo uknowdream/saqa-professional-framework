@@ -40,6 +40,7 @@ jobs:
           EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
           INPUT_SHA: ${{ github.event.inputs.head_sha }}
           GH_TOKEN: ${{ github.token }}
+          SAQA_RELEASE_MAX_AGE_HOURS: '6'
         run: |
           set -euo pipefail
           SHA="${EVENT_SHA:-$INPUT_SHA}"
@@ -52,24 +53,37 @@ jobs:
             ready=false
             runs='[]'
           else
-            runs="$(gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs')"
+            runs="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
           fi
+          MAX_AGE_HOURS="${SAQA_RELEASE_MAX_AGE_HOURS:-6}"
+          if ! MAX_AGE_SECONDS="$(python -c 'import math,sys; v=float(sys.argv[1]); seconds=v*3600; valid=math.isfinite(v) and v > 0 and math.isfinite(seconds) and seconds >= 1 and seconds <= 86399999999999; print(int(seconds)) if valid else sys.exit(2)' "$MAX_AGE_HOURS" 2>/dev/null)"; then
+            echo "SAQA_RELEASE_MAX_AGE_HOURS must be finite and positive."
+            exit 2
+          fi
+          NOW_EPOCH="$(date -u +%s)"
           mkdir -p artifacts
-          for workflow in "SAQA CI" "SAQA Contract Testing" "SAQA Accessibility" "SAQA Mobile Readiness" "SAQA k6 Performance"; do
-            count="$(jq --arg n "$workflow" --arg sha "$SHA" '[.[] | select(.name == $n and .head_sha == $sha and .head_branch == "main" and .status == "completed")] | length' <<< "$runs")"
+          while IFS='|' read -r workflow workflow_path workflow_id; do
+            count="$(jq --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" --argjson now "$NOW_EPOCH" --argjson max_age "$MAX_AGE_SECONDS" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch")) | . + {__saqa_started: ((.run_started_at // .created_at) | (try fromdateiso8601 catch 0))}] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then {} else .[-1] end) as $latest | if (($latest.id | type) == "number" and $latest.id > 0 and ($latest.run_attempt | type) == "number" and $latest.run_attempt > 0 and $latest.status == "completed" and $latest.conclusion == "success" and $latest.__saqa_started > 0 and ($now - $latest.__saqa_started) >= 0 and ($now - $latest.__saqa_started) <= $max_age) then 1 else 0 end' <<< "$runs")"
             if [ "$count" -lt 1 ]; then
               ready=false
-              echo "$workflow: not completed for main/$SHA"
+              echo "$workflow: no fresh successful evidence from expected workflow $workflow_path (ID $workflow_id) for main/$SHA"
             else
-              echo "$workflow: completed for main/$SHA"
+              echo "$workflow: fresh expected-workflow evidence verified for main/$SHA"
             fi
-          done
+          done <<'SAQA_MANDATORY_WORKFLOWS'
+          SAQA CI|.github/workflows/saqa-ci.yml|345839221
+          SAQA Contract Testing|.github/workflows/saqa-contract.yml|364893043
+          SAQA Accessibility|.github/workflows/saqa-accessibility.yml|355591975
+          SAQA Mobile Readiness|.github/workflows/saqa-mobile.yml|355328607
+          SAQA k6 Performance|.github/workflows/saqa-k6.yml|364897799
+          SAQA_MANDATORY_WORKFLOWS
           if [ "$ready" = true ]; then
-            reason="All mandatory domains completed on main."
+            reason="All mandatory domains completed on main with fresh, exact-workflow evidence."
           else
-            reason="One or more mandatory domains are not yet completed on main; certification is not available."
+            reason="One or more mandatory domains lack fresh exact-workflow evidence on main; certification is not available."
           fi
-          jq -n --arg sha "$SHA" --arg status "${ready}" --arg reason "$reason" '{schema:"saqa.release-readiness.v1",head_sha:$sha,required_branch:"main",ready:($status == "true"),status:(if $status == "true" then "READY" else "NOT_CERTIFIED" end),reason:$reason}' > artifacts/release-readiness.json
+          CHECKED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          jq -n --arg sha "$SHA" --arg status "${ready}" --arg reason "$reason" --arg checked_at "$CHECKED_AT" --argjson max_age_seconds "$MAX_AGE_SECONDS" '{schema:"saqa.release-readiness.v2",head_sha:$sha,required_branch:"main",checked_at:$checked_at,max_age_seconds:$max_age_seconds,ready:($status == "true"),status:(if $status == "true" then "READY" else "NOT_CERTIFIED" end),reason:$reason}' > artifacts/release-readiness.json
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: Upload readiness decision
         if: always()
@@ -89,6 +103,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SAQA_HEAD_SHA: ${{ needs.readiness.outputs.head_sha }}
+      SAQA_RELEASE_MAX_AGE_HOURS: '6'
     steps:
       - name: Checkout trusted certification code
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -96,7 +111,7 @@ jobs:
           ref: main
           persist-credentials: false
       - name: Collect exact-commit workflow evidence
-        run: gh api "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" --jq '.workflow_runs' > "$RUNNER_TEMP/saqa-runs.json"
+        run: gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SAQA_HEAD_SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.' > "$RUNNER_TEMP/saqa-runs.json"
       - name: Evaluate certification
         env:
           SAQA_RUNS_JSON: ${{ runner.temp }}/saqa-runs.json

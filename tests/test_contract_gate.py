@@ -68,3 +68,8 @@ def test_contract_gate_writes_contract_digest(monkeypatch, tmp_path):
     evidence = json.loads(output.read_text(encoding="utf-8"))
     assert evidence["status"] == "PASS"
     assert evidence["details"]["contract_sha256"] == hashlib.sha256(CONTRACT.read_bytes()).hexdigest()
+
+def test_contract_target_redaction_removes_path_query_credentials_and_preserves_ipv6():
+    from scripts.contract_gate import _redact_url
+    assert _redact_url("http://user:secret@127.0.0.1:3000/private/token?q=hidden#x") == "http://127.0.0.1:3000"
+    assert _redact_url("http://[::1]:3000/private") == "http://[::1]:3000"

@@ -41,7 +41,9 @@ def main() -> int:
         statuses.add(status if status in CANONICAL_STATUSES else "UNVERIFIED")
     if mismatched:
         raise SystemExit(f"evidence tested-SHA provenance mismatch: {mismatched}")
-    mandatory_ok = bool(raw_records) and not statuses.intersection({"FAIL","BLOCKED","UNVERIFIED","PENDING"})
+    # A release report is certified only when every included record explicitly PASSes.
+    # NOT_APPLICABLE is valid for individual evidence, but cannot satisfy release certification.
+    mandatory_ok = bool(raw_records) and statuses == {"PASS"}
     report = {"schema":"saqa.release-certification.v1","commit_sha":sha,"source_shas":sorted(source_shas),"record_count":len(raw_records),"statuses":sorted(statuses),"certified":mandatory_ok,"manifest_verified":True}
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")

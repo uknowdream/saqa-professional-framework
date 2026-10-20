@@ -25,3 +25,8 @@ def test_json_contract_rejects_wrong_list_type():
         assert "data" in str(exc)
     else:
         raise AssertionError("wrong list type was accepted")
+
+def test_api_contract_target_redaction_removes_path_query_credentials_and_preserves_ipv6():
+    from scripts.api_contract_smoke import _redact_url
+    assert _redact_url("http://user:secret@127.0.0.1:3000/private/token?q=hidden#x") == "http://127.0.0.1:3000"
+    assert _redact_url("http://[::1]:3000/private") == "http://[::1]:3000"

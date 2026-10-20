@@ -12,17 +12,13 @@ from urllib.parse import urlparse
 import httpx
 from jsonschema import Draft4Validator
 
+from saqa.url_safety import redact_url
+_redact_url = redact_url
+
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")
 CONTRACT = Path(os.getenv("SAQA_CONTRACT_FILE", "contracts/juice-shop.openapi.json"))
 OUTPUT = Path(os.getenv("SAQA_CONTRACT_OUTPUT", "artifacts/targets/juice-shop-contract.json"))
 ENDPOINT = "/rest/products/search?q=apple"
-
-
-def _redact_url(url: str) -> str:
-    parsed = urlparse(url)
-    hostname = parsed.hostname or ""
-    port = f":{parsed.port}" if parsed.port is not None else ""
-    return parsed._replace(netloc=f"{hostname}{port}", query="", fragment="").geturl()
 
 
 def _assert_loopback_http(url: str) -> None:
@@ -51,7 +47,7 @@ def main() -> int:
         "schema": "saqa.contract-gate.v2",
         "test_id": "juice-shop.api.openapi-contract",
         "status": "BLOCKED",
-        "target": _redact_url(BASE_URL),
+        "target": redact_url(BASE_URL),
         "http_methods": ["GET"],
         "destructive_actions": False,
         "source_sha": os.getenv("SAQA_GIT_SHA", ""),
@@ -87,7 +83,7 @@ def main() -> int:
                 "validation_errors": [],
             }
         )
-    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError) as exc:
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.NetworkError, httpx.ReadTimeout) as exc:
         evidence["status"] = "BLOCKED"
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     except Exception as exc:
