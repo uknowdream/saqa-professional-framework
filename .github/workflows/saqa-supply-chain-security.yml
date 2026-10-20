@@ -34,6 +34,8 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
           python -m pip install "pip-audit==2.9.0" "cyclonedx-bom==5.1.1"
+          # Remediate the vulnerable lxml version pulled by the pinned SBOM tool stack.
+          python -m pip install --upgrade lxml
       - name: Generate CycloneDX SBOM
         run: |
           mkdir -p artifacts/security
