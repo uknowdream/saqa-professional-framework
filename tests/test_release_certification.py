@@ -9,7 +9,7 @@ def test_result_is_fail_closed() -> None:
     assert result(None) == "UNVERIFIED"
     assert result({"status": "queued", "conclusion": ""}) == "PENDING"
     stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    assert result({"status": "completed", "conclusion": "success", "run_attempt": 1, "run_started_at": stamp}) == "PASS"
+    assert result({"status": "completed", "conclusion": "success", "run_attempt": "1", "run_started_at": stamp}) == "PASS"
     assert result({"status": "completed", "conclusion": "success"}) == "UNVERIFIED"
     assert result({"status": "completed", "conclusion": "failure"}) == "FAIL"
     assert result({"status": "completed", "conclusion": "cancelled"}) == "BLOCKED"
