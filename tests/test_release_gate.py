@@ -46,6 +46,13 @@ def make_run(name: str = MANDATORY[0], **overrides):
 def test_release_certification_requires_five_unique_mandatory_domains():
     assert len(MANDATORY) == 5
     assert len(MANDATORY) == len(set(MANDATORY))
+    assert set(MANDATORY) == {
+        "SAQA CI",
+        "SAQA Contract Testing",
+        "SAQA Accessibility",
+        "SAQA Mobile Readiness",
+        "SAQA k6 Performance",
+    }
     assert set(MANDATORY_WORKFLOW_IDENTITIES) == set(MANDATORY)
     assert len({value[0] for value in MANDATORY_WORKFLOW_IDENTITIES.values()}) == 5
     assert len({value[1] for value in MANDATORY_WORKFLOW_IDENTITIES.values()}) == 5
@@ -105,7 +112,11 @@ def test_fresh_success_requires_positive_attempt_and_timestamp():
 
 
 def test_certification_never_passes_missing_or_stale_domains():
-    assert decide({name: "PASS" for name in MANDATORY}).status == "CERTIFIED"
+    passing = {name: "PASS" for name in MANDATORY}
+    assert decide(passing).status == "CERTIFIED"
+    missing_domain = dict(passing)
+    missing_domain.pop(MANDATORY[-1])
+    assert decide(missing_domain).status == "NOT_CERTIFIED"
     assert decide({name: "UNVERIFIED" for name in MANDATORY}).status == "NOT_CERTIFIED"
     statuses = {name: "PASS" for name in MANDATORY}
     statuses[MANDATORY[0]] = "STALE"
