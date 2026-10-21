@@ -10,6 +10,8 @@ CANONICAL_STATUSES = {"PASS","FAIL","BLOCKED","UNVERIFIED","PENDING","NOT_APPLIC
 def main() -> int:
     manifest = Path(os.getenv("SAQA_MANIFEST","artifacts/evidence-manifest.json"))
     output = Path(os.getenv("SAQA_RELEASE_REPORT","artifacts/release-certification.json"))
+    # A failed regeneration must never leave a previous CERTIFIED report in place.
+    output.unlink(missing_ok=True)
     sha = os.getenv("SAQA_TESTED_SHA") or os.getenv("GITHUB_SHA")
     if not sha:
         raise SystemExit("tested commit SHA provenance is required")
