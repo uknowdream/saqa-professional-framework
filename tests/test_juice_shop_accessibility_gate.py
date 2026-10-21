@@ -138,3 +138,10 @@ def test_keyboard_sequence_summary_does_not_flag_unique_sequence():
     assert result["repeated_consecutive_targets"] == 0
     assert result["keyboard_trap_suspected"] is False
     assert result["visible_indicator_style_steps"] == 0
+
+
+def test_mobile_viewport_keyboard_traversal_is_recorded_and_gated():
+    assert 'page.set_viewport_size({"width": 390, "height": 844})' in SOURCE
+    assert '"keyboard_navigation_mobile_viewport"' in SOURCE
+    assert '"mobile viewport keyboard Tab sequence did not reach a focusable target"' in SOURCE
+    assert "diagnostic smoke evidence, not a claim of native mobile or WCAG certification" in SOURCE
