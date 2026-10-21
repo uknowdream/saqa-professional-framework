@@ -45,7 +45,8 @@ def _list_payload(value: Any, key: str, label: str) -> list[dict[str, Any]]:
 
 
 def _run_started(run: dict[str, Any]) -> datetime | None:
-    return _parse_time(run.get("run_started_at")) or _parse_time(run.get("created_at"))
+    # Fail closed: the attempt start is required to validate attempt-bound artifacts.
+    return _parse_time(run.get("run_started_at"))
 
 
 def _eligible_run(run: dict[str, Any], *, name: str, path: str, workflow_id: int, main_sha: str) -> bool:
@@ -84,6 +85,10 @@ def audit_artifacts(
     if current.tzinfo is None or current.utcoffset() is None:
         raise ValueError("now must include a timezone")
     current = current.astimezone(timezone.utc)
+    try:
+        earliest_acceptable_expiry = current + retention_window
+    except OverflowError as exc:
+        raise ValueError("min_retention_hours makes the expiry threshold unrepresentable") from exc
     runs = _list_payload(runs_payload, "workflow_runs", "workflow runs")
     artifacts = _list_payload(artifacts_payload, "artifacts", "artifacts")
     checks = []
@@ -146,7 +151,7 @@ def audit_artifacts(
                 reasons.append("artifact predates the selected workflow run attempt")
             if expires is None:
                 reasons.append("artifact expires_at is missing or invalid")
-            elif expires <= current + retention_window:
+            elif expires <= earliest_acceptable_expiry:
                 reasons.append("artifact expires within the required retention safety window")
             if not reasons:
                 valid_artifact = artifact
