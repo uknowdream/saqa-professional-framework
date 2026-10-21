@@ -44,7 +44,7 @@ def test_regressions_fail(kwargs, expected):
     assert expected in result["failed_checks"]
 
 
-@pytest.mark.parametrize("field", ["target_profile", "workload_profile", "policy_id", "policy_version", "environment_fingerprint"])
+@pytest.mark.parametrize("field", ["target_profile", "workload_profile", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint"])
 def test_metadata_mismatch_blocks_comparison(field):
     value = "different" if field != "policy_version" else 2
     with pytest.raises(ValueError, match="metadata mismatch"):
