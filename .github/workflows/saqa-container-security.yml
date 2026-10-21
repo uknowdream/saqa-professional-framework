@@ -32,35 +32,7 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" aquasec/trivy:${TRIVY_VERSION} image             --scanners vuln,secret,misconfig             --format json             --output /out/juice-shop-trivy.json             bkimminich/juice-shop:v20.2.0
       - name: Validate scanner report and summarize findings
         run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-          path = Path("artifacts/security/juice-shop-trivy.json")
-          report = json.loads(path.read_text(encoding="utf-8"))
-          if not isinstance(report, dict) or not isinstance(report.get("Results"), list):
-              raise SystemExit("Trivy report schema invalid: expected Results array")
-          findings = []
-          for result in report["Results"]:
-              if not isinstance(result, dict):
-                  raise SystemExit("Trivy Results entries must be objects")
-              for item in result.get("Vulnerabilities") or []:
-                  if isinstance(item, dict):
-                      findings.append({"type":"vulnerability","target":result.get("Target"),"id":item.get("VulnerabilityID"),"severity":item.get("Severity"),"fixed_version":item.get("FixedVersion")})
-              for item in result.get("Secrets") or []:
-                  if isinstance(item, dict):
-                      findings.append({"type":"secret","target":result.get("Target"),"id":item.get("RuleID"),"severity":item.get("Severity")})
-              for item in result.get("Misconfigurations") or []:
-                  if isinstance(item, dict):
-                      findings.append({"type":"misconfiguration","target":result.get("Target"),"id":item.get("ID"),"severity":item.get("Severity")})
-          summary = {"schema":"saqa.container-security-summary.v1","image":"bkimminich/juice-shop:v20.2.0","scanner":f"trivy-{os.environ['TRIVY_VERSION']}","finding_count":len(findings),"findings":findings,"enforcement":"report-only pending triage; not release certification"}
-          Path("artifacts/security/juice-shop-trivy-summary.json").write_text(json.dumps(summary,indent=2)+"\n",encoding="utf-8")
-          counts = {}
-          for finding in findings:
-              key = str(finding.get("severity") or "UNKNOWN").upper()
-              counts[key] = counts.get(key,0)+1
-          print(json.dumps({"finding_count":len(findings),"by_severity":counts},indent=2))
-          PY
+          python scripts/summarize_trivy_report.py --input artifacts/security/juice-shop-trivy.json --output artifacts/security/juice-shop-trivy-summary.json --image bkimminich/juice-shop:v20.2.0 --scanner "trivy-${TRIVY_VERSION}"
       - name: Upload container security evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
