@@ -77,8 +77,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -111,28 +109,24 @@ jobs:
           vulnerable = sum(len(item.get('vulns', [])) for item in data['dependencies'] if isinstance(item, dict))
           print(f'Validated pip-audit report with {len(data["dependencies"])} dependencies and {vulnerable} vulnerability record(s).')
           PY
-      - name: Attest SBOM provenance
-        if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
-        with:
-          subject-path: artifacts/security/sbom.cdx.json
-      - name: Verify SBOM artifact attestation
-        if: github.event_name != 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh attestation verify artifacts/security/sbom.cdx.json --repo "$GITHUB_REPOSITORY"
       - name: Static application security testing (Bandit)
+        shell: bash
         run: |
-          bandit -r src scripts -lll -iii -f json -o artifacts/security/bandit-sast.json
+          set -euo pipefail
+          bandit -r src scripts -lll -iii --exit-zero -f json -o artifacts/security/bandit-sast.json
           python - <<'PY'
           import json
           from pathlib import Path
           report = json.loads(Path("artifacts/security/bandit-sast.json").read_text(encoding="utf-8"))
           if not isinstance(report, dict) or not isinstance(report.get("results"), list):
               raise SystemExit("Bandit report schema invalid")
-          high = [item for item in report["results"] if isinstance(item, dict)
-                  and item.get("issue_severity") == "HIGH" and item.get("issue_confidence") == "HIGH"]
+          if any(not isinstance(item, dict) for item in report["results"]):
+              raise SystemExit("Bandit results must contain only objects")
+          high = [item for item in report["results"]
+                  if item.get("issue_severity") == "HIGH" and item.get("issue_confidence") == "HIGH"]
           print(f"Bandit validated {len(report['results'])} finding(s); {len(high)} high-severity/high-confidence finding(s).")
+          if high:
+              raise SystemExit(f"Bandit gate failed on {len(high)} high-severity/high-confidence finding(s)")
           PY
       - name: Secret pattern scan
         run: |
@@ -151,6 +145,34 @@ jobs:
         run: |
           echo 'Dependency vulnerability audit failed; inspect the JSON artifact and remediate or review a documented exception.'
           exit 1
+
+  attest-security-sbom:
+    name: Attest trusted SBOM after security gates
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [dependency-and-security]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Download security evidence from successful gated job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: saqa-security-evidence
+          path: artifacts/security
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/security/sbom.cdx.json
+      - name: Verify SBOM attestation signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify artifacts/security/sbom.cdx.json --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/saqa-ci.yml"
 
   database-quality:
     name: Isolated database quality gate
