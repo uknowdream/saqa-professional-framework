@@ -49,7 +49,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Generate and publish a CycloneDX SBOM and retain machine-readable dependency-audit output in CI.
 - [x] Add a dedicated Trivy image/secret/misconfiguration scan workflow for the pinned Juice Shop reference image and retain JSON evidence.
 - [x] Fail closed on malformed Trivy report structure, malformed finding arrays, and unsupported severity values before writing a normalized summary.
-- The initial scan remains report-only pending finding triage; it does not yet enforce a release-blocking severity policy or exception expiry.
+- [x] Enforce a versioned Trivy policy: any secret finding, HIGH/CRITICAL misconfiguration, and CRITICAL vulnerability blocks the security workflow unless an exact-match, unexpired exception names a reason, owner, ticket, and expiry date.
+- HIGH/MEDIUM/LOW vulnerabilities remain report-only under the initial policy pending triage; this policy result is not yet a mandatory domain in the central release-certification workflow.
 - Keep active security tests restricted to isolated, explicitly authorized targets.
 
 ### P2 — Evidence trust and operations
