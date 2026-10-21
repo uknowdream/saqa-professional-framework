@@ -88,6 +88,14 @@ jobs:
           python -m pip install -e .
           python -m pip install pip-audit==2.10.1 cyclonedx-bom==7.5.0 bandit==1.8.6
           mkdir -p artifacts/security
+      - name: Secret pattern scan before generating reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . --exclude-dir=.git --exclude='*.zip'; then
+            echo "Secret-pattern match found in checked-out source; review without copying secret values into logs or issues."
+            exit 1
+          fi
       - name: Generate CycloneDX SBOM
         run: cyclonedx-py environment --output-format JSON --output-file artifacts/security/sbom.cdx.json
       - name: Dependency vulnerability audit
@@ -100,14 +108,30 @@ jobs:
           python - <<'PY'
           import json
           from pathlib import Path
-          path = Path('artifacts/security/pip-audit.json')
+
+          path = Path("artifacts/security/pip-audit.json")
           if not path.is_file():
-              raise SystemExit('pip-audit did not produce its JSON report')
-          data = json.loads(path.read_text(encoding='utf-8'))
-          if not isinstance(data, dict) or not isinstance(data.get('dependencies'), list):
-              raise SystemExit('pip-audit JSON report must contain a dependencies list')
-          vulnerable = sum(len(item.get('vulns', [])) for item in data['dependencies'] if isinstance(item, dict))
-          print(f'Validated pip-audit report with {len(data["dependencies"])} dependencies and {vulnerable} vulnerability record(s).')
+              raise SystemExit("pip-audit did not produce its JSON report")
+          try:
+              data = json.loads(path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"pip-audit JSON could not be parsed: {exc}") from exc
+          # pip-audit 2.10.1 emits a top-level array of dependency records in JSON mode.
+          if not isinstance(data, list):
+              raise SystemExit("pip-audit JSON report must be a top-level dependency array")
+          vulnerable = 0
+          for index, dependency in enumerate(data):
+              if not isinstance(dependency, dict):
+                  raise SystemExit(f"pip-audit dependency[{index}] must be an object")
+              if not isinstance(dependency.get("name"), str) or not dependency["name"]:
+                  raise SystemExit(f"pip-audit dependency[{index}].name must be non-empty")
+              if not isinstance(dependency.get("version"), str) or not dependency["version"]:
+                  raise SystemExit(f"pip-audit dependency[{index}].version must be non-empty")
+              vulns = dependency.get("vulns")
+              if not isinstance(vulns, list) or any(not isinstance(vuln, dict) for vuln in vulns):
+                  raise SystemExit(f"pip-audit dependency[{index}].vulns must be an array of objects")
+              vulnerable += len(vulns)
+          print(f"Validated pip-audit report with {len(data)} dependencies and {vulnerable} vulnerability record(s).")
           PY
       - name: Static application security testing (Bandit)
         shell: bash
@@ -128,10 +152,6 @@ jobs:
           if high:
               raise SystemExit(f"Bandit gate failed on {len(high)} high-severity/high-confidence finding(s)")
           PY
-      - name: Secret pattern scan
-        run: |
-          ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
-            --exclude-dir=.git --exclude='*.zip' --exclude='pip-audit.json' --exclude='sbom.cdx.json'
       - name: Upload security evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
