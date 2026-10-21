@@ -81,6 +81,8 @@ The project must not claim “complete” or “certified” solely from source 
 - [ ] A security maintainer must manually verify the six embedded secret-pattern matches and record a named owner/ticket before treating any of them as confirmed placeholders or adding exceptions. Production-image enforcement requires a separate approved target/policy.
 - [x] Add signed GitHub artifact provenance attestation for the release-certification report; verify it in the trusted release workflow. This attests provenance, not correctness or production security.
 - [x] Implement and test automated artifact expiry/missing-artifact detection against exact-run GitHub Actions metadata; the daily audit preserves a report and fails closed on missing, empty, expired, near-expiry, or previous-attempt artifacts.
+- [x] Add scheduled cross-run JUnit outcome history by Python-version cohort; identify same-commit result variation separately from cross-commit variation and keep the report advisory.
+- [ ] Add retry-aware per-attempt telemetry before reporting retry rates or declaring a test truly flaky.
 - [ ] Add native Android/iOS E2E only when an actual native app target and emulator/device build are supplied; browser viewport tests are not native mobile evidence.
 
 ## Definition of done for Phase 6
