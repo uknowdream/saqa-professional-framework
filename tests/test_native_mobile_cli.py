@@ -44,3 +44,21 @@ def test_cli_removes_stale_pass_artifact_before_invalid_input(tmp_path):
     output.write_text(json.dumps({"status": "PASS", "app_sha256": "old"}), encoding="utf-8")
     assert main(["--input", str(source), "--output", str(output)]) == 2
     assert not output.exists()
+
+
+def test_cli_writes_unverified_when_valid_evidence_is_blocked(tmp_path):
+    source, output = tmp_path / "input.json", tmp_path / "normalized.json"
+    payload = valid_payload()
+    payload["tests"][0]["status"] = "BLOCKED"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    assert main(["--input", str(source), "--output", str(output)]) == 2
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["status"] == "UNVERIFIED"
+    assert result["tests"][0]["status"] == "BLOCKED"
+
+
+def test_cli_rejects_same_input_and_output_without_deleting_source(tmp_path):
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(valid_payload()), encoding="utf-8")
+    assert main(["--input", str(path), "--output", str(path)]) == 2
+    assert json.loads(path.read_text(encoding="utf-8"))["schema"] == SCHEMA
