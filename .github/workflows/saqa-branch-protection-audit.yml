@@ -86,6 +86,21 @@ jobs:
             --input "$RUNNER_TEMP/main-protection.json" \
             --policy security/branch-protection-policy.json \
             --output artifacts/ops/branch-protection-audit.json
+      - name: Enforce verified branch protection result
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("artifacts/ops/branch-protection-audit.json")
+          if not path.is_file():
+              raise SystemExit("Branch protection audit report is missing; result is UNVERIFIED.")
+          report = json.loads(path.read_text(encoding="utf-8"))
+          status = report.get("status") if isinstance(report, dict) else None
+          if status != "PASS":
+              raise SystemExit(f"Branch protection audit did not PASS (status={status!r}); inspect the artifact and configure read-only admin access.")
+          print("Branch protection audit: PASS")
+          PY
       - name: Upload audit report
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
