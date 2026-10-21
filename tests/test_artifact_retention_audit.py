@@ -126,3 +126,10 @@ def test_cli_emits_fail_closed_report_for_bad_metadata(tmp_path):
     result = json.loads(output.read_text(encoding="utf-8"))
     assert result["status"] == "FAIL"
     assert result["ready"] is False
+
+
+@pytest.mark.parametrize("hours", [0, -1, float("nan"), float("inf"), True, 1e308, 1e-12])
+def test_invalid_retention_window_is_rejected(hours):
+    runs, artifacts = payloads()
+    with pytest.raises(ValueError, match="min_retention_hours"):
+        audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW, min_retention_hours=hours)
