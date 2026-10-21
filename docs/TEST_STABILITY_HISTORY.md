@@ -7,7 +7,8 @@ SAQA creates an advisory trend report from retained `junit.xml` artifacts for re
 - **`SAME_COMMIT_OUTCOME_VARIATION`** — the same test has PASS and FAIL/ERROR observations for the same commit SHA in distinct workflow runs. This is a candidate intermittent result that merits investigation.
 - **`CROSS_COMMIT_OUTCOME_VARIATION`** — outcomes differ, but observations span different SHAs. This could be a code regression, test change, dependency change, or environment variation; it is not called flakiness.
 - **`NO_VARIATION_OBSERVED`** — sufficient observed history has no outcome variation. This does not prove the test will remain stable.
-- **`INSUFFICIENT_HISTORY`** — fewer than three downloaded CI runs are available for one or more Python cohorts, or there is not enough retained JUnit evidence.
+- **`INCOMPLETE_ARTIFACT_COVERAGE`** — one or more expected Python-version JUnit artifacts are missing from the selected history, including cases where no JUnit files remain.
+- **`INSUFFICIENT_HISTORY`** — fewer than three downloaded CI runs are available for one or more Python cohorts, without a more specific outcome or artifact-coverage signal.
 
 The workflow is scheduled weekly and can be run manually. It uploads the report together with the retained input JUnit files for 90 days. Test artifacts also use 90-day retention so recent history can be reconstructed when available. Missing historical artifacts are reported as gaps; the collector never fabricates outcomes.
 
