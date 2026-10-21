@@ -40,7 +40,7 @@ def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str
         raise ValueError(f"{label}: rates must be between 0 and 1")
     return sample
 
-def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str, workload_profile: str, environment_fingerprint: str) -> dict[str, Any]:
+def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str, workload_profile: str, environment_fingerprint: str, source_root: Path | None = None) -> dict[str, Any]:
     if not isinstance(policy, dict) or policy.get("schema") != POLICY_SCHEMA: raise ValueError("unsupported performance policy schema")
     if not isinstance(policy.get("policy_id"), str) or not policy["policy_id"].strip(): raise ValueError("policy_id must be a non-empty string")
     version = policy.get("version")
@@ -50,16 +50,21 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
     if len(summary_paths) < MIN_SAMPLES: raise ValueError(f"at least {MIN_SAMPLES} raw summary files are required")
     samples, sources = [], []
     seen_paths = set()
+    root = source_root.resolve() if source_root is not None else None
     for path in summary_paths:
         resolved_path = path.resolve()
         if resolved_path in seen_paths:
             raise ValueError(f"duplicate raw summary path: {path}")
         seen_paths.add(resolved_path)
-        raw = path.read_bytes()
+        resolved_path = path.resolve()
+        if root is not None and not resolved_path.is_relative_to(root):
+            raise ValueError(f"raw summary path escapes source root: {path}")
+        raw = resolved_path.read_bytes()
         try: summary = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc: raise ValueError(f"cannot parse k6 summary {path}: {exc}") from exc
         samples.append(extract_sample(summary, policy, str(path)))
-        sources.append({"path": str(path), "sha256": hashlib.sha256(raw).hexdigest()})
+        stored_path = resolved_path.relative_to(root).as_posix() if root is not None else str(path)
+        sources.append({"path": stored_path, "sha256": hashlib.sha256(raw).hexdigest()})
     return {"schema": RUNSET_SCHEMA, "target_profile": target_profile.strip(), "workload_profile": workload_profile.strip(),
             "policy_id": policy["policy_id"].strip(), "policy_version": version, "environment_fingerprint": environment_fingerprint.strip(),
             "samples": samples, "sample_sources": sources,
@@ -70,10 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", action="append", type=Path, required=True, help="repeat at least five times")
     parser.add_argument("--policy", type=Path, required=True); parser.add_argument("--target-profile", required=True)
     parser.add_argument("--workload-profile", required=True); parser.add_argument("--environment-fingerprint", required=True)
-    parser.add_argument("--output", type=Path, required=True); args = parser.parse_args(argv)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--source-root", type=Path, help="store source paths relative to this root and reject files outside it")
+    args = parser.parse_args(argv)
     try:
         result = build_run_set(args.summary, read_json(args.policy), target_profile=args.target_profile,
-                               workload_profile=args.workload_profile, environment_fingerprint=args.environment_fingerprint)
+                               workload_profile=args.workload_profile, environment_fingerprint=args.environment_fingerprint,
+                               source_root=args.source_root)
     except (OSError, ValueError) as exc:
         print(json.dumps({"schema": RUNSET_SCHEMA, "status": "BLOCKED", "error": str(exc)}, indent=2)); return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
