@@ -47,8 +47,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata for exploratory profiles.
 - [x] Add a builder that converts at least five distinct raw k6 summaries into a run set with per-file SHA-256 records and source-root confinement.
 - [x] Add a manual/weekly workflow to collect five independently executed guarded samples and retain raw evidence as a reviewable candidate artifact; failed absolute guardrails fail the workflow.
-- [x] Add a deterministic repeated-run median comparator that blocks on fewer than five samples, invalid metrics, and mismatched target/workload/policy/environment metadata.
-- The comparator is an explicit CLI workflow, not a mandatory release-certification domain; no synthetic baseline is committed. A baseline must be built from archived, verified repeated-run artifacts before it can support release decisions.
+- [x] Add a deterministic repeated-run comparator that verifies raw sample hashes and metric binding, blocks fewer than five samples or mismatched target/workload/policy/environment metadata, and compares median/p95/p99 latency, error rate, throughput, and functional check rate.
+- The comparator is available through a manually dispatched workflow, not a mandatory release-certification domain; no synthetic baseline is committed. A baseline must be reviewed from archived, verified repeated-run artifacts before it can support release decisions.
 
 ### P2 — Security coverage
 - [x] Add a threat-model template and a risk-to-test traceability matrix.
