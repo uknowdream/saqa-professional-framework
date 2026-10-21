@@ -29,9 +29,10 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 ### P1 — Native mobile execution
 - [x] Define and test a fail-closed native Android/iOS evidence contract requiring the app hash, package/bundle ID, test-run ID, timezone-aware timestamp, device/OS/runtime metadata, and explicit per-test status.
-- [ ] Add an executable Android emulator/device workflow once an authorized APK and install/test contract are available; document iOS coverage requirements separately.
-- [ ] Capture device OS, model/emulator image, app build, package identifier, and test-run identifiers in native evidence.
-- Browser-based readiness remains the only executable mobile domain today. Native Android/iOS execution is not claimed as implemented or passed without an actual application artifact and device/emulator run.
+- [x] Add manual-dispatch Android emulator install/launch smoke for a hash-verified APK release asset.
+- [x] Add manual-dispatch iOS Simulator install/launch smoke for a hash-verified simulator-compatible .app ZIP release asset.
+- [x] Capture OS/runtime, model, package/bundle identifier, artifact SHA-256, and test-run identifiers in native evidence.
+- Native workflows exist but require an authorized app artifact and a real successful run; neither platform is considered certified until fresh device/emulator evidence is produced. Physical-device, lifecycle, permission, Appium, and broad iOS coverage remain out of scope.
 
 ### P1 — Accessibility depth
 - [x] Record keyboard Tab traversal, focus-visible state, CSS focus-indicator clues, repeated consecutive focus targets, and a conservative suspected-trap diagnostic in accessibility evidence.
