@@ -81,3 +81,8 @@ The local commands are limited to the same reproducible/authorized targets used 
 ## Coverage quality gate
 
 The Python 3.11, 3.12, and 3.13 regression matrix enforces a **minimum 85% total statement coverage** with pytest-cov. The current verified main baseline was 88% on all three runtimes. Coverage is a floor, not proof of test effectiveness or complete risk coverage; important security, evidence-integrity, and release-gate branches still require focused negative-path tests. Do not lower the floor solely to make CI green: add or improve tests for the uncovered behavior, or document a reviewed threshold change with current measurements.
+
+
+## Dependency update hygiene
+
+Dependabot opens weekly pull requests for Python package constraints and GitHub Actions references. These are proposed updates, not auto-merges: every update must pass the Python-version matrix, immutable-action pin checks, dependency/SBOM audit, container scan where applicable, and release-evidence workflow. Security updates should be reviewed promptly; scheduled checks do not replace review of dependency advisories or exception expiry.
