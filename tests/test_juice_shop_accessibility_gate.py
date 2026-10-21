@@ -102,6 +102,9 @@ def test_keyboard_focus_diagnostics_capture_indicators_and_repeated_targets():
     assert "visible_indicator_style_steps" in SOURCE
     assert "repeated_consecutive_targets" in SOURCE
     assert "keyboard_trap_suspected" in SOURCE
+    assert "repeated_focus_cycle_periods" in SOURCE
+    assert "focus_indicator_visible" in SOURCE
+    assert "focus_style_changed_from_resting" in SOURCE
     assert "outline_offset" in SOURCE
     assert "box_shadow" in SOURCE
     assert "heuristics, not proof of WCAG conformance" in SOURCE
@@ -150,3 +153,61 @@ def test_mobile_viewport_keyboard_traversal_is_recorded_and_gated():
 def test_gated_axe_scan_occurs_before_mobile_viewport_reload():
     assert SOURCE.index("page.add_script_tag(content=axe_source)") < SOURCE.index('page.set_viewport_size({"width": 390, "height": 844})')
     assert SOURCE.index('evidence["details"]["independent_oracle"]') < SOURCE.index('page.set_viewport_size({"width": 390, "height": 844})')
+
+
+def test_keyboard_focus_summary_detects_non_adjacent_repeated_cycle():
+    sequence = [
+        {"tag": "button", "id": "a", "role": "", "text": "A", "focus_indicator_visible": False, "outline_offset": "12px"},
+        {"tag": "button", "id": "b", "role": "", "text": "B", "focus_indicator_visible": False, "outline_offset": "12px"},
+        {"tag": "button", "id": "a", "role": "", "text": "A", "focus_indicator_visible": False, "outline_offset": "12px"},
+        {"tag": "button", "id": "b", "role": "", "text": "B", "focus_indicator_visible": False, "outline_offset": "12px"},
+    ]
+    result = module._summarize_keyboard_sequence(sequence, 4)
+    assert result["repeated_consecutive_targets"] == 0
+    assert result["repeated_focus_cycle_periods"] == [2]
+    assert result["keyboard_trap_suspected"] is True
+    # A non-default resting outline offset alone is not counted as a painted focus indicator.
+    assert result["visible_indicator_style_steps"] == 0
+
+
+def test_keyboard_focus_summary_counts_only_focus_indicator_results_when_present():
+    sequence = [
+        {"tag": "button", "id": "a", "role": "", "text": "A",
+         "focus_indicator_visible": False, "outline_style": "solid", "outline_width": "2px"},
+        {"tag": "button", "id": "b", "role": "", "text": "B",
+         "focus_indicator_visible": True, "outline_style": "none", "outline_width": "0px"},
+    ]
+    result = module._summarize_keyboard_sequence(sequence, 2)
+    assert result["visible_indicator_style_steps"] == 1
+
+
+def test_keyboard_focus_sequence_exercises_page_interface_and_returns_focus_data():
+    class FakeKeyboard:
+        def __init__(self):
+            self.presses = []
+
+        def press(self, key):
+            self.presses.append(key)
+
+    class FakePage:
+        def __init__(self, states):
+            self.keyboard = FakeKeyboard()
+            self.states = iter(states)
+
+        def evaluate(self, script):
+            assert "focus_indicator_visible" in script
+            return next(self.states)
+
+    states = [
+        {"tag": "button", "id": "search", "role": "", "text": "Search", "tab_index": 0,
+         "focus_visible": True, "focus_indicator_visible": True, "outline_style": "solid", "outline_width": "2px"},
+        {"tag": "a", "id": "home", "role": "", "text": "Home", "tab_index": 0,
+         "focus_visible": True, "focus_indicator_visible": False, "outline_style": "none", "outline_width": "0px"},
+    ]
+    page = FakePage(states)
+    result = module._keyboard_focus_sequence(page, steps=2)
+    assert page.keyboard.presses == ["Tab", "Tab"]
+    assert result["focused_steps"] == 2
+    assert result["unique_focus_targets"] == 2
+    assert result["visible_indicator_style_steps"] == 1
+    assert result["sequence"][0]["id"] == "search"
