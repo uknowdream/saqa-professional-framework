@@ -49,6 +49,9 @@ def test_branch_protection_audit_never_runs_with_pull_request_secrets():
     assert "SAQA_REPO_ADMIN_AUDIT_TOKEN" in source
     assert "if: always()" in source
     assert "UNVERIFIED" in source
+    assert "Enforce verified branch protection result" in source
+    assert "status != \"PASS\"" in source
+    assert "inspect the artifact and configure read-only admin access" in source
     assert "gh api \"/repos/${GITHUB_REPOSITORY}/branches/main/protection\"" in source
 
 
