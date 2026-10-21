@@ -86,7 +86,7 @@ def run_smoke(archive: Path, bundle_id: str, expected_sha256: str, run_id: str, 
                                   {"test_id": "app-launch", "status": "BLOCKED"}])
                 else:
                     model = selected.get("name")
-                    runtime_match = re.search(r"iOS-(\\d+(?:-\\d+)*)", runtime_name)
+                    runtime_match = re.search(r"iOS-(\d+(?:-\d+)*)", runtime_name)
                     os_version = runtime_match.group(1).replace("-", ".") if runtime_match else None
                     if not isinstance(model, str) or not model.strip() or not os_version:
                         tests.extend([
