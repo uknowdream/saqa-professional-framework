@@ -71,7 +71,7 @@ jobs:
               continue
             fi
             run_id="$(jq -r '.id' <<< "$latest")"
-            artifacts="$(gh api --paginate "/repos/\${GITHUB_REPOSITORY}/actions/runs/\${run_id}/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '.')"
+            artifacts="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '.')"
             artifact_ok="$(jq --arg name "$required_artifact" '[.[] | select(.name == $name and .expired == false and (.size_in_bytes | type) == "number" and .size_in_bytes > 0)] | length' <<< "$artifacts")"
             if [ "$artifact_ok" -lt 1 ]; then
               ready=false
