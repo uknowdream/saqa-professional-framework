@@ -125,3 +125,17 @@ def test_min_runs_and_timezone_validation(tmp_path):
         build_history(tmp_path, min_runs=1)
     with pytest.raises(ValueError, match="timezone-aware"):
         build_history(tmp_path, generated_at=datetime(2026, 1, 1))
+
+
+def test_cli_exits_blocked_for_invalid_min_runs(tmp_path):
+    from scripts.test_stability_history import main
+
+    output = tmp_path / "report.json"
+    exit_code = main([
+        "--input-root", str(tmp_path / "empty"),
+        "--min-runs", "1",
+        "--output", str(output),
+    ])
+    assert exit_code == 2
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["status"] == "BLOCKED"
