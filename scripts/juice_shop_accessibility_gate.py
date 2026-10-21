@@ -62,6 +62,35 @@ def _guard_request(route) -> None:
     route.continue_()
 
 
+def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) -> dict[str, object]:
+    """Summarize keyboard focus observations; all findings are diagnostic only."""
+    def identity(item):
+        return (item.get("tag"), item.get("id"), item.get("role"), item.get("text"))
+    identities = {identity(item) for item in sequence}
+    repeated_consecutive_targets = sum(
+        1 for previous, current in zip(sequence, sequence[1:])
+        if identity(previous) == identity(current)
+    )
+    indicator_steps = sum(
+        1 for item in sequence
+        if (item.get("outline_style") not in {None, "", "none"} and item.get("outline_width") not in {None, "", "0px"})
+        or item.get("box_shadow") not in {None, "", "none"}
+        or item.get("outline_offset") not in {None, "", "0px"}
+    )
+    return {
+        "method": "keyboard Tab only",
+        "requested_steps": steps,
+        "focused_steps": len(sequence),
+        "unique_focus_targets": len(identities),
+        "focus_visible_steps": sum(1 for item in sequence if item.get("focus_visible")),
+        "visible_indicator_style_steps": indicator_steps,
+        "repeated_consecutive_targets": repeated_consecutive_targets,
+        "keyboard_trap_suspected": bool(len(identities) > 1 and repeated_consecutive_targets >= 2),
+        "sequence": sequence,
+        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required"
+    }
+
+
 def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
     """Record keyboard-only Tab traversal without claiming full WCAG conformance."""
     sequence = []
@@ -90,31 +119,7 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
         }""")
         if state and state["tag"] not in {"body", "html"}:
             sequence.append(state)
-    identities = {(item["tag"], item["id"], item["role"], item["text"]) for item in sequence}
-    def identity(item):
-        return (item["tag"], item["id"], item["role"], item["text"])
-    repeated_consecutive_targets = sum(
-        1 for previous, current in zip(sequence, sequence[1:])
-        if identity(previous) == identity(current)
-    )
-    indicator_steps = sum(
-        1 for item in sequence
-        if (item.get("outline_style") not in {None, "", "none"} and item.get("outline_width") not in {None, "", "0px"})
-        or (item.get("box_shadow") not in {None, "", "none"})
-        or (item.get("outline_offset") not in {None, "", "0px"})
-    )
-    return {
-        "method": "keyboard Tab only",
-        "requested_steps": steps,
-        "focused_steps": len(sequence),
-        "unique_focus_targets": len(identities),
-        "focus_visible_steps": sum(1 for item in sequence if item["focus_visible"]),
-        "visible_indicator_style_steps": indicator_steps,
-        "repeated_consecutive_targets": repeated_consecutive_targets,
-        "keyboard_trap_suspected": bool(len(identities) > 1 and repeated_consecutive_targets >= 2),
-        "sequence": sequence,
-        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required"
-    }
+    return _summarize_keyboard_sequence(sequence, steps)
 
 
 def main() -> int:
