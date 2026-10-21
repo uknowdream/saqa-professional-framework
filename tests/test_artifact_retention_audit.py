@@ -179,3 +179,25 @@ def test_expiry_threshold_overflow_is_reported_as_value_error():
     with pytest.raises(ValueError, match="expiry threshold"):
         audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW,
                         min_retention_hours=24 * 999_999_000)
+
+
+def test_cli_deeply_nested_actions_metadata_emits_unverified_report(tmp_path):
+    runs_file, artifacts_file = tmp_path / "runs.json", tmp_path / "artifacts.json"
+    output = tmp_path / "report.json"
+    runs_file.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    artifacts_file.write_text("[]", encoding="utf-8")
+    assert main(["--runs-file", str(runs_file), "--artifacts-file", str(artifacts_file),
+                 "--main-sha", MAIN_SHA, "--output", str(output)]) == 2
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["status"] == "UNVERIFIED"
+    assert result["ready"] is False
+
+
+def test_cli_does_not_overwrite_actions_metadata_input(tmp_path):
+    runs_file, artifacts_file = tmp_path / "runs.json", tmp_path / "artifacts.json"
+    runs_file.write_text("[]", encoding="utf-8")
+    artifacts_file.write_text("[]", encoding="utf-8")
+    original = runs_file.read_bytes()
+    assert main(["--runs-file", str(runs_file), "--artifacts-file", str(artifacts_file),
+                 "--main-sha", MAIN_SHA, "--output", str(runs_file)]) == 2
+    assert runs_file.read_bytes() == original
