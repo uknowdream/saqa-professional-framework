@@ -77,3 +77,7 @@ python -m pytest tests/test_juice_shop_accessibility_gate.py
 ```
 
 The local commands are limited to the same reproducible/authorized targets used by CI.
+
+## Coverage quality gate
+
+The Python 3.11, 3.12, and 3.13 regression matrix enforces a **minimum 85% total statement coverage** with pytest-cov. The current verified main baseline was 88% on all three runtimes. Coverage is a floor, not proof of test effectiveness or complete risk coverage; important security, evidence-integrity, and release-gate branches still require focused negative-path tests. Do not lower the floor solely to make CI green: add or improve tests for the uncovered behavior, or document a reviewed threshold change with current measurements.
