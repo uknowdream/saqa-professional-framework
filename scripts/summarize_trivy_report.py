@@ -82,3 +82,23 @@ def summarize_file(input_path: Path, output_path: Path, *, image: str, scanner: 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", required=True, type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--image", required=True)
+    parser.add_argument("--scanner", required=True)
+    args = parser.parse_args(argv)
+    try:
+        result = summarize_file(args.input, args.output, image=args.image, scanner=args.scanner)
+    except ValueError as exc:
+        parser.error(str(exc))
+    print(json.dumps({"finding_count": result["finding_count"], "by_severity": result["by_severity"]}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
