@@ -36,3 +36,16 @@ Any test failure produces FAIL. If any test is blocked or unverified, the aggreg
 ~~~
 
 The example is illustrative, not executed evidence. Contract validation checks structure and consistency only; it does not authenticate a device run or verify that the binary hash came from a trusted build. Preserve CI/device logs and signed artifact provenance. Native execution remains UNVERIFIED until an authorized app artifact and real emulator/device workflow are configured.
+
+
+## Validate an evidence file
+
+Once a real device/emulator runner has produced the JSON document, normalize and validate it with:
+
+~~~bash
+python scripts/validate_native_mobile_evidence.py \
+  --input artifacts/native-mobile/raw-evidence.json \
+  --output artifacts/native-mobile/validated-evidence.json
+~~~
+
+Exit code 0 means all reported tests passed; 1 means at least one reported test failed; 2 means evidence is invalid or incomplete. This command does not install or launch an APK/IPA and must not be treated as a native execution workflow.
