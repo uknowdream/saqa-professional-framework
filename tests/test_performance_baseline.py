@@ -164,3 +164,11 @@ def test_source_paths_cannot_escape_root(tmp_path):
     data["sample_sources"] = [{"path": "../outside-saqa-run.json", "sha256": hashlib.sha256(outside.read_bytes()).hexdigest()} for _ in data["samples"]]
     with pytest.raises(ValueError, match="escapes source root"):
         verify_source_files(data, tmp_path, "candidate")
+
+
+def test_duplicate_sample_source_paths_are_rejected():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["sample_sources"] = [dict(baseline["sample_sources"][0]) for _ in candidate["samples"]]
+    with pytest.raises(ValueError, match="duplicate path"):
+        compare_run_sets(baseline, candidate)
