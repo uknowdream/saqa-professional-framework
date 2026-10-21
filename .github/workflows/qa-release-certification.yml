@@ -78,7 +78,7 @@ jobs:
               runs="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
               pending=0
               while IFS='|' read -r workflow workflow_path workflow_id; do
-                run_status="$(jq -r --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then "MISSING" else .[-1].status end' <<< "$runs")"
+                run_status="$(jq -r --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then "MISSING" else .[-1].status end)' <<< "$runs")"
                 if [ "$run_status" != "completed" ]; then pending=1; fi
               done <<'SAQA_WAIT_FOR_MANDATORY'
           SAQA CI|.github/workflows/saqa-ci.yml|345839221
