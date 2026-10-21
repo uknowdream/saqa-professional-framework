@@ -56,7 +56,7 @@ def _read_run_metadata(path: Path, run_id_from_path: str, python_version: str | 
     metadata_path = path / "run-metadata.json"
     try:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError(f"cannot read run metadata {metadata_path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"run metadata must be a JSON object: {metadata_path}")
