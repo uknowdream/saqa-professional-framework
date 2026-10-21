@@ -1,6 +1,6 @@
 """Compare repeated, metadata-matched k6 run sets against a measured baseline."""
 from __future__ import annotations
-import argparse, json, math, statistics
+import argparse, json, math, statistics, re
 from pathlib import Path
 from typing import Any
 
@@ -8,12 +8,27 @@ SCHEMA = "saqa.performance-run-set.v1"
 METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "environment_fingerprint")
 METRICS = ("p95_ms", "p99_ms", "error_rate", "throughput_rps", "check_pass_rate")
 MIN_SAMPLES = 5
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def number(value: Any, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
         raise ValueError(f"{name} must be a finite number")
     return float(value)
+
+
+
+def validate_sources(value: dict[str, Any], label: str) -> None:
+    sources = value.get("sample_sources")
+    samples = value.get("samples")
+    if not isinstance(sources, list) or not isinstance(samples, list) or len(sources) != len(samples):
+        raise ValueError(f"{label} sample_sources must match the sample count")
+    for index, source in enumerate(sources):
+        if not isinstance(source, dict) or not isinstance(source.get("path"), str) or not source["path"].strip():
+            raise ValueError(f"{label} sample_sources[{index}].path must be a non-empty string")
+        digest = source.get("sha256")
+        if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
+            raise ValueError(f"{label} sample_sources[{index}].sha256 must be a lowercase SHA-256 digest")
 
 
 def load_run_set(path: Path) -> dict[str, Any]:
@@ -45,6 +60,7 @@ def load_run_set(path: Path) -> dict[str, Any]:
         if any(not 0 <= row[key] <= 1 for key in ("error_rate", "check_pass_rate")):
             raise ValueError(f"{path}: samples[{i}] rates must be between 0 and 1")
         rows.append(row)
+    validate_sources({**data, "samples": rows}, str(path))
     return {**data, "samples": rows}
 
 
@@ -72,6 +88,7 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
                 raise ValueError(f"{label} {field} must be a non-empty string")
         if not isinstance(value.get("samples"), list) or len(value["samples"]) < MIN_SAMPLES:
             raise ValueError(f"{label} requires at least {MIN_SAMPLES} samples")
+        validate_sources(value, label)
 
     def medians(run_set):
         values = {key: [] for key in METRICS}
