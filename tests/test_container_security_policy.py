@@ -20,6 +20,7 @@ SUMMARY = {
     "schema": "saqa.container-security-summary.v1",
     "image": "example:1",
     "scanned_artifact_name": "example:1",
+    "source_report_sha256": "a" * 64,
     "findings": [
         {"type": "vulnerability", "severity": "CRITICAL", "id": "CVE-TEST-1", "target": "pkg/a"},
         {"type": "vulnerability", "severity": "HIGH", "id": "CVE-TEST-2", "target": "pkg/b"},
@@ -49,7 +50,7 @@ def test_exact_active_exception_suppresses_only_matching_finding():
 
 
 def test_no_blocking_findings_pass():
-    summary = {"schema": "saqa.container-security-summary.v1", "image": "example:1", "scanned_artifact_name": "example:1", "findings": [
+    summary = {"schema": "saqa.container-security-summary.v1", "image": "example:1", "scanned_artifact_name": "example:1", "source_report_sha256": "a" * 64, "findings": [
         {"type": "vulnerability", "severity": "HIGH", "id": "CVE-1", "target": "pkg/a"}
     ]}
     assert evaluate_summary(summary, POLICY, today=date(2026, 10, 21))["status"] == "PASS"
@@ -132,6 +133,7 @@ def test_pinned_intentionally_vulnerable_image_is_report_only_not_certified():
     summary = copy.deepcopy(SUMMARY)
     summary["image"] = "bkimminich/juice-shop:v20.2.0"
     summary["scanned_artifact_name"] = "bkimminich/juice-shop:v20.2.0"
+    summary["source_report_sha256"] = "b" * 64
     result = evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
                                report_only_expected_vulnerable_target=True)
     assert result["status"] == "REPORT_ONLY"
@@ -144,6 +146,7 @@ def test_report_only_mode_rejects_any_other_image():
     summary = copy.deepcopy(SUMMARY)
     summary["image"] = "example.com/production:latest"
     summary["scanned_artifact_name"] = "example.com/production:latest"
+    summary["source_report_sha256"] = "c" * 64
     with pytest.raises(ValueError, match="restricted to the exact pinned"):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
                          report_only_expected_vulnerable_target=True)
@@ -262,3 +265,14 @@ def test_suppressed_finding_preserves_exception_reason():
     policy["exceptions"] = [exception]
     result = evaluate_summary(SUMMARY, policy, today=date(2026, 10, 21))
     assert result["suppressed_findings"][0]["exception"]["reason"] == exception["reason"]
+
+
+def test_raw_trivy_report_digest_is_required_and_format_checked():
+    summary = copy.deepcopy(SUMMARY)
+    summary.pop("source_report_sha256")
+    with pytest.raises(ValueError, match="source_report_sha256"):
+        evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
+    summary = copy.deepcopy(SUMMARY)
+    summary["source_report_sha256"] = "not-a-digest"
+    with pytest.raises(ValueError, match="source_report_sha256"):
+        evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
