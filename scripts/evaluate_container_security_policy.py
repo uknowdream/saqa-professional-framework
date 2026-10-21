@@ -12,6 +12,8 @@ SUMMARY_SCHEMA = "saqa.container-security-summary.v1"
 ALLOWED_TYPES = {"vulnerability", "secret", "misconfiguration"}
 ALLOWED_SEVERITIES = {"UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
 REQUIRED_EXCEPTION_FIELDS = {"finding_type", "finding_id", "severity", "target", "reason", "owner", "ticket", "expires_on"}
+# This immutable OCI index digest is the reviewed v20.2.0 OWASP Juice Shop training image.
+TRAINING_IMAGE_DIGEST = "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
 
 
 def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]:
@@ -85,8 +87,8 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
     import re
     if not isinstance(source_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", source_digest):
         raise ValueError("summary source_report_sha256 must be a lowercase SHA-256 digest")
-    if report_only_expected_vulnerable_target and image != "bkimminich/juice-shop:v20.2.0":
-        raise ValueError("report-only mode is restricted to the exact pinned intentionally vulnerable Juice Shop image")
+    if report_only_expected_vulnerable_target and image != TRAINING_IMAGE_DIGEST:
+        raise ValueError("report-only mode is restricted to the exact digest-pinned intentionally vulnerable Juice Shop v20.2.0 image")
     validated = validate_policy(policy, today=today)
     blocking = []
     suppressed = []
@@ -149,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", required=True, type=Path)
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--report-only-expected-vulnerable-target", action="store_true", help="record findings without release blocking; allowed only for the exact pinned OWASP Juice Shop training image")
+    parser.add_argument("--report-only-expected-vulnerable-target", action="store_true", help="record findings without release blocking; allowed only for the exact reviewed SHA-256-pinned OWASP Juice Shop v20.2.0 training image")
     args = parser.parse_args(argv)
     try:
         summary = json.loads(args.summary.read_text(encoding="utf-8"))
