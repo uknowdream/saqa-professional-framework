@@ -28,7 +28,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 ## Next engineering priorities
 
 ### P1 — Native mobile execution
-- [ ] Add an explicit Android emulator/device workflow once an authorized APK and install/test contract are available; document iOS coverage requirements separately.
+- [x] Define and test a fail-closed native Android/iOS evidence contract requiring the app hash, package/bundle ID, test-run ID, timezone-aware timestamp, device/OS/runtime metadata, and explicit per-test status.
+- [ ] Add an executable Android emulator/device workflow once an authorized APK and install/test contract are available; document iOS coverage requirements separately.
 - [ ] Capture device OS, model/emulator image, app build, package identifier, and test-run identifiers in native evidence.
 - Browser-based readiness remains the only executable mobile domain today. Native Android/iOS execution is not claimed as implemented or passed without an actual application artifact and device/emulator run.
 
