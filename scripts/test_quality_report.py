@@ -111,7 +111,7 @@ def summarize_junit(xml_path: Path, policy: Any, *, today: date | None = None,
         "quarantine_count": len(quarantines),
         "stale_quarantine_ids": stale,
         "quarantined_failures": sorted(expired_or_unknown),
-        "status": "FAIL" if stale or expired_or_unknown else "PASS",
+        "status": "FAIL" if failures or stale or expired_or_unknown else "PASS",
         "notes": [
             "JUnit alone cannot reliably measure retry rate or historical flakiness; those require retry-aware runner events and cross-run history.",
             "A quarantined test failure remains visible and is not converted to PASS.",
