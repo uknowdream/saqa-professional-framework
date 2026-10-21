@@ -36,3 +36,11 @@ def test_cli_returns_fail_for_failed_native_test(tmp_path):
     payload["tests"][0]["status"] = "FAIL"
     source.write_text(json.dumps(payload), encoding="utf-8")
     assert main(["--input", str(source), "--output", str(output)]) == 1
+
+
+def test_cli_removes_stale_pass_artifact_before_invalid_input(tmp_path):
+    source, output = tmp_path / "bad.json", tmp_path / "out.json"
+    source.write_text("[]", encoding="utf-8")
+    output.write_text(json.dumps({"status": "PASS", "app_sha256": "old"}), encoding="utf-8")
+    assert main(["--input", str(source), "--output", str(output)]) == 2
+    assert not output.exists()
