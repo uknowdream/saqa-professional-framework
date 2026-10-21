@@ -19,9 +19,15 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def number(value: Any, name: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be a finite number")
-    return float(value)
+    try:
+        converted = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{name} must be a finite number") from exc
+    if not math.isfinite(converted):
+        raise ValueError(f"{name} must be a finite number")
+    return converted
 
 
 
@@ -82,7 +88,7 @@ def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str, 
 def load_run_set(path: Path) -> dict[str, Any]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError(f"cannot read run set {path}: {exc}") from exc
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise ValueError(f"{path}: unsupported run-set schema")
@@ -179,8 +185,20 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
     checks.append({"id": "error_rate_increase", "baseline_median": before["error_rate"], "candidate_median": after["error_rate"],
                    "change_absolute": round(error_delta, 6), "limit_absolute": max_error_rate_increase,
                    "passed": error_delta <= max_error_rate_increase})
-    checks.append({"id": "functional_check_pass_rate", "baseline_median": before["check_pass_rate"],
-                   "candidate_median": after["check_pass_rate"], "limit": 1.0, "passed": after["check_pass_rate"] >= 1.0})
+    candidate_check_failures = [
+        {"sample_index": index, "check_pass_rate": sample["check_pass_rate"]}
+        for index, sample in enumerate(candidate["samples"])
+        if not math.isclose(sample["check_pass_rate"], 1.0, rel_tol=0.0, abs_tol=1e-12)
+    ]
+    checks.append({
+        "id": "functional_check_pass_rate",
+        "baseline_median": before["check_pass_rate"],
+        "candidate_median": after["check_pass_rate"],
+        "limit": 1.0,
+        "candidate_failed_sample_count": len(candidate_check_failures),
+        "candidate_failed_samples": candidate_check_failures,
+        "passed": not candidate_check_failures,
+    })
     failed = [item["id"] for item in checks if not item["passed"]]
     return {"schema": "saqa.performance-baseline-comparison.v1", "status": "FAIL" if failed else "PASS",
             "baseline_sample_count": len(baseline["samples"]), "candidate_sample_count": len(candidate["samples"]),
