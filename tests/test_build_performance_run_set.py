@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import pytest
 from scripts.build_performance_run_set import build_run_set
@@ -24,6 +25,8 @@ def test_builds_run_set_with_hashes_and_compatible_schema(tmp_path):
     result = build(paths)
     assert len(result["samples"]) == len(result["sample_sources"]) == 5
     assert all(len(source["sha256"]) == 64 for source in result["sample_sources"])
+    expected_policy_digest = hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest()
+    assert result["policy_sha256"] == expected_policy_digest
     out = tmp_path / "run-set.json"; out.write_text(json.dumps(result), encoding="utf-8")
     assert len(load_run_set(out)["samples"]) == 5
 
