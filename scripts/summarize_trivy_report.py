@@ -27,8 +27,13 @@ def summarize_report(report: Any, *, image: str, scanner: str) -> dict[str, Any]
     results = report.get("Results")
     if not isinstance(results, list):
         raise ValueError("Trivy report schema invalid: expected Results array")
+    artifact_name = report.get("ArtifactName")
+    if not isinstance(artifact_name, str) or not artifact_name.strip():
+        raise ValueError("Trivy report must include the actual scanned ArtifactName")
     if not isinstance(image, str) or not image.strip():
         raise ValueError("image must be a non-empty string")
+    if artifact_name != image:
+        raise ValueError(f"requested image does not match Trivy-scanned ArtifactName: {artifact_name!r}")
     if not isinstance(scanner, str) or not scanner.strip():
         raise ValueError("scanner must be a non-empty string")
     findings = []
@@ -65,6 +70,7 @@ def summarize_report(report: Any, *, image: str, scanner: str) -> dict[str, Any]
     return {
         "schema": SCHEMA,
         "image": image,
+        "scanned_artifact_name": artifact_name,
         "scanner": scanner,
         "finding_count": len(findings),
         "by_severity": counts,
