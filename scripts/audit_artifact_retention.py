@@ -198,12 +198,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--min-retention-hours", type=float, default=DEFAULT_MIN_RETENTION_HOURS)
     args = parser.parse_args(argv)
+    if args.output.resolve() in {args.runs_file.resolve(), args.artifacts_file.resolve()}:
+        print(json.dumps({
+            "schema": SCHEMA, "status": "UNVERIFIED", "ready": False,
+            "main_sha": args.main_sha, "error": "audit output must differ from metadata input files",
+            "note": "The source metadata was preserved; no release decision was written over it.",
+        }, indent=2))
+        return 2
     try:
         runs = json.loads(args.runs_file.read_text(encoding="utf-8"))
         artifacts = json.loads(args.artifacts_file.read_text(encoding="utf-8"))
         result = audit_artifacts(runs, artifacts, main_sha=args.main_sha, min_retention_hours=args.min_retention_hours)
         exit_code = 0 if result["ready"] else 1
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         result = {
             "schema": SCHEMA, "status": "UNVERIFIED", "ready": False,
             "main_sha": args.main_sha, "error": str(exc),
