@@ -2,7 +2,7 @@ import json
 import hashlib
 from pathlib import Path
 import pytest
-from scripts.build_performance_run_set import build_run_set
+from scripts.build_performance_run_set import build_run_set, finite
 from scripts.compare_performance_baseline import load_run_set
 from scripts.k6_gate import ROOT
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
@@ -74,3 +74,38 @@ def test_builder_rejects_summary_outside_source_root(tmp_path):
     with pytest.raises(ValueError, match="escapes source root"):
         build_run_set(paths, POLICY, target_profile="target", workload_profile="workload",
                       environment_fingerprint="runner", source_root=root)
+
+
+def test_rejects_duplicate_raw_summary_content(tmp_path):
+    same = [write_summary(tmp_path, f"copy-{i}.json", summary(p95=400, p99=700)) for i in range(5)]
+    with pytest.raises(ValueError, match="duplicate raw summary content"):
+        build(same)
+
+
+def test_huge_integer_metric_becomes_validation_error():
+    with pytest.raises(ValueError, match="finite number"):
+        finite(10 ** 400, "oversized metric")
+
+
+@pytest.mark.parametrize(("bad_field", "bad_value", "message"), [
+    ("median", 500, "median must not exceed p95"),
+    ("p95", -1, "latency and throughput must be non-negative"),
+    ("error", 1.1, "rates must be between 0 and 1"),
+    ("checks", -0.1, "rates must be between 0 and 1"),
+])
+def test_extract_sample_rejects_median_range_and_rate_errors(tmp_path, bad_field, bad_value, message):
+    paths = []
+    for i in range(5):
+        item = summary(p95=400 + i, p99=700 + i)
+        metric_values = item["metrics"]["http_req_duration"]["values"]
+        if bad_field == "median":
+            metric_values["med"] = bad_value
+        elif bad_field == "p95":
+            metric_values["p(95)"] = bad_value
+        elif bad_field == "error":
+            item["metrics"]["http_req_failed"]["values"]["rate"] = bad_value
+        elif bad_field == "checks":
+            item["metrics"]["checks"]["values"]["rate"] = bad_value
+        paths.append(write_summary(tmp_path, f"bad-{i}.json", item))
+    with pytest.raises(ValueError, match=message):
+        build(paths)
