@@ -54,19 +54,29 @@ def audit(protection: Any, policy: Any) -> dict[str, Any]:
             failures.append("required_status_checks.strict must be true")
         contexts = checks.get("contexts", [])
         bound_checks = checks.get("checks", [])
-        if not isinstance(contexts, list) or any(not isinstance(item, str) for item in contexts):
-            failures.append("required_status_checks.contexts must be an array of strings")
+        if (
+            not isinstance(contexts, list)
+            or any(not isinstance(item, str) or not item.strip() for item in contexts)
+        ):
+            failures.append("required_status_checks.contexts must be an array of non-empty strings")
             contexts = []
+        elif len(contexts) != len(set(contexts)):
+            failures.append("required_status_checks.contexts must not contain duplicates")
         if not isinstance(bound_checks, list) or any(not isinstance(item, dict) for item in bound_checks):
             failures.append("required_status_checks.checks must be an array of objects")
             bound_checks = []
         configured_contexts = set(contexts)
         app_binding = {}
+        seen_bound_contexts: set[str] = set()
         for index, check in enumerate(bound_checks):
             context = check.get("context")
             if not isinstance(context, str) or not context.strip():
                 failures.append(f"required_status_checks.checks[{index}].context is invalid")
                 continue
+            if context in seen_bound_contexts:
+                failures.append(f"required_status_checks.checks contains duplicate context: {context}")
+                continue
+            seen_bound_contexts.add(context)
             configured_contexts.add(context)
             raw_app_id = check.get("app_id")
             if raw_app_id is None:
