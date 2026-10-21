@@ -1,5 +1,6 @@
 import json
 import hashlib
+from itertools import count
 from pathlib import Path
 import subprocess
 import sys
@@ -9,16 +10,18 @@ from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_
 from scripts.k6_gate import ROOT
 
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
+_RUN_SET_IDS = count()
 
 
 def run_set(*, median=250, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metadata):
+    run_set_id = next(_RUN_SET_IDS)
     result = {
         "schema": SCHEMA, "target_profile": "juice-shop-v20.2.0-local-loopback",
         "workload_profile": "products-search-v1", "policy_id": "juice-shop-local-performance",
         "policy_version": 1, "policy_sha256": hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest(), "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
         "samples": [{"median_ms": median, "p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
-        "sample_sources": [{"path": f"run-{i}.json", "sha256": hashlib.sha256(f"raw-run-{i}".encode()).hexdigest()} for i in range(5)],
+        "sample_sources": [{"path": f"run-{i}.json", "sha256": hashlib.sha256(f"raw-run-set-{run_set_id}-{i}".encode()).hexdigest()} for i in range(5)],
     }
     result.update(metadata)
     return result
