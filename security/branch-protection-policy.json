@@ -1,0 +1,29 @@
+{
+  "schema": "saqa.branch-protection-policy.v1",
+  "version": 1,
+  "branch": "main",
+  "require_strict_status_checks": true,
+  "required_check_app_id": 15368,
+  "required_check_contexts": [
+    "Python quality (3.11)",
+    "Python quality (3.12)",
+    "Python quality (3.13)",
+    "Dependency, SBOM, and secret hygiene",
+    "Isolated database quality gate",
+    "Target authorization policy",
+    "Docker authorized target smoke",
+    "Juice Shop API quality gate",
+    "OpenAPI contract gate",
+    "Contract gate against deterministic mock",
+    "Canonical evidence aggregation",
+    "Accessibility canonical evidence aggregation",
+    "Mobile canonical evidence aggregation",
+    "k6 local performance gate",
+    "Validate framework structure and safety",
+    "Advanced QE regression",
+    "Scan pinned reference image"
+  ],
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "description": "Audit policy only. It does not configure branch protection. The required contexts are derived from the current main-branch CI job names."
+}
