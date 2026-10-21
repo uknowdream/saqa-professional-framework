@@ -12,7 +12,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: saqa-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Keep the scheduled maintenance sweep isolated so it cannot cancel a main push's release evidence.
+  group: saqa-ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
