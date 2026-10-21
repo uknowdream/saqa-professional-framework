@@ -37,3 +37,16 @@ def test_manifest_is_required_in_uploaded_evidence_and_digest_is_explicit():
     assert 'recorded_image != image or "@sha256:" not in recorded_image' in manifest
     assert '"juice-shop-trivy-summary.json"' in manifest
     assert '"juice-shop-security-policy-result.json"' in manifest
+
+
+def test_security_sbom_and_manifest_are_attested_only_from_trusted_main_job():
+    workflow = WORKFLOW.read_text(encoding="utf-8")
+    attest_job = workflow.split("  attest-reference-sbom:", 1)[1]
+    assert "if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'" in attest_job
+    assert "needs: scan-reference-image" in attest_job
+    assert "id-token: write" in attest_job
+    assert "attestations: write" in attest_job
+    assert "subject-path: artifacts/security/juice-shop-sbom.spdx.json" in attest_job
+    assert "subject-path: artifacts/security/juice-shop-security-artifact-manifest.json" in attest_job
+    assert "juice-shop-security-artifact-manifest.json --repo" in attest_job
+    assert "--signer-workflow" in attest_job
