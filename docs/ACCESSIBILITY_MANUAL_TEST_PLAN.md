@@ -8,7 +8,7 @@ This plan supplements the automated axe-core checks. It is a test protocol, not 
 - Use only an authorized test environment and non-production data.
 - Run each scenario on a representative critical user journey and record the exact page/state.
 - For every defect, capture reproduction steps, expected/actual behavior, severity, owner, and retest result.
-- Status values: `PASS`, `FAIL`, `BLOCKED`, `UNVERIFIED`. A blocked or unrun scenario is not a pass.
+- Status values: `PASS`, `FAIL`, `BLOCKED`, `UNVERIFIED`, `N/A`. Use `N/A` only when the criterion genuinely does not apply to the declared target or journey, and record the reason and reviewer; it must not be used for an untested or inconvenient criterion. A blocked or unrun scenario is not a pass.
 
 ## Keyboard-only test matrix
 
@@ -38,7 +38,7 @@ This plan supplements the automated axe-core checks. It is a test protocol, not 
 
 For each test ID, record:
 
-- **Status:** PASS / FAIL / BLOCKED / UNVERIFIED
+- **Status:** PASS / FAIL / BLOCKED / UNVERIFIED / N/A (for N/A, record the reason and reviewer)
 - **Target/build/commit:**
 - **Browser, OS, assistive technology and versions:**
 - **Steps and page/state:**
