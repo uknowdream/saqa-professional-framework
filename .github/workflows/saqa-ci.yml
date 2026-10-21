@@ -39,6 +39,14 @@ jobs:
         run: python -m compileall -q src tests
       - name: Tests
         run: python -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+      - name: Summarize test quality and quarantine policy
+        if: always()
+        run: |
+          if [ ! -s artifacts/junit.xml ]; then
+            echo "Missing JUnit XML; cannot report test quality."
+            exit 2
+          fi
+          python scripts/test_quality_report.py --junit artifacts/junit.xml --policy quality/test-quarantine-policy.json --output artifacts/quality/test-quality-report.json
       - name: Generate and verify evidence
         run: python -m saqa.ci_evidence
       - name: Optimized-mode compile and import
