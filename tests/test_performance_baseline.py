@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import pytest
-from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set
+from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, verify_source_files
 
 
 def run_set(*, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metadata):
@@ -140,3 +140,27 @@ def test_source_count_must_match_sample_count():
     candidate["sample_sources"] = candidate["sample_sources"][:4]
     with pytest.raises(ValueError, match="sample_sources must match"):
         compare_run_sets(baseline, candidate)
+
+
+def test_source_files_are_hash_verified_and_path_confined(tmp_path):
+    import hashlib
+    raw = tmp_path / "run-0.json"
+    raw.write_text('{"metrics": "actual"}', encoding="utf-8")
+    digest = hashlib.sha256(raw.read_bytes()).hexdigest()
+    data = run_set()
+    data["sample_sources"] = [{"path": "run-0.json", "sha256": digest} for _ in data["samples"]]
+    verify_source_files(data, tmp_path, "baseline")
+
+    data["sample_sources"][0]["sha256"] = "a" * 64
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        verify_source_files(data, tmp_path, "baseline")
+
+
+def test_source_paths_cannot_escape_root(tmp_path):
+    import hashlib
+    outside = tmp_path.parent / "outside-saqa-run.json"
+    outside.write_text("private", encoding="utf-8")
+    data = run_set()
+    data["sample_sources"] = [{"path": "../outside-saqa-run.json", "sha256": hashlib.sha256(outside.read_bytes()).hexdigest()} for _ in data["samples"]]
+    with pytest.raises(ValueError, match="escapes source root"):
+        verify_source_files(data, tmp_path, "candidate")
