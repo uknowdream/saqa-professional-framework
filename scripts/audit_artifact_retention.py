@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -71,7 +72,7 @@ def audit_artifacts(
         raise ValueError("main_sha must be a 40-character lowercase commit SHA")
     if isinstance(min_retention_hours, bool) or not isinstance(min_retention_hours, (int, float)):
         raise ValueError("min_retention_hours must be a finite positive number")
-    if min_retention_hours <= 0 or not __import__("math").isfinite(float(min_retention_hours)):
+    if min_retention_hours <= 0 or not math.isfinite(float(min_retention_hours)):
         raise ValueError("min_retention_hours must be a finite positive number")
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None or current.utcoffset() is None:
