@@ -120,7 +120,7 @@ def test_cli_emits_fail_closed_report_for_bad_metadata(tmp_path):
     runs_file, artifacts_file = tmp_path / "runs.json", tmp_path / "artifacts.json"
     output = tmp_path / "out" / "report.json"
     runs_file.write_text("[]", encoding="utf-8")
-    artifacts_file.write_text("{}", encoding="utf-8")
+    artifacts_file.write_text("[]", encoding="utf-8")
     assert main(["--runs-file", str(runs_file), "--artifacts-file", str(artifacts_file),
                  "--main-sha", MAIN_SHA, "--output", str(output)]) == 1
     result = json.loads(output.read_text(encoding="utf-8"))
