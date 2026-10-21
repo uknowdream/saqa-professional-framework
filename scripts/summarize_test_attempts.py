@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,8 @@ SHARD_SCHEMA = "saqa.test-attempt-shard.v1"
 REPORT_SCHEMA = "saqa.test-attempt-report.v1"
 PHASES = {"setup", "call", "teardown"}
 PHASE_STATUSES = {"PASS", "FAIL", "SKIP"}
+SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+PYTHON_VERSION_RE = re.compile(r"^\\d+\\.\\d+$")
 STATUSES = {"PASS", "FAIL", "SKIP"}
 
 
@@ -49,7 +52,15 @@ def load_shards(input_dir: Path) -> list[dict[str, Any]]:
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{path.name}: {key} must be a non-empty string")
             metadata.append(value)
-        worker_id = metadata[4]
+        run_id, run_attempt, commit_sha, python_version, worker_id = metadata
+        if run_id != "local" and (not run_id.isdigit() or int(run_id) <= 0):
+            raise ValueError(f"{path.name}: run_id must be a positive integer or local")
+        if not run_attempt.isdigit() or int(run_attempt) <= 0:
+            raise ValueError(f"{path.name}: run_attempt must be a positive integer")
+        if commit_sha != "unknown" and not SHA_RE.fullmatch(commit_sha):
+            raise ValueError(f"{path.name}: commit_sha must be a full lowercase SHA or unknown")
+        if not PYTHON_VERSION_RE.fullmatch(python_version):
+            raise ValueError(f"{path.name}: python_version must use major.minor format")
         if path.name != f"attempts-{worker_id}.json":
             raise ValueError(f"{path.name}: worker_id does not match shard filename")
         if worker_id in worker_ids:
@@ -81,11 +92,11 @@ def load_shards(input_dir: Path) -> list[dict[str, Any]]:
             phases = attempt.get("phase_statuses")
             if not isinstance(phases, dict) or not phases or any(phase not in PHASES for phase in phases):
                 raise ValueError(f"{prefix}.phase_statuses must contain known phases")
-            if any(status not in PHASE_STATUSES for status in phases.values()):
+            if any(not isinstance(phase_status, str) or phase_status not in PHASE_STATUSES for phase_status in phases.values()):
                 raise ValueError(f"{prefix}.phase_statuses contains an unsupported status")
             status = attempt.get("status")
             expected_status = _attempt_status(phases)
-            if status not in STATUSES or status != expected_status:
+            if not isinstance(status, str) or status not in STATUSES or status != expected_status:
                 raise ValueError(f"{prefix}.status does not match phase outcomes")
             duration = attempt.get("duration_seconds")
             if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(float(duration)) or duration < 0:
