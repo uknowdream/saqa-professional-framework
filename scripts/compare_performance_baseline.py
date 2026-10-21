@@ -77,7 +77,7 @@ def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str, 
         if policy is not None:
             try:
                 summary = json.loads(raw.decode("utf-8"))
-            except (UnicodeError, json.JSONDecodeError) as exc:
+            except (UnicodeError, json.JSONDecodeError, RecursionError) as exc:
                 raise ValueError(f"{label} source is not valid UTF-8 JSON: {source['path']}") from exc
             source_sample = extract_sample(summary, policy, f"{label} source {source['path']}")
             declared_sample = run_set["samples"][index]
