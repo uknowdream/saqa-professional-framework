@@ -19,28 +19,42 @@ jobs:
     timeout-minutes: 15
     env:
       TRIVY_VERSION: "0.76.0"
+      TRIVY_IMAGE: "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
+      TRAINING_IMAGE: "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Pull pinned reference target
-        run: docker pull bkimminich/juice-shop:v20.2.0
-      - name: Generate pinned-image SPDX SBOM
+      - name: Resolve and record immutable target identity
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/security
+          printf '%s\\n' "$TRAINING_IMAGE" > artifacts/security/training-image-ref.txt
+          docker pull "$TRAINING_IMAGE"
+          docker image inspect "$TRAINING_IMAGE" --format '{{index .RepoDigests 0}}' | grep -F "$TRAINING_IMAGE"
+      - name: Generate pinned-image SPDX SBOM from registry
         run: |
           mkdir -p artifacts/security
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 bkimminich/juice-shop:v20.2.0 -o spdx-json=/out/juice-shop-sbom.spdx.json
+          docker run --rm -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 \\
+            "registry:docker.io/$TRAINING_IMAGE" -o spdx-json=/out/juice-shop-sbom.spdx.json
       - name: Validate SBOM and record digest
         run: python scripts/validate_spdx_sbom.py --input artifacts/security/juice-shop-sbom.spdx.json --output artifacts/security/juice-shop-sbom-validation.json
       - name: Verify pinned Trivy runtime
         run: |
           mkdir -p artifacts/security
-          docker run --rm "aquasec/trivy:${TRIVY_VERSION}" --version | tee artifacts/security/trivy-version.txt
+          docker run --rm "$TRIVY_IMAGE" --version | tee artifacts/security/trivy-version.txt
           grep -F "Version: ${TRIVY_VERSION}" artifacts/security/trivy-version.txt
       - name: Scan image for vulnerabilities, secrets, and misconfiguration
         run: |
           mkdir -p artifacts/security
-          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" aquasec/trivy:${TRIVY_VERSION} image             --scanners vuln,secret,misconfig             --format json             --output /out/juice-shop-trivy.json             bkimminich/juice-shop:v20.2.0
+          docker run --rm -v "$PWD/artifacts/security:/out" "$TRIVY_IMAGE" image \\
+            --image-src remote \\
+            --image-config-scanners misconfig,secret \\
+            --scanners vuln,secret,misconfig \\
+            --format json \\
+            --output /out/juice-shop-trivy.json \\
+            "$TRAINING_IMAGE"
       - name: Validate scanner report and summarize findings
         run: |
-          python scripts/summarize_trivy_report.py --input artifacts/security/juice-shop-trivy.json --output artifacts/security/juice-shop-trivy-summary.json --image bkimminich/juice-shop:v20.2.0 --scanner "trivy-${TRIVY_VERSION}"
+          python scripts/summarize_trivy_report.py --input artifacts/security/juice-shop-trivy.json --output artifacts/security/juice-shop-trivy-summary.json --image "$TRAINING_IMAGE" --scanner "trivy-${TRIVY_VERSION}"
       - name: Record expected findings for intentionally vulnerable training image
         run: |
           python scripts/evaluate_container_security_policy.py --summary artifacts/security/juice-shop-trivy-summary.json --policy security/container-security-policy.json --output artifacts/security/juice-shop-security-policy-result.json --report-only-expected-vulnerable-target
@@ -58,7 +72,7 @@ jobs:
           python scripts/build_container_security_manifest.py \\
             --artifact-dir artifacts/security \\
             --output artifacts/security/juice-shop-security-artifact-manifest.json \\
-            --image bkimminich/juice-shop:v20.2.0 \\
+            --image "$TRAINING_IMAGE" \\
             --scanner-version "${TRIVY_VERSION}" \\
             --source-sha "$SOURCE_SHA" \\
             --execution-sha "$EXECUTION_SHA" \\
