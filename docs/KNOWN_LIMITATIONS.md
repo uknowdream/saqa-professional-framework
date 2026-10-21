@@ -33,7 +33,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - Browser-based readiness remains the only executable mobile domain today. Native Android/iOS execution is not claimed as implemented or passed without an actual application artifact and device/emulator run.
 
 ### P1 — Accessibility depth
-- Add keyboard-only navigation checks and focus-order assertions for representative flows.
+- [x] Record keyboard Tab traversal, focus-visible state, CSS focus-indicator clues, repeated consecutive focus targets, and a conservative suspected-trap diagnostic in accessibility evidence.
+- Manual focus-order, keyboard-trap, and visible-indicator verification remains required; the diagnostic is not treated as conformance proof.
 - [x] Add a manual keyboard-only and screen-reader test matrix mapped to WCAG 2.2 criteria (`docs/ACCESSIBILITY_MANUAL_TEST_PLAN.md`).
 - Manual execution and results remain UNVERIFIED until a tester records environment-specific evidence.
 - Keep unsupported criteria labelled `UNVERIFIED`; do not infer full conformance from an automated scan.
