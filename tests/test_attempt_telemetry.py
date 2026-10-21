@@ -92,12 +92,9 @@ def test_invalid_attempt_record_is_rejected(tmp_path, bad_attempt):
         load_shards(tmp_path)
 
 
-def test_missing_or_invalid_metadata_blocks(tmp_path):
+def test_invalid_commit_sha_is_rejected(tmp_path):
     _write_shard(tmp_path, _shard(commit_sha="not-a-sha"))
-    with pytest.raises(ValueError, match="does not match other shards|non-empty string"):
-        # The metadata value is syntactically non-empty; a single shard is valid by schema.
-        # Adding a second inconsistent shard makes provenance mismatch explicit.
-        _write_shard(tmp_path, _shard("gw1", [_attempt("tests/test_y.py::test_ok", 1, worker="gw1")], commit_sha="b" * 40))
+    with pytest.raises(ValueError, match="commit_sha must be a full lowercase SHA or unknown"):
         load_shards(tmp_path)
 
 
