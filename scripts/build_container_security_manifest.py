@@ -161,8 +161,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workflow-ref", required=True)
     parser.add_argument("--workflow-sha", required=True)
     args = parser.parse_args(argv)
-    if (args.artifact_dir.resolve() / "juice-shop-security-artifact-manifest.json").resolve() == args.output.resolve():
-        parser.error("manifest cannot be included in its own file list")
     try:
         manifest = build_manifest(
             args.artifact_dir,
