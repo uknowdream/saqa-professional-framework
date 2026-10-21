@@ -150,3 +150,17 @@ def test_missing_matrix_artifacts_are_explicit_history_gaps(tmp_path):
     assert gaps == {("601", "3.12"), ("601", "3.13")}
     assert report["summary"]["artifact_gap_count"] == 2
     assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+
+
+def test_entire_missing_matrix_is_reported_even_without_any_junit(tmp_path):
+    root = tmp_path / "history"
+    run_dir = root / "701"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run-metadata.json").write_text(json.dumps({
+        "run_id": "701", "head_sha": "e" * 40, "conclusion": "failure",
+        "event": "push", "head_branch": "main", "created_at": "2026-10-21T00:00:00Z",
+    }), encoding="utf-8")
+    report = build_history(root)
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+    assert report["summary"]["artifact_gap_count"] == 3
+    assert len(report["artifact_gaps"]) == 3
