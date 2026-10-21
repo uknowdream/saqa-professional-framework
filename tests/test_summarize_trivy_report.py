@@ -22,6 +22,7 @@ def test_summary_counts_findings_by_severity():
     assert result["by_severity"]["HIGH"] == 1
     assert result["by_severity"]["CRITICAL"] == 1
     assert result["by_severity"]["MEDIUM"] == 1
+    assert result["by_type"] == {"vulnerability": 1, "secret": 1, "misconfiguration": 1}
     assert result["enforcement"].startswith("report-only")
 
 
