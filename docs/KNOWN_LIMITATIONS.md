@@ -59,7 +59,9 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - Verify branch protection and required-check configuration in repository settings; this integration currently may not have permission to read branch-protection settings.
 
 ### P2 — Maintainability
-- Add a scheduled dependency-update and compatibility review.
+- [x] Schedule the CI dependency audit, CycloneDX SBOM generation, and compatibility matrix weekly (Monday 04:17 UTC), in addition to PR/push runs.
+- [x] Schedule the pinned reference-container Trivy scan weekly (Monday 04:43 UTC), in addition to PR/push runs.
+- A successful scan means the scanner ran and produced a validated report; vulnerability findings remain report-only until a reviewed severity/exception policy is introduced.
 - Track flaky-test rate, test duration, retry rate, and quarantined tests with owner and expiry.
 - Keep the release report and roadmap synchronized with actual workflow evidence.
 
