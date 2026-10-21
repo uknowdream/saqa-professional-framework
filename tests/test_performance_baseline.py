@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 import pytest
 from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, verify_source_files
+from scripts.k6_gate import ROOT
+
+POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
 
 
 def run_set(*, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metadata):
@@ -172,3 +175,32 @@ def test_duplicate_sample_source_paths_are_rejected():
     candidate["sample_sources"] = [dict(baseline["sample_sources"][0]) for _ in candidate["samples"]]
     with pytest.raises(ValueError, match="duplicate path"):
         compare_run_sets(baseline, candidate)
+
+
+def test_source_metrics_are_bound_to_raw_k6_summary(tmp_path):
+    import hashlib
+
+    def raw_summary(p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0):
+        return {
+            "schema": "saqa.k6-summary.v1",
+            "metrics": {
+                "http_req_duration": {"values": {"p(95)": p95, "p(99)": p99}},
+                "http_req_failed": {"values": {"rate": error}},
+                "http_reqs": {"values": {"rate": throughput}},
+                "checks": {"values": {"rate": checks}},
+            },
+        }
+
+    data = run_set()
+    sources = []
+    for i, sample in enumerate(data["samples"]):
+        path = tmp_path / f"raw-{i}.json"
+        raw = json.dumps(raw_summary()).encode("utf-8")
+        path.write_bytes(raw)
+        sources.append({"path": path.name, "sha256": hashlib.sha256(raw).hexdigest()})
+    data["sample_sources"] = sources
+
+    verify_source_files(data, tmp_path, "baseline", POLICY)
+    data["samples"][0]["p95_ms"] = 401
+    with pytest.raises(ValueError, match="sample/source metric mismatch"):
+        verify_source_files(data, tmp_path, "baseline", POLICY)
