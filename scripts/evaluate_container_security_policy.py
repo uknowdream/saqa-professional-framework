@@ -81,6 +81,10 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
         raise ValueError("summary scanned_artifact_name must be a non-empty string")
     if scanned_artifact != image:
         raise ValueError("normalized image does not match the actual Trivy-scanned ArtifactName")
+    source_digest = summary.get("source_report_sha256")
+    import re
+    if not isinstance(source_digest, str) or not re.fullmatch(r"[0-9a-f]{64}", source_digest):
+        raise ValueError("summary source_report_sha256 must be a lowercase SHA-256 digest")
     if report_only_expected_vulnerable_target and image != "bkimminich/juice-shop:v20.2.0":
         raise ValueError("report-only mode is restricted to the exact pinned intentionally vulnerable Juice Shop image")
     validated = validate_policy(policy, today=today)
@@ -124,6 +128,9 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
         "schema": "saqa.container-security-policy-result.v1",
         "policy_id": validated["policy_id"],
         "policy_version": validated["policy_version"],
+        "source_report_sha256": source_digest,
+        "scanned_artifact_name": scanned_artifact,
+        "image": image,
         "status": status,
         "release_gate_eligible": not report_only_expected_vulnerable_target,
         "finding_count": len(findings),
