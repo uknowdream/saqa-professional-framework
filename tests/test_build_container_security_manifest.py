@@ -30,6 +30,7 @@ def make_artifacts(root: Path):
         "schema": "saqa.sbom-validation.v1", "status": "PASS", "sha256": sbom_sha, "package_count": 1,
     }), encoding="utf-8")
     (root / "trivy-version.txt").write_text(f"Version: {SCANNER}\n", encoding="utf-8")
+    (root / "training-image-ref.txt").write_text(IMAGE + "\n", encoding="utf-8")
     raw_sha = hashlib.sha256(raw_report).hexdigest()
     summary = {
         "schema": "saqa.container-security-summary.v1", "image": IMAGE,
