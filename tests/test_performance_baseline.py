@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import pytest
 from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, verify_source_files
