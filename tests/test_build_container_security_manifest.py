@@ -7,7 +7,7 @@ import pytest
 from scripts.build_container_security_manifest import REQUIRED_FILES, SCHEMA, build_manifest
 
 
-IMAGE = "bkimminich/juice-shop:v20.2.0"
+IMAGE = "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
 SCANNER = "0.76.0"
 SHA = "a" * 40
 RUN = "12345"
