@@ -14,5 +14,4 @@ def test_release_certification_attests_only_successful_certification() -> None:
     assert "subject-path: artifacts/release-certification.json" in workflow
     assert "name: Independently verify release decision attestation" in workflow
     assert "jq -r '.status' artifacts/release-certification.json" in workflow
-assert 'test "$(jq -r \' .status\' artifacts/release-certification.json)" = "CERTIFIED"' not in workflow
     assert "gh attestation verify artifacts/release-certification.json --repo" in workflow
