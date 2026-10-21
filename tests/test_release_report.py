@@ -140,3 +140,16 @@ def test_release_report_rejects_far_future_evidence(tmp_path, monkeypatch):
     monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
     with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
         main()
+
+
+def test_failed_regeneration_removes_stale_certified_report(tmp_path, monkeypatch):
+    manifest = tmp_path / "broken-manifest.json"
+    manifest.write_text("{not-json", encoding="utf-8")
+    out = tmp_path / "release.json"
+    out.write_text(json.dumps({"certified": True, "commit_sha": "old"}), encoding="utf-8")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "new")
+    with pytest.raises(SystemExit, match="evidence manifest integrity verification failed"):
+        main()
+    assert not out.exists()
