@@ -49,3 +49,12 @@ python scripts/validate_native_mobile_evidence.py \
 ~~~
 
 Exit code 0 means all reported tests passed; 1 means at least one reported test failed; 2 means evidence is invalid or incomplete. This command does not install or launch an APK/IPA and must not be treated as a native execution workflow.
+
+
+## Executable Android emulator smoke workflow
+
+The repository includes a manual workflow at `.github/workflows/saqa-native-android.yml`. It downloads an APK asset from a GitHub Release **in this same repository**, verifies the exact expected SHA-256, installs it on a Pixel 8 / Android API 35 emulator, attempts to launch the declared package, and uploads normalized native evidence.
+
+To run it, first publish an authorized APK as a release asset, then use **Actions → SAQA Native Android Smoke → Run workflow** and provide the release tag, exact APK filename, package ID, and independently obtained expected SHA-256. Do not use an APK from an untrusted source. The workflow is manual-dispatch only and does not run against a production service.
+
+Coverage is intentionally limited to artifact hash, install, and launch smoke checks. It is **not** an Appium functional suite, lifecycle/permission suite, physical-device matrix, or iOS test. A workflow file existing is not a passing run: native Android remains UNVERIFIED until a real release APK is supplied and the workflow produces fresh passing evidence. iOS still requires a separate macOS/Xcode simulator or device runner.
