@@ -6,7 +6,7 @@ The weekly/manual `SAQA Main Branch Protection Audit` reads the actual GitHub pr
 
 Create a repository secret named `SAQA_REPO_ADMIN_AUDIT_TOKEN` from a fine-grained token restricted to this repository with **Administration: read-only** permission. Give it a short, controlled expiry and rotate it per your security policy. The token is only passed to `gh api` at runtime; the token itself is not written to reports or artifacts. The workflow intentionally has no `pull_request` trigger.
 
-After setting the secret, manually run **SAQA Main Branch Protection Audit** from GitHub Actions. The same audit runs weekly. If the token is absent, expired, or lacks permission, the artifact records `UNVERIFIED`; it does not imply that protection is enabled or disabled. An API response showing missing or incorrect protections results in `FAIL`.
+After setting the secret, manually run **SAQA Main Branch Protection Audit** from GitHub Actions. The same audit runs weekly. If the token is absent, expired, or lacks permission, the artifact records `UNVERIFIED`; it does not imply that protection is enabled or disabled. The workflow itself fails closed for both `UNVERIFIED` and `FAIL` after preserving the report artifact, so a scheduled run cannot appear green when the settings were not actually checked. An API response showing missing or incorrect protections results in `FAIL`.
 
 ## Required checks
 
