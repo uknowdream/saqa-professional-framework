@@ -15,7 +15,7 @@ def _verify_lines(lines: list[str]) -> bool:
         saw_entry = True
         try:
             entry = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             return False
         if not isinstance(entry, dict):
             return False
