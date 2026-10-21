@@ -70,7 +70,7 @@ def verify_manifest(path: Path) -> bool:
     """Return False for malformed, structurally invalid, or tampered manifests."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
         return False
     if not isinstance(data, dict):
         return False
