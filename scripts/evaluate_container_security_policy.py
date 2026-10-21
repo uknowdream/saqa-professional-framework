@@ -56,8 +56,8 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
             expires = date.fromisoformat(exception["expires_on"])
         except ValueError as exc:
             raise ValueError(f"exceptions[{i}].expires_on must be an ISO-8601 date") from exc
-        if expires < today:
-            raise ValueError(f"exceptions[{i}] expired on {expires.isoformat()}; remove or renew with review")
+        if expires <= today:
+            raise ValueError(f"exceptions[{i}] expired or expires today ({expires.isoformat()}); remove or renew with review")
         key = (exception["finding_type"], exception["finding_id"], exception["target"])
         if key in seen:
             raise ValueError(f"duplicate exception for {key}")
