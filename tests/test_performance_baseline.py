@@ -408,3 +408,15 @@ def test_different_runtime_or_platform_profile_still_blocks():
             run_set(environment_fingerprint="github-hosted-ubuntu-24.04-x64-k6-1.2.0"),
             run_set(environment_fingerprint="macos-15-arm64-k6-1.2.0"),
         )
+
+
+@pytest.mark.parametrize("check_rate", [1.0 - 5e-13, 0.999999999999, 0.99])
+def test_any_non_full_functional_check_rate_fails_exactly(check_rate):
+    baseline = run_set()
+    candidate = run_set()
+    candidate["samples"][0]["check_pass_rate"] = check_rate
+    result = compare_run_sets(baseline, candidate)
+    check = next(item for item in result["checks"] if item["id"] == "functional_check_pass_rate")
+    assert result["status"] == "FAIL"
+    assert check["candidate_failed_sample_count"] == 1
+    assert check["candidate_failed_samples"][0]["check_pass_rate"] == check_rate
