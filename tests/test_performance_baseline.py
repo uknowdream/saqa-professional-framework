@@ -154,11 +154,13 @@ def test_source_count_must_match_sample_count():
 
 def test_source_files_are_hash_verified_and_path_confined(tmp_path):
     import hashlib
-    raw = tmp_path / "run-0.json"
-    raw.write_text('{"metrics": "actual"}', encoding="utf-8")
-    digest = hashlib.sha256(raw.read_bytes()).hexdigest()
     data = run_set()
-    data["sample_sources"] = [{"path": "run-0.json", "sha256": digest} for _ in data["samples"]]
+    sources = []
+    for index in range(len(data["samples"])):
+        raw = tmp_path / f"run-{index}.json"
+        raw.write_text(json.dumps({"sample": index}), encoding="utf-8")
+        sources.append({"path": raw.name, "sha256": hashlib.sha256(raw.read_bytes()).hexdigest()})
+    data["sample_sources"] = sources
     verify_source_files(data, tmp_path, "baseline")
 
     data["sample_sources"][0]["sha256"] = "a" * 64
