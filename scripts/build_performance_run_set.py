@@ -10,9 +10,24 @@ RUNSET_SCHEMA = "saqa.performance-run-set.v1"
 MIN_SAMPLES = 5
 
 def finite(value: Any, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{label} must be a finite number")
-    return float(value)
+    try:
+        converted = float(value)
+    except (OverflowError, ValueError) as exc:
+        raise ValueError(f"{label} must be a finite number") from exc
+    if not math.isfinite(converted):
+        raise ValueError(f"{label} must be a finite number")
+    return converted
+
+
+def canonical_policy_sha256(policy: dict[str, Any]) -> str:
+    """Return the canonical digest shared by run-set producers and comparators."""
+    try:
+        raw = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"cannot canonically encode performance policy: {exc}") from exc
+    return hashlib.sha256(raw).hexdigest()
 
 def read_json(path: Path) -> Any:
     try: return json.loads(path.read_text(encoding="utf-8"))
@@ -52,6 +67,7 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
     if len(summary_paths) < MIN_SAMPLES: raise ValueError(f"at least {MIN_SAMPLES} raw summary files are required")
     samples, sources = [], []
     seen_paths = set()
+    seen_digests = set()
     root = source_root.resolve() if source_root is not None else None
     for path in summary_paths:
         resolved_path = path.resolve()
@@ -64,11 +80,14 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
         raw = resolved_path.read_bytes()
         try: summary = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc: raise ValueError(f"cannot parse k6 summary {path}: {exc}") from exc
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest in seen_digests:
+            raise ValueError(f"duplicate raw summary content (SHA-256): {path}")
+        seen_digests.add(digest)
         samples.append(extract_sample(summary, policy, str(path)))
         stored_path = resolved_path.relative_to(root).as_posix() if root is not None else str(path)
-        sources.append({"path": stored_path, "sha256": hashlib.sha256(raw).hexdigest()})
-    policy_bytes = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
-    policy_digest = hashlib.sha256(policy_bytes).hexdigest()
+        sources.append({"path": stored_path, "sha256": digest})
+    policy_digest = canonical_policy_sha256(policy)
     return {"schema": RUNSET_SCHEMA, "target_profile": target_profile.strip(), "workload_profile": workload_profile.strip(),
             "policy_id": policy["policy_id"].strip(), "policy_version": version, "policy_sha256": policy_digest, "environment_fingerprint": environment_fingerprint.strip(),
             "samples": samples, "sample_sources": sources,
