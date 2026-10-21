@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.build_container_security_manifest import REQUIRED_FILES, SCHEMA, build_manifest
+from scripts.build_container_security_manifest import REQUIRED_FILES, SCHEMA, build_manifest, main
 
 
 IMAGE = "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
@@ -159,3 +159,29 @@ def test_manifest_requires_complete_nonempty_artifact_set(tmp_path):
     (root / "trivy-version.txt").write_text("", encoding="utf-8")
     with pytest.raises(ValueError, match="empty"):
         build(root)
+
+
+
+def test_manifest_cli_can_write_manifest_inside_uploaded_artifact_directory(tmp_path, capsys):
+    root = tmp_path / "security"
+    make_artifacts(root)
+    output = root / "juice-shop-security-artifact-manifest.json"
+    status = main([
+        "--artifact-dir", str(root),
+        "--output", str(output),
+        "--image", IMAGE,
+        "--scanner-version", SCANNER,
+        "--source-sha", SHA,
+        "--execution-sha", SHA,
+        "--event", "pull_request",
+        "--ref", "refs/pull/16/merge",
+        "--run-id", RUN,
+        "--run-attempt", "1",
+        "--workflow-ref", "owner/repo/.github/workflows/saqa-container-security.yml@refs/pull/16/merge",
+        "--workflow-sha", SHA,
+    ])
+    assert status == 0
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["status"] == "PASS"
+    assert len(result["files"]) == len(REQUIRED_FILES)
+    assert output.name not in {item["name"] for item in result["files"]}
