@@ -23,6 +23,12 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Pull pinned reference target
         run: docker pull bkimminich/juice-shop:v20.2.0
+      - name: Generate pinned-image SPDX SBOM
+        run: |
+          mkdir -p artifacts/security
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 bkimminich/juice-shop:v20.2.0 -o spdx-json=/out/juice-shop-sbom.spdx.json
+      - name: Validate SBOM and record digest
+        run: python scripts/validate_spdx_sbom.py --input artifacts/security/juice-shop-sbom.spdx.json --output artifacts/security/juice-shop-sbom-validation.json
       - name: Verify pinned Trivy runtime
         run: |
           mkdir -p artifacts/security
