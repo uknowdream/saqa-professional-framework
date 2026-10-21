@@ -147,13 +147,16 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
           e.focus({preventScroll: true});
           const restoredStyle = snapshot(e);
           const visibleColor = value => {
-            if (!value || value === "transparent") return false;
-            const rgba = value.match(/^rgba\\((.*)\\)$/i);
-            if (rgba) {
-              const components = rgba[1].split(",");
-              return components.length < 4 || Number(components[3]) > 0;
+            if (!value || value.toLowerCase().includes("transparent")) return false;
+            const rgbaColors = [...value.matchAll(/rgba\\(([^)]*)\\)/ig)];
+            if (rgbaColors.length) {
+              return rgbaColors.some(match => {
+                const components = match[1].split(",");
+                return components.length < 4 || Number(components[3]) > 0;
+              });
             }
-            if (/\\/\\s*0(?:\\.0+)?%?\\s*\\)/i.test(value)) return false;
+            const alpha = value.match(/\\/\\s*([0-9.]+%?)\\s*\\)/i);
+            if (alpha) return Number.parseFloat(alpha[1]) > 0;
             return true;
           };
           const changed = property => focusStyle[property] !== restingStyle[property];
