@@ -17,6 +17,7 @@ from typing import Any
 SCHEMA = "saqa.test-stability-history.v1"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PYTHON_DIR_RE = re.compile(r"^python-(\d+\.\d+)$")
+EXPECTED_PYTHON_VERSIONS = ("3.11", "3.12", "3.13")
 ERROR_STATUSES = {"FAIL", "ERROR"}
 
 
@@ -51,7 +52,7 @@ def parse_junit(path: Path) -> dict[str, str]:
     return outcomes
 
 
-def _read_run_metadata(path: Path, run_id_from_path: str, python_version: str) -> dict[str, str]:
+def _read_run_metadata(path: Path, run_id_from_path: str, python_version: str | None) -> dict[str, str]:
     metadata_path = path / "run-metadata.json"
     try:
         payload = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -78,7 +79,7 @@ def _read_run_metadata(path: Path, run_id_from_path: str, python_version: str) -
         "conclusion": conclusion,
         "event": event,
         "head_branch": branch,
-        "python_version": python_version,
+        "python_version": python_version or "",
         "created_at": str(payload.get("created_at", "")),
     }
 
@@ -97,6 +98,7 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         "minimum_runs_per_python_version": min_runs,
         "input_root": str(input_root),
         "issues": [],
+        "artifact_gaps": [],
         "runs": [],
         "cohorts": [],
         "tests": [],
@@ -119,9 +121,31 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         return report
 
     # Each workflow run downloads artifacts under <run-id>/python-X.Y/.
+    # Record expected artifacts independently so missing entire cohorts remain visible.
+    run_dirs = sorted(
+        path for path in root.iterdir()
+        if path.is_dir() and path.name.isdigit() and (path / "run-metadata.json").is_file()
+    )
+    for run_dir in run_dirs:
+        try:
+            _read_run_metadata(run_dir, run_dir.name, None)
+        except ValueError as exc:
+            report["issues"].append(str(exc))
+            continue
+        for python_version in EXPECTED_PYTHON_VERSIONS:
+            expected_junit = run_dir / f"python-{python_version}" / "junit.xml"
+            if not expected_junit.is_file():
+                report["artifact_gaps"].append({
+                    "run_id": run_dir.name,
+                    "python_version": python_version,
+                    "expected_artifact": f"saqa-python-{python_version}",
+                    "reason": "JUnit file missing or unavailable from retained workflow artifact",
+                })
+
     junit_paths = sorted(root.rglob("junit.xml"))
     if not junit_paths:
         report["issues"].append("no retained JUnit artifacts were found")
+        report["summary"]["artifact_gap_count"] = len(report["artifact_gaps"])
         return report
 
     grouped: dict[tuple[str, str], list[Path]] = defaultdict(list)
@@ -216,6 +240,8 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         report["status"] = "SAME_COMMIT_OUTCOME_VARIATION"
     elif cross_commit_variations:
         report["status"] = "CROSS_COMMIT_OUTCOME_VARIATION"
+    elif report["artifact_gaps"]:
+        report["status"] = "INCOMPLETE_ARTIFACT_COVERAGE"
     elif cohorts_sufficient:
         report["status"] = "NO_VARIATION_OBSERVED"
     else:
@@ -227,6 +253,7 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         "tests_with_cross_commit_variation": cross_commit_variations,
         "tests_with_same_commit_variation": same_commit_variations,
         "issues_count": len(report["issues"]),
+        "artifact_gap_count": len(report["artifact_gaps"]),
     }
     return report
 
