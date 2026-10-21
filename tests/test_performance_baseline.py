@@ -210,3 +210,18 @@ def test_source_metrics_are_bound_to_raw_k6_summary(tmp_path):
     data["samples"][0]["p95_ms"] = 401
     with pytest.raises(ValueError, match="sample/source metric mismatch"):
         verify_source_files(data, tmp_path, "baseline", POLICY)
+
+
+def test_resolved_aliases_cannot_reuse_one_raw_sample(tmp_path):
+    import hashlib
+    raw = tmp_path / "run-0.json"
+    raw.write_text('{"sample":"one"}', encoding="utf-8")
+    digest = hashlib.sha256(raw.read_bytes()).hexdigest()
+    data = run_set()
+    data["sample_sources"] = [
+        {"path": "run-0.json", "sha256": digest},
+        {"path": "./run-0.json", "sha256": digest},
+        *[{"path": f"run-{i}.json", "sha256": "a" * 64} for i in range(2, 5)],
+    ]
+    with pytest.raises(ValueError, match="duplicate resolved file"):
+        verify_source_files(data, tmp_path, "candidate")
