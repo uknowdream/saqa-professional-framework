@@ -96,3 +96,12 @@ def test_keyboard_only_focus_traversal_is_recorded_in_evidence():
     assert '"keyboard_navigation"' in SOURCE
     assert '"unique_focus_targets"' in SOURCE
     assert "keyboard Tab sequence did not reach a focusable target" in SOURCE
+
+
+def test_keyboard_focus_diagnostics_capture_indicators_and_repeated_targets():
+    assert "visible_indicator_style_steps" in SOURCE
+    assert "repeated_consecutive_targets" in SOURCE
+    assert "keyboard_trap_suspected" in SOURCE
+    assert "outline_offset" in SOURCE
+    assert "box_shadow" in SOURCE
+    assert "heuristics, not proof of WCAG conformance" in SOURCE
