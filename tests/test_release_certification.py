@@ -58,4 +58,4 @@ def test_release_readiness_has_a_single_trigger_and_waits_for_all_domains():
     assert "Waiting for mandatory workflows to complete" in workflow
     assert "timeout-minutes: 15" in workflow
     assert "main moved during readiness evaluation" in workflow
-    assert "else .[-1].status end)\' <<< \"$runs\")\"" in workflow
+    assert "else .[-1].status end)' <<< \"$runs\")\"" in workflow
