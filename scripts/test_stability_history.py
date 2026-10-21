@@ -119,6 +119,7 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
     }
     if not root.is_dir():
         report["issues"].append(f"input root does not exist: {input_root}")
+        report["summary"]["issues_count"] = len(report["issues"])
         return report
 
     # Each workflow run downloads artifacts under <run-id>/python-X.Y/.
@@ -147,6 +148,7 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
     if not junit_paths:
         report["issues"].append("no retained JUnit artifacts were found")
         report["summary"]["artifact_gap_count"] = len(report["artifact_gaps"])
+        report["summary"]["issues_count"] = len(report["issues"])
         if report["artifact_gaps"]:
             report["status"] = "INCOMPLETE_ARTIFACT_COVERAGE"
         return report
