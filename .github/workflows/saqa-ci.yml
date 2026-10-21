@@ -114,35 +114,7 @@ jobs:
         run: pip-audit --format=json > artifacts/security/pip-audit.json
       - name: Validate audit output
         if: always()
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("artifacts/security/pip-audit.json")
-          if not path.is_file():
-              raise SystemExit("pip-audit did not produce its JSON report")
-          try:
-              data = json.loads(path.read_text(encoding="utf-8"))
-          except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-              raise SystemExit(f"pip-audit JSON could not be parsed: {exc}") from exc
-          # pip-audit 2.10.1 emits a top-level array of dependency records in JSON mode.
-          if not isinstance(data, list):
-              raise SystemExit("pip-audit JSON report must be a top-level dependency array")
-          vulnerable = 0
-          for index, dependency in enumerate(data):
-              if not isinstance(dependency, dict):
-                  raise SystemExit(f"pip-audit dependency[{index}] must be an object")
-              if not isinstance(dependency.get("name"), str) or not dependency["name"]:
-                  raise SystemExit(f"pip-audit dependency[{index}].name must be non-empty")
-              if not isinstance(dependency.get("version"), str) or not dependency["version"]:
-                  raise SystemExit(f"pip-audit dependency[{index}].version must be non-empty")
-              vulns = dependency.get("vulns")
-              if not isinstance(vulns, list) or any(not isinstance(vuln, dict) for vuln in vulns):
-                  raise SystemExit(f"pip-audit dependency[{index}].vulns must be an array of objects")
-              vulnerable += len(vulns)
-          print(f"Validated pip-audit report with {len(data)} dependencies and {vulnerable} vulnerability record(s).")
-          PY
+        run: python scripts/validate_pip_audit_report.py --input artifacts/security/pip-audit.json
       - name: Static application security testing (Bandit)
         shell: bash
         run: |
