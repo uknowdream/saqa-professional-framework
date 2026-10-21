@@ -66,14 +66,19 @@ def build_manifest(
     if not isinstance(run_attempt, str) or not run_attempt.isdigit() or int(run_attempt) <= 0:
         raise ValueError("run_attempt must be a positive integer string")
 
+    if not artifact_dir.is_dir():
+        raise ValueError(f"security artifact directory does not exist: {artifact_dir}")
     root = artifact_dir.resolve()
     records = []
     for name in REQUIRED_FILES:
         path = root / name
-        if not path.is_file():
-            raise ValueError(f"required security artifact is missing: {name}")
+        if not path.is_file() or path.is_symlink():
+            raise ValueError(f"required security artifact is missing or not a regular file: {name}")
+        size = path.stat().st_size
+        if size <= 0:
+            raise ValueError(f"required security artifact is empty: {name}")
         raw_sha = sha256_file(path)
-        records.append({"name": name, "size_bytes": path.stat().st_size, "sha256": raw_sha})
+        records.append({"name": name, "size_bytes": size, "sha256": raw_sha})
 
     by_name = {item["name"]: item for item in records}
     summary = json.loads((root / "juice-shop-trivy-summary.json").read_text(encoding="utf-8"))
@@ -86,10 +91,16 @@ def build_manifest(
         raise ValueError("normalized summary does not bind the exact raw Trivy report digest")
     if summary.get("scanner") != f"trivy-{scanner_version}":
         raise ValueError("normalized summary scanner version does not match the invoked Trivy version")
-    if isinstance(summary.get("finding_count"), bool) or not isinstance(summary.get("finding_count"), int):
+    findings = summary.get("findings")
+    if not isinstance(findings, list):
+        raise ValueError("normalized summary findings must be an array")
+    if isinstance(summary.get("finding_count"), bool) or not isinstance(summary.get("finding_count"), int) or summary["finding_count"] < 0:
         raise ValueError("normalized summary finding_count is invalid")
-    if summary["finding_count"] != len(summary.get("findings", [])):
+    if summary["finding_count"] != len(findings):
         raise ValueError("normalized summary finding_count does not match findings")
+    version_text = (root / "trivy-version.txt").read_text(encoding="utf-8")
+    if f"Version: {scanner_version}" not in version_text:
+        raise ValueError("recorded Trivy version file does not match the expected version")
 
     sbom_result = json.loads((root / "juice-shop-sbom-validation.json").read_text(encoding="utf-8"))
     if not isinstance(sbom_result, dict) or sbom_result.get("status") != "PASS":
@@ -162,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
             workflow_ref=args.workflow_ref,
             workflow_sha=args.workflow_sha,
         )
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError, TypeError, KeyError) as exc:
         print(json.dumps({"schema": SCHEMA, "status": "UNVERIFIED", "error": str(exc)}, indent=2))
         return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
