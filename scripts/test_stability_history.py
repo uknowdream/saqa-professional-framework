@@ -100,6 +100,14 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         "runs": [],
         "cohorts": [],
         "tests": [],
+        "summary": {
+            "run_count": 0,
+            "python_cohort_count": 0,
+            "tests_observed": 0,
+            "tests_with_cross_commit_variation": 0,
+            "tests_with_same_commit_variation": 0,
+            "issues_count": 0,
+        },
         "notes": [
             "Outcome variation across different commits can indicate a code regression or a changed test, not necessarily flakiness.",
             "Same-commit PASS and FAIL/ERROR across distinct workflow runs is a candidate intermittent result, not retry-rate proof.",
