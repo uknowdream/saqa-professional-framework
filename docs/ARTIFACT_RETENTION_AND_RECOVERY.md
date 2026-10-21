@@ -25,3 +25,15 @@ Retention is a GitHub Actions artifact policy, not a long-term archive guarantee
 - Keep security findings and raw scanner reports paired with the normalized summary and scanner version.
 - Review repository storage limits and organizational retention policy periodically.
 - Artifact hashes detect modification only when the expected hash is independently preserved; a hash alone is not a signed identity attestation.
+
+## SBOM provenance attestation
+
+On trusted non-pull-request runs, the dependency/security job publishes a GitHub artifact provenance attestation for `artifacts/security/sbom.cdx.json`. Pull-request runs intentionally skip attestation publication. An attestation establishes provenance claims for the artifact; it does not mean the SBOM has no vulnerabilities or that the application is secure.
+
+After downloading the SBOM from a trusted run, verify it with GitHub CLI:
+
+~~~bash
+gh attestation verify artifacts/security/sbom.cdx.json --repo uknowdream/saqa-professional-framework
+~~~
+
+Verify that the reported source repository, workflow identity, and commit correspond to the expected trusted run before relying on the file. If no attestation is available, verification fails, or the source identity/commit differs, treat provenance as unverified and recover the artifact from the exact trusted run. Continue to validate the SBOM contents and dependency-audit result separately.
