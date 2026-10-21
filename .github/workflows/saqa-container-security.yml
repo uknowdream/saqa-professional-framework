@@ -35,9 +35,9 @@ jobs:
       - name: Validate scanner report and summarize findings
         run: |
           python scripts/summarize_trivy_report.py --input artifacts/security/juice-shop-trivy.json --output artifacts/security/juice-shop-trivy-summary.json --image bkimminich/juice-shop:v20.2.0 --scanner "trivy-${TRIVY_VERSION}"
-      - name: Enforce container security policy
+      - name: Record expected findings for intentionally vulnerable training image
         run: |
-          python scripts/evaluate_container_security_policy.py --summary artifacts/security/juice-shop-trivy-summary.json --policy security/container-security-policy.json --output artifacts/security/juice-shop-security-policy-result.json
+          python scripts/evaluate_container_security_policy.py --summary artifacts/security/juice-shop-trivy-summary.json --policy security/container-security-policy.json --output artifacts/security/juice-shop-security-policy-result.json --report-only-expected-vulnerable-target
       - name: Upload container security evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
