@@ -10,6 +10,8 @@ SAQA is designed as a practical reference architecture for QA engineers moving f
 
 The framework treats automation as an engineering system: tests produce reproducible results, evidence is preserved, quality gates are explicit, and certification must never succeed without sufficient evidence.
 
+**Operations guide:** [SAQA User Manual](docs/USER_MANUAL.md) · [Getting Started](docs/GETTING_STARTED.md) · [Known Limitations](docs/KNOWN_LIMITATIONS.md) · [Branch Protection Audit](docs/BRANCH_PROTECTION_AUDIT.md)
+
 ## 🧩 Capabilities
 
 | Area | Coverage |
