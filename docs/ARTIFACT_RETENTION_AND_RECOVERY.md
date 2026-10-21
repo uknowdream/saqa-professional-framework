@@ -44,3 +44,16 @@ Verify that the reported source repository, workflow identity, and commit corres
 The trusted release-certification workflow now attests `artifacts/release-certification.json` only after the certification evaluator exits successfully, which requires a `CERTIFIED` decision. The same workflow verifies the resulting GitHub artifact attestation before uploading the report. A failed, blocked, stale, or unverified decision is not attested as a successful release certification.
 
 The attestation establishes artifact provenance from the trusted workflow; it does not establish application security, completeness of test coverage, or production readiness. Keep the report's commit SHA, mandatory-domain results, and evidence freshness checks as separate release controls.
+
+## Automated retention audit
+
+The workflow `.github/workflows/saqa-artifact-retention.yml` runs daily and can be dispatched manually. It reads GitHub Actions run and artifact metadata for the current `main` commit and requires a successful, exact-identity run plus a non-empty, unexpired, run-attempt-bound artifact for each mandatory domain:
+
+- `saqa-canonical-evidence` from SAQA CI
+- `saqa-contract-evidence` from SAQA Contract Testing
+- `saqa-accessibility-canonical-evidence` from SAQA Accessibility
+- `saqa-mobile-canonical-evidence` from SAQA Mobile Readiness
+- `saqa-k6-evidence` from SAQA k6 Performance
+
+The audit fails closed if a run, artifact, size, creation timestamp, or expiry timestamp is missing/invalid, if the artifact predates the latest attempt, or if the artifact expires within the next 72 hours. The JSON audit report is uploaded for 30 days even when the audit fails. This is a retention alarm, not a substitute for commit-bound release certification or signed provenance verification.
+
