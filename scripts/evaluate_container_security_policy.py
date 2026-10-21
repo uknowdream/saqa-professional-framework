@@ -73,7 +73,15 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
     findings = summary.get("findings")
     if not isinstance(findings, list):
         raise ValueError("summary findings must be an array")
-    if report_only_expected_vulnerable_target and summary.get("image") != "bkimminich/juice-shop:v20.2.0":
+    image = summary.get("image")
+    scanned_artifact = summary.get("scanned_artifact_name")
+    if not isinstance(image, str) or not image.strip():
+        raise ValueError("summary image must be a non-empty string")
+    if not isinstance(scanned_artifact, str) or not scanned_artifact.strip():
+        raise ValueError("summary scanned_artifact_name must be a non-empty string")
+    if scanned_artifact != image:
+        raise ValueError("normalized image does not match the actual Trivy-scanned ArtifactName")
+    if report_only_expected_vulnerable_target and image != "bkimminich/juice-shop:v20.2.0":
         raise ValueError("report-only mode is restricted to the exact pinned intentionally vulnerable Juice Shop image")
     validated = validate_policy(policy, today=today)
     blocking = []
@@ -93,8 +101,8 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
             raise ValueError(f"findings[{i}] has unsupported type or severity")
         if finding_id is not None and (not isinstance(finding_id, str) or not finding_id.strip()):
             raise ValueError(f"findings[{i}].id must be a non-empty string when present")
-        if target is not None and not isinstance(target, str):
-            raise ValueError(f"findings[{i}].target must be a string when present")
+        if target is not None and (not isinstance(target, str) or not target.strip()):
+            raise ValueError(f"findings[{i}].target must be a non-empty string when present")
         if (kind, severity) not in validated["rules"]:
             observed.append({"type": kind, "severity": severity, "id": finding_id, "target": target, "blocking": False})
             continue
@@ -106,7 +114,8 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
         record = {"type": kind, "severity": severity, "id": finding_id, "target": target}
         if exception:
             suppressed.append({**record, "exception": {
-                "owner": exception["owner"], "ticket": exception["ticket"], "expires_on": exception["expires_on"]
+                "owner": exception["owner"], "ticket": exception["ticket"], "reason": exception["reason"],
+                "expires_on": exception["expires_on"]
             }})
         else:
             blocking.append({**record, "reason": "matches a blocking rule and has no active exact-match exception"})
@@ -140,7 +149,19 @@ def main(argv: list[str] | None = None) -> int:
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
         result = evaluate_summary(summary, policy, report_only_expected_vulnerable_target=args.report_only_expected_vulnerable_target)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        print(json.dumps({"schema": "saqa.container-security-policy-result.v1", "status": "BLOCKED", "error": str(exc)}, indent=2))
+        result = {
+            "schema": "saqa.container-security-policy-result.v1",
+            "status": "BLOCKED",
+            "release_gate_eligible": False,
+            "error": str(exc),
+            "note": "Policy evaluation failed closed; this run has no PASS decision.",
+        }
+        try:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        except OSError as write_exc:
+            result["output_write_error"] = str(write_exc)
+        print(json.dumps(result, indent=2, sort_keys=True))
         return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
