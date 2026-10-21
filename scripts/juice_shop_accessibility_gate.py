@@ -82,20 +82,38 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
             focus_visible: e.matches(":focus-visible"),
             rendered: rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none",
             outline_style: style.outlineStyle,
-            outline_width: style.outlineWidth
+            outline_width: style.outlineWidth,
+            outline_offset: style.outlineOffset,
+            box_shadow: style.boxShadow,
+            border_top_width: style.borderTopWidth
           };
         }""")
         if state and state["tag"] not in {"body", "html"}:
             sequence.append(state)
     identities = {(item["tag"], item["id"], item["role"], item["text"]) for item in sequence}
+    def identity(item):
+        return (item["tag"], item["id"], item["role"], item["text"])
+    repeated_consecutive_targets = sum(
+        1 for previous, current in zip(sequence, sequence[1:])
+        if identity(previous) == identity(current)
+    )
+    indicator_steps = sum(
+        1 for item in sequence
+        if (item.get("outline_style") not in {None, "", "none"} and item.get("outline_width") not in {None, "", "0px"})
+        or (item.get("box_shadow") not in {None, "", "none"})
+        or (item.get("outline_offset") not in {None, "", "0px"})
+    )
     return {
         "method": "keyboard Tab only",
         "requested_steps": steps,
         "focused_steps": len(sequence),
         "unique_focus_targets": len(identities),
         "focus_visible_steps": sum(1 for item in sequence if item["focus_visible"]),
+        "visible_indicator_style_steps": indicator_steps,
+        "repeated_consecutive_targets": repeated_consecutive_targets,
+        "keyboard_trap_suspected": bool(len(identities) > 1 and repeated_consecutive_targets >= 2),
         "sequence": sequence,
-        "scope_note": "diagnostic smoke only; manual focus-order, keyboard-trap, and visible-indicator verification remains required"
+        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required"
     }
 
 
