@@ -42,13 +42,20 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
 def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str, policy: dict[str, Any] | None = None) -> None:
     """Verify raw source hashes and bind metric rows to raw JSON when policy is supplied."""
     root = source_root.resolve()
+    seen_resolved_paths: set[Path] = set()
     for index, source in enumerate(run_set["sample_sources"]):
         candidate = (root / source["path"]).resolve()
         if not candidate.is_relative_to(root):
             raise ValueError(f"{label} sample_sources[{index}] escapes source root")
+        if candidate in seen_resolved_paths:
+            raise ValueError(f"{label} sample_sources contains duplicate resolved file: {source['path']}")
+        seen_resolved_paths.add(candidate)
         if not candidate.is_file():
             raise ValueError(f"{label} source file does not exist: {source['path']}")
-        raw = candidate.read_bytes()
+        try:
+            raw = candidate.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"{label} cannot read source file {source['path']}: {exc}") from exc
         digest = hashlib.sha256(raw).hexdigest()
         if digest != source["sha256"]:
             raise ValueError(f"{label} source SHA-256 mismatch: {source['path']}")
