@@ -1,0 +1,53 @@
+name: SAQA Artifact Retention Audit
+
+on:
+  schedule:
+    - cron: '23 5 * * *' # Daily audit before routine evidence expiry windows
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: saqa-artifact-retention-audit-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Check current-main evidence retention
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Resolve current main and collect Actions metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+          echo "SAQA_MAIN_SHA=$MAIN_SHA" >> "$GITHUB_ENV"
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${MAIN_SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.' > "$RUNNER_TEMP/saqa-workflow-runs.json"
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '.' > "$RUNNER_TEMP/saqa-actions-artifacts.json"
+      - name: Audit mandatory artifact retention
+        run: |
+          python scripts/audit_artifact_retention.py \
+            --runs-file "$RUNNER_TEMP/saqa-workflow-runs.json" \
+            --artifacts-file "$RUNNER_TEMP/saqa-actions-artifacts.json" \
+            --main-sha "$SAQA_MAIN_SHA" \
+            --min-retention-hours 72 \
+            --output artifacts/ops/artifact-retention-audit.json
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-artifact-retention-audit-${{ github.run_id }}
+          path: artifacts/ops/artifact-retention-audit.json
+          if-no-files-found: error
+          retention-days: 30
