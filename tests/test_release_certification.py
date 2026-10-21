@@ -30,3 +30,15 @@ def test_certification_requires_every_mandatory_domain() -> None:
     assert decide(pending).status == "NOT_CERTIFIED"
     unverified = {**passing, "SAQA Contract Testing": "UNVERIFIED"}
     assert decide(unverified).status == "NOT_CERTIFIED"
+
+
+
+def test_release_workflow_fails_when_readiness_is_not_certified():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/qa-release-certification.yml").read_text(encoding="utf-8")
+    upload = workflow.index("Upload readiness decision")
+    fail_closed = workflow.index("Fail closed when the release is not ready")
+    assert upload < fail_closed
+    assert "if: steps.check.outputs.ready != 'true'" in workflow
+    assert "Release not certified" in workflow
+    assert "exit 1" in workflow[fail_closed:workflow.index("certify:", fail_closed)]

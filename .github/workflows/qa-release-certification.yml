@@ -122,6 +122,13 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Fail closed when the release is not ready
+        if: steps.check.outputs.ready != 'true'
+        run: |
+          echo "::error title=Release not certified::Required workflow evidence is missing, pending, stale, invalid, or its artifacts are unavailable."
+          echo "Inspect the uploaded saqa-release-readiness artifact for the exact missing domain(s)."
+          exit 1
+
   certify:
     name: Evaluate release certification
     needs: readiness
