@@ -99,3 +99,28 @@ def test_duplicate_blocking_rule_rejected():
     policy["blocking_rules"].append({"type": "secret", "severities": ["HIGH"]})
     with pytest.raises(ValueError, match="duplicate blocking rule"):
         validate_policy(policy, today=date(2026, 10, 21))
+
+
+@pytest.mark.parametrize("bad_type", [[], {}, None])
+def test_malformed_blocking_rule_type_is_rejected(bad_type):
+    policy = copy.deepcopy(POLICY)
+    policy["blocking_rules"][0]["type"] = bad_type
+    with pytest.raises(ValueError, match="invalid type"):
+        validate_policy(policy, today=date(2026, 10, 21))
+
+
+@pytest.mark.parametrize("bad_severity", [[], {}, None])
+def test_malformed_blocking_severity_is_rejected(bad_severity):
+    policy = copy.deepcopy(POLICY)
+    policy["blocking_rules"][0]["severities"] = [bad_severity]
+    with pytest.raises(ValueError, match="invalid severities"):
+        validate_policy(policy, today=date(2026, 10, 21))
+
+
+@pytest.mark.parametrize("bad_type", [[], {}, None])
+def test_malformed_finding_type_is_rejected(bad_type):
+    summary = {"schema": "saqa.container-security-summary.v1", "findings": [
+        {"type": bad_type, "severity": "HIGH", "id": "finding-1", "target": "image"}
+    ]}
+    with pytest.raises(ValueError, match="unsupported type or severity"):
+        evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
