@@ -4,10 +4,10 @@ The current mobile CI domain tests browser-based readiness. It does not run a na
 
 ## Evidence contract
 
-The Python validator `saqa.native_mobile.validate_native_mobile_evidence` checks the schema `saqa.native-mobile-evidence.v1`. Required provenance includes:
+The Python validator `saqa.native_mobile.validate_native_mobile_evidence` checks the schema `saqa.native-mobile-evidence.v1`, validates platform-specific reverse-domain package/bundle identifiers, and rejects timestamps more than five minutes in the future. Required provenance includes:
 
 - Platform and app package/bundle identifier.
-- SHA-256 of the exact APK/IPA under test.
+- SHA-256 of the exact Android APK under test. For the current iOS Simulator workflow, this is the ZIP archive digest supplied to the runner, not a digest of the extracted `.app` bundle or an IPA.
 - Test run identifier and timezone-aware execution timestamp.
 - Device/emulator model, OS version, and runtime.
 - A non-empty test list with unique test IDs and explicit PASS/FAIL/BLOCKED/UNVERIFIED results.
