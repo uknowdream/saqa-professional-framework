@@ -1,11 +1,12 @@
 """Generate a commit-bound release certification report from canonical evidence."""
 from __future__ import annotations
-import json, os
+import json, os, re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from saqa.evidence import verify_manifest
 
-CANONICAL_STATUSES = {"PASS","FAIL","BLOCKED","UNVERIFIED","PENDING","NOT_APPLICABLE"}
+CANONICAL_STATUSES = {"PASS","FAIL","BLOCKED","UNVERIFIED","NOT_APPLICABLE"}
+_COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 def main() -> int:
     manifest = Path(os.getenv("SAQA_MANIFEST","artifacts/evidence-manifest.json"))
@@ -16,8 +17,8 @@ def main() -> int:
     # A failed regeneration must never leave a previous CERTIFIED report in place.
     output.unlink(missing_ok=True)
     sha = os.getenv("SAQA_TESTED_SHA") or os.getenv("GITHUB_SHA")
-    if not sha:
-        raise SystemExit("tested commit SHA provenance is required")
+    if not isinstance(sha, str) or not _COMMIT_SHA_RE.fullmatch(sha):
+        raise SystemExit("tested commit SHA provenance must be a full lowercase 40-character commit SHA")
     if not verify_manifest(manifest):
         raise SystemExit("evidence manifest integrity verification failed")
     payload = json.loads(manifest.read_text(encoding="utf-8"))

@@ -15,20 +15,20 @@ def _write_manifest(tmp_path, details, status="PASS"):
     return manifest
 
 def test_release_report_marks_verified_manifest(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha":"abc","source_sha":"source"})
+    manifest = _write_manifest(tmp_path, {"tested_sha":"a" * 40,"source_sha":"source"})
     out = tmp_path/"release.json"
-    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","a" * 40)
     assert main() == 0
     data = json.loads(out.read_text())
     assert data["certified"] is True
-    assert data["commit_sha"] == "abc"
+    assert data["commit_sha"] == "a" * 40
     assert data["manifest_verified"] is True
     assert data["source_shas"] == ["source"]
 
 def test_release_report_rejects_mismatched_commit(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha":"source-sha"})
+    manifest = _write_manifest(tmp_path, {"tested_sha":"b" * 40})
     out = tmp_path/"release.json"
-    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","different-sha")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","c" * 40)
     with pytest.raises(SystemExit, match="tested-SHA provenance mismatch"):
         main()
 
@@ -37,14 +37,14 @@ def test_release_report_rejects_non_object_details(tmp_path, monkeypatch):
     manifest = tmp_path/"manifest.json"
     manifest.write_text(json.dumps({"records":records,"sha256":hashlib.sha256(canonical_json(records)).hexdigest()}))
     out = tmp_path/"release.json"
-    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","a" * 40)
     with pytest.raises(SystemExit, match="evidence manifest integrity verification failed"):
         main()
 
 def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha":"abc"}, status="FAIL")
+    manifest = _write_manifest(tmp_path, {"tested_sha":"a" * 40}, status="FAIL")
     out = tmp_path/"release.json"
-    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","abc")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest)); monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out)); monkeypatch.setenv("SAQA_TESTED_SHA","a" * 40)
     assert main() == 1
     data = json.loads(out.read_text())
     assert data["certified"] is False
@@ -52,11 +52,11 @@ def test_release_report_fails_ci_when_certification_is_not_clean(tmp_path, monke
 
 @pytest.mark.parametrize("status", ["NOT_APPLICABLE", "UNVERIFIED", "BLOCKED"])
 def test_release_report_does_not_certify_non_pass_evidence(tmp_path, monkeypatch, status):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"}, status=status)
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40}, status=status)
     out = tmp_path / "release.json"
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     assert main() == 1
     data = json.loads(out.read_text())
     assert data["certified"] is False
@@ -65,21 +65,21 @@ def test_release_report_does_not_certify_non_pass_evidence(tmp_path, monkeypatch
 def test_release_report_does_not_certify_mixed_pass_and_not_applicable(tmp_path, monkeypatch):
     evidence = tmp_path / "evidence"
     evidence.mkdir()
-    (evidence / "pass.json").write_text(json.dumps({"test_id":"A","status":"PASS","target":"local","observed_at":utc_now(),"details":{"tested_sha":"abc"}}))
-    (evidence / "na.json").write_text(json.dumps({"test_id":"B","status":"NOT_APPLICABLE","target":"local","observed_at":utc_now(),"details":{"tested_sha":"abc"}}))
+    (evidence / "pass.json").write_text(json.dumps({"test_id":"A","status":"PASS","target":"local","observed_at":utc_now(),"details":{"tested_sha":"a" * 40}}))
+    (evidence / "na.json").write_text(json.dumps({"test_id":"B","status":"NOT_APPLICABLE","target":"local","observed_at":utc_now(),"details":{"tested_sha":"a" * 40}}))
     from saqa.result_aggregation import aggregate
     manifest = evidence / "evidence-manifest.json"
     aggregate(evidence, manifest)
     out = tmp_path / "release.json"
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     assert main() == 1
     assert json.loads(out.read_text())["certified"] is False
 
 
 def test_release_report_rejects_stale_evidence(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     from saqa.evidence import canonical_json
     payload["records"][0]["observed_at"] = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
@@ -87,30 +87,30 @@ def test_release_report_rejects_stale_evidence(tmp_path, monkeypatch):
     manifest.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
         main()
 
 
 def test_release_report_rejects_timestamp_without_timezone(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["records"][0]["observed_at"] = "2026-10-20T00:00:00"
     payload["sha256"] = __import__("hashlib").sha256(canonical_json(payload["records"])).hexdigest()
     manifest.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
         main()
 
 
 def test_release_report_exposes_freshness_policy(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     out = tmp_path / "release.json"
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "48")
     assert main() == 0
     report = json.loads(out.read_text(encoding="utf-8"))
@@ -120,24 +120,24 @@ def test_release_report_exposes_freshness_policy(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("value", ["-1", "nan", "inf", "not-a-number"])
 def test_release_report_rejects_invalid_freshness_policy(tmp_path, monkeypatch, value):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", value)
     with pytest.raises(SystemExit, match="SAQA_MAX_EVIDENCE_AGE_HOURS"):
         main()
 
 
 def test_release_report_rejects_far_future_evidence(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     payload = json.loads(manifest.read_text(encoding="utf-8"))
     payload["records"][0]["observed_at"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
     payload["sha256"] = hashlib.sha256(canonical_json(payload["records"])).hexdigest()
     manifest.write_text(json.dumps(payload), encoding="utf-8")
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(tmp_path / "release.json"))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     with pytest.raises(SystemExit, match="stale or invalid evidence timestamps"):
         main()
 
@@ -149,29 +149,42 @@ def test_failed_regeneration_removes_stale_certified_report(tmp_path, monkeypatc
     out.write_text(json.dumps({"certified": True, "commit_sha": "old"}), encoding="utf-8")
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "new")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "d" * 40)
     with pytest.raises(SystemExit, match="evidence manifest integrity verification failed"):
         main()
     assert not out.exists()
 
 
 def test_release_report_rejects_unrepresentable_freshness_window(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     out = tmp_path / "release.json"
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "24000000000")
     with pytest.raises(SystemExit, match="exceeds the supported datetime range"):
         main()
     assert not out.exists()
 
 def test_release_report_refuses_to_overwrite_manifest(tmp_path, monkeypatch):
-    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
     original = manifest.read_bytes()
     monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
     monkeypatch.setenv("SAQA_RELEASE_REPORT", str(manifest))
-    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_TESTED_SHA", "a" * 40)
     with pytest.raises(SystemExit, match="output must differ from the source evidence manifest"):
         main()
     assert manifest.read_bytes() == original
+
+
+@pytest.mark.parametrize("value", ["abc", "A" * 40, "a" * 39, "a" * 41])
+def test_release_report_rejects_invalid_tested_commit_sha(tmp_path, monkeypatch, value):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "a" * 40})
+    out = tmp_path / "release.json"
+    out.write_text(json.dumps({"certified": True, "commit_sha": "old"}), encoding="utf-8")
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", value)
+    with pytest.raises(SystemExit, match="full lowercase 40-character commit SHA"):
+        main()
+    assert not out.exists()
