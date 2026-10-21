@@ -1,0 +1,83 @@
+name: SAQA Compare Measured Performance Baselines
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: GitHub Actions run ID that contains the approved baseline sample artifact
+        required: true
+        type: string
+      baseline_artifact_name:
+        description: Exact artifact name containing measured-run-set.json and raw-runs/
+        required: true
+        type: string
+      candidate_run_id:
+        description: GitHub Actions run ID that contains the candidate sample artifact
+        required: true
+        type: string
+      candidate_artifact_name:
+        description: Exact artifact name containing measured-run-set.json and raw-runs/
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  compare:
+    name: Verify provenance and compare repeated runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Download baseline artifact from selected run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.baseline_artifact_name }}
+          run-id: ${{ inputs.baseline_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/baseline
+      - name: Download candidate artifact from selected run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ inputs.candidate_artifact_name }}
+          run-id: ${{ inputs.candidate_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: artifacts/candidate
+      - name: Validate artifacts and compare
+        id: compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s artifacts/baseline/measured-run-set.json
+          test -s artifacts/candidate/measured-run-set.json
+          test -d artifacts/baseline/raw-runs
+          test -d artifacts/candidate/raw-runs
+          mkdir -p artifacts/comparison
+          set +e
+          python scripts/compare_performance_baseline.py \
+            --baseline artifacts/baseline/measured-run-set.json \
+            --candidate artifacts/candidate/measured-run-set.json \
+            --baseline-source-root artifacts/baseline/raw-runs \
+            --candidate-source-root artifacts/candidate/raw-runs \
+            --policy performance/baselines/juice-shop-local-v1.json \
+            > artifacts/comparison/result.json
+          result_code=$?
+          set -e
+          cat artifacts/comparison/result.json
+          echo "comparison_exit_code=$result_code" >> "$GITHUB_OUTPUT"
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-performance-comparison-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/comparison/result.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce comparison result
+        if: always() && steps.compare.outcome == 'success'
+        run: test "${{ steps.compare.outputs.comparison_exit_code }}" = "0"
