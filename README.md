@@ -18,12 +18,13 @@ The framework treats automation as an engineering system: tests produce reproduc
 | API Testing | REST, status codes, headers, JSON, schema, response-time gates |
 | Mobile Readiness | Browser/device-oriented readiness matrix and canonical evidence |
 | Accessibility | Read-only accessibility readiness checks, axe-core oracle, browser matrix |
-| Performance | Deterministic response-time/performance gates |
+| Performance | Versioned k6 gates, repeated-run sample collection, metadata-bound baseline comparison |
 | Security | Target authorization, dependency/secret hygiene, safe regression foundations |
 | Database | Isolated SQLite constraint, FK, aggregation, parameterization and rollback gate |
 | Docker | Reproducible local/containerized authorized targets |
 | BDD | Gherkin feature/scenario structure |
 | Evidence | JSON evidence, SHA-256 manifests, canonical aggregation |
+| Test Stability | Advisory cross-run JUnit trends by Python version; same-commit variation signals and missing-artifact visibility |
 | CI/CD | GitHub Actions multi-browser quality gates |
 | Jira | Project access/bootstrap and integration foundation |
 | Certification | Evidence-based certification semantics, release reports, commit-bound evidence history |
