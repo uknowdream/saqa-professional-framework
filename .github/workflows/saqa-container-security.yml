@@ -17,6 +17,10 @@ jobs:
     name: Scan pinned reference image
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       TRIVY_VERSION: "0.76.0"
     steps:
@@ -29,6 +33,16 @@ jobs:
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 bkimminich/juice-shop:v20.2.0 -o spdx-json=/out/juice-shop-sbom.spdx.json
       - name: Validate SBOM and record digest
         run: python scripts/validate_spdx_sbom.py --input artifacts/security/juice-shop-sbom.spdx.json --output artifacts/security/juice-shop-sbom-validation.json
+      - name: Attest SPDX image SBOM provenance
+        if: github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/security/juice-shop-sbom.spdx.json
+      - name: Verify SPDX image SBOM provenance
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify artifacts/security/juice-shop-sbom.spdx.json --repo "$GITHUB_REPOSITORY"
       - name: Verify pinned Trivy runtime
         run: |
           mkdir -p artifacts/security
