@@ -1,6 +1,6 @@
 # SAQA Professional Framework — Known Limitations and Next Priorities
 
-Last reviewed: 2026-10-20  
+Last reviewed: 2026-10-21  
 Main-branch certified commit at review: `872bf0d182f3287d7e519947a259cc3313e51ed0`
 
 ## Current verified baseline
@@ -28,9 +28,9 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 ## Next engineering priorities
 
 ### P1 — Native mobile execution
-- Add an explicit Android emulator/device workflow and document iOS coverage requirements.
-- Capture device OS, model/emulator image, app build, and test-run identifiers in evidence.
-- Keep this domain separate from browser-based mobile readiness until it has independent passing evidence.
+- [ ] Add an explicit Android emulator/device workflow once an authorized APK and install/test contract are available; document iOS coverage requirements separately.
+- [ ] Capture device OS, model/emulator image, app build, package identifier, and test-run identifiers in native evidence.
+- Browser-based readiness remains the only executable mobile domain today. Native Android/iOS execution is not claimed as implemented or passed without an actual application artifact and device/emulator run.
 
 ### P1 — Accessibility depth
 - Add keyboard-only navigation checks and focus-order assertions for representative flows.
@@ -42,7 +42,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Add local-only smoke/load/stress/spike/soak workload profiles for the authorized Juice Shop target.
 - Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata for exploratory profiles.
 - [x] Add a deterministic repeated-run median comparator that blocks on fewer than five samples, invalid metrics, and mismatched target/workload/policy/environment metadata.
-- The comparator is an explicit CLI workflow, not a mandatory release-certification domain; no synthetic baseline is committed.
+- The comparator is an explicit CLI workflow, not a mandatory release-certification domain; no synthetic baseline is committed. A baseline must be built from archived, verified repeated-run artifacts before it can support release decisions.
 
 ### P2 — Security coverage
 - [x] Add a threat-model template and a risk-to-test traceability matrix.
