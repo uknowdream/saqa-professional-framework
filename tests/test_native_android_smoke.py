@@ -73,4 +73,6 @@ def test_cli_removes_stale_pass_evidence_before_new_run(monkeypatch, tmp_path):
     monkeypatch.setattr(runner, "run", lambda *args, **kwargs: pytest.fail("unexpected adb call"))
     assert runner.main(["--apk", str(apk), "--package-id", "com.example.app",
                         "--expected-sha256", "b" * 64, "--output", str(output)]) == 1
-    assert not output.exists()
+    evidence = json.loads(output.read_text(encoding="utf-8"))
+    assert evidence["status"] == "FAIL"
+    assert evidence["tests"][0]["status"] == "FAIL"
