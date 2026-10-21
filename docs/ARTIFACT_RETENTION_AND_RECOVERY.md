@@ -3,7 +3,7 @@
 ## Retention policy
 
 Workflows upload evidence artifacts with explicit retention periods:
-- Core Python CI `saqa-python-*` artifacts and cross-run JUnit-history inputs: 90 days. Browser, API, accessibility, mobile, and performance target-specific evidence commonly remains available for 14 days unless a workflow states otherwise.
+- Core Python CI `saqa-python-*` artifacts and cross-run JUnit-history inputs: 90 days. Native Android/iOS smoke, repeated performance sample/comparison, accessibility, and security scan evidence use 30 days where specified in the producing workflow; other browser/API evidence may use shorter workflow-specific retention.
 - Security scan, SBOM, dependency audit, and release readiness/certification reports: 30 days.
 
 Retention is a GitHub Actions artifact policy, not a long-term archive guarantee. If a release needs evidence beyond the configured retention, copy the exact run's artifacts into the organization's approved immutable evidence store and record the repository, workflow run ID, attempt, commit SHA, artifact name, download time, and checksum. Do not store credentials or unredacted sensitive data in the archive.
@@ -41,7 +41,7 @@ Verify that the reported source repository, workflow identity, and commit corres
 
 ## Release certification provenance attestation
 
-The trusted release-certification workflow now attests `artifacts/release-certification.json` only after the certification evaluator exits successfully, which requires a `CERTIFIED` decision. The same workflow verifies the resulting GitHub artifact attestation before uploading the report. A failed, blocked, stale, or unverified decision is not attested as a successful release certification.
+The trusted release-certification workflow now attests `artifacts/release-certification.json` only after the certification evaluator exits successfully, which requires a `CERTIFIED` decision. Verification is attempted before the report upload; the upload step deliberately runs even when the job fails so the available decision JSON can be retained for diagnosis. A failed signer verification fails the job and means the report must not be relied on as a verified certificate, even if a diagnostic artifact is uploaded.
 
 The attestation establishes artifact provenance from the trusted workflow; it does not establish application security, completeness of test coverage, or production readiness. Keep the report's commit SHA, mandatory-domain results, and evidence freshness checks as separate release controls.
 
