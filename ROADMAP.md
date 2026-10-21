@@ -71,7 +71,7 @@ A roadmap item is not marked complete merely because code exists; it requires im
 The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED/PENDING control.
 ## Phase 6 — Continuous Assurance and Evidence Operations
 
-- [x] Add repeated-run performance baseline comparison with metadata compatibility and fail-closed sample validation.
+- [x] Add repeated-run performance baseline comparison with metadata compatibility, fail-closed sample validation, and median/p95/p99 regression checks.
 - [x] Schedule weekly dependency/SBOM/compatibility checks and pinned reference-container security scans.
 - [x] Document exact-commit artifact retention, integrity verification, and recovery procedures.
 - [x] Generate five-run candidate sets from independently executed k6 summaries with raw-source SHA-256 and source-root confinement; never create synthetic baseline measurements.
