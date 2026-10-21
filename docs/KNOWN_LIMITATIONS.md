@@ -77,7 +77,9 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - A successful scan means the scanner ran and produced a validated report. The pinned intentionally vulnerable Juice Shop scan is report-only by design; apply the versioned blocking policy to authorized non-training targets before treating findings as release-blocking.
 - [x] Publish JUnit test count, failure/skip rate, aggregate duration, and slowest-test list; validate an owner/ticket/reason/expiry quarantine registry in CI.
 - [x] Add cross-run JUnit outcome history by Python-version cohort, with same-commit variation separated from cross-commit differences and missing artifacts reported as gaps (`docs/TEST_STABILITY_HISTORY.md`).
-- Retry-rate and retry-recovered failures still require retry-aware runner events or explicit per-attempt records. Cross-commit outcome variation is not classified as true flakiness.
+- [x] Add retry-aware per-attempt telemetry with pinned `pytest-rerunfailures`, per-worker JSON evidence, run/commit/Python provenance, and a fail-closed summary gate.
+- [x] Detect failure-then-pass retry variation without copying failure text into telemetry; the CI quality job fails rather than silently accepting recovered failures.
+- A retry outcome variation is a candidate intermittent result requiring investigation, not proof of intrinsic flakiness. Cross-commit outcome variation remains separate.
 - Keep the release report and roadmap synchronized with actual workflow evidence.
 
 ## Definition of done for future work

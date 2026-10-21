@@ -82,7 +82,7 @@ The project must not claim “complete” or “certified” solely from source 
 - [x] Add signed GitHub artifact provenance attestation for the release-certification report; verify it in the trusted release workflow. This attests provenance, not correctness or production security.
 - [x] Implement and test automated artifact expiry/missing-artifact detection against exact-run GitHub Actions metadata; the daily audit preserves a report and fails closed on missing, empty, expired, near-expiry, or previous-attempt artifacts.
 - [x] Add scheduled cross-run JUnit outcome history by Python-version cohort; identify same-commit result variation separately from cross-commit variation and keep the report advisory.
-- [ ] Add retry-aware per-attempt telemetry before reporting retry rates or declaring a test truly flaky.
+- [x] Add retry-aware per-attempt telemetry to Python CI with per-worker JSON evidence, a bounded retry, and a fail-closed summary gate. A recovered failure still fails CI; outcome variation is labelled a candidate intermittent result, not proof of intrinsic flakiness.
 - [ ] Add native Android/iOS E2E only when an actual native app target and emulator/device build are supplied; browser viewport tests are not native mobile evidence.
 
 ## Definition of done for Phase 6
