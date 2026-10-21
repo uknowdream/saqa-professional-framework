@@ -1,6 +1,6 @@
 """Compare repeated, metadata-matched k6 run sets against a measured baseline."""
 from __future__ import annotations
-import argparse, json, math, statistics, re
+import argparse, hashlib, json, math, statistics, re
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,20 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
         if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise ValueError(f"{label} sample_sources[{index}].sha256 must be a lowercase SHA-256 digest")
 
+
+
+def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str) -> None:
+    """Verify each declared raw sample file is inside source_root and matches its SHA-256."""
+    root = source_root.resolve()
+    for index, source in enumerate(run_set["sample_sources"]):
+        candidate = (root / source["path"]).resolve()
+        if not candidate.is_relative_to(root):
+            raise ValueError(f"{label} sample_sources[{index}] escapes source root")
+        if not candidate.is_file():
+            raise ValueError(f"{label} source file does not exist: {source['path']}")
+        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        if digest != source["sha256"]:
+            raise ValueError(f"{label} source SHA-256 mismatch: {source['path']}")
 
 def load_run_set(path: Path) -> dict[str, Any]:
     try:
@@ -137,13 +151,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
+    parser.add_argument("--source-root", required=True, type=Path, help="root directory containing the raw sample artifacts referenced by both run sets")
     parser.add_argument("--max-latency-regression-pct", type=float, default=10.0)
     parser.add_argument("--max-throughput-drop-pct", type=float, default=10.0)
     parser.add_argument("--max-error-rate-increase", type=float, default=0.005,
                         help="absolute error-rate increase; 0.005 means 0.5 percentage points")
     args = parser.parse_args(argv)
     try:
-        result = compare_run_sets(load_run_set(args.baseline), load_run_set(args.candidate),
+        baseline = load_run_set(args.baseline)
+        candidate = load_run_set(args.candidate)
+        verify_source_files(baseline, args.source_root, "baseline")
+        verify_source_files(candidate, args.source_root, "candidate")
+        result = compare_run_sets(baseline, candidate,
                                   max_latency_regression_pct=args.max_latency_regression_pct,
                                   max_throughput_drop_pct=args.max_throughput_drop_pct,
                                   max_error_rate_increase=args.max_error_rate_increase)
