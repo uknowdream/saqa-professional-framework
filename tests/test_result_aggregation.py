@@ -111,3 +111,8 @@ def test_verify_manifest_rejects_malformed_digest(tmp_path: Path) -> None:
     manifest = tmp_path / "bad-digest.json"
     manifest.write_text(json.dumps({"records": [], "sha256": "not-a-sha256"}), encoding="utf-8")
     assert verify_manifest(manifest) is False
+
+def test_verify_manifest_rejects_deeply_nested_json(tmp_path: Path) -> None:
+    manifest = tmp_path / "deep-manifest.json"
+    manifest.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    assert verify_manifest(manifest) is False
