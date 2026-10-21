@@ -62,6 +62,138 @@ def _guard_request(route) -> None:
     route.continue_()
 
 
+def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) -> dict[str, object]:
+    """Summarize keyboard focus observations; all findings are diagnostic only."""
+    def identity(item):
+        return (item.get("tag"), item.get("id"), item.get("role"), item.get("text"))
+
+    identities = {identity(item) for item in sequence}
+    target_ids = [identity(item) for item in sequence]
+    repeated_consecutive_targets = sum(
+        1 for previous, current in zip(target_ids, target_ids[1:])
+        if previous == current
+    )
+    repeated_cycle_periods = []
+    # Flag repeated A/B/A/B and longer repeated cycles, not just adjacent identical nodes.
+    max_period = min(5, len(target_ids) // 2)
+    for period in range(2, max_period + 1):
+        for offset in range(0, len(target_ids) - (2 * period) + 1):
+            first = target_ids[offset:offset + period]
+            second = target_ids[offset + period:offset + (2 * period)]
+            if first == second and len(set(first)) > 1:
+                repeated_cycle_periods.append(period)
+                break
+
+    def legacy_indicator_heuristic(item):
+        return (
+            (item.get("outline_style") not in {None, "", "none"}
+             and item.get("outline_width") not in {None, "", "0px"})
+            or item.get("box_shadow") not in {None, "", "none"}
+            or item.get("outline_offset") not in {None, "", "0px"}
+        )
+
+    indicator_steps = sum(
+        1 for item in sequence
+        if (
+            bool(item.get("focus_indicator_visible"))
+            if "focus_indicator_visible" in item
+            else bool(legacy_indicator_heuristic(item))
+        )
+    )
+    trap_suspected = (
+        (len(identities) > 1 and repeated_consecutive_targets >= 2)
+        or bool(repeated_cycle_periods)
+    )
+    return {
+        "method": "keyboard Tab only",
+        "requested_steps": steps,
+        "focused_steps": len(sequence),
+        "unique_focus_targets": len(identities),
+        "focus_visible_steps": sum(1 for item in sequence if item.get("focus_visible")),
+        "visible_indicator_style_steps": indicator_steps,
+        "repeated_consecutive_targets": repeated_consecutive_targets,
+        "repeated_focus_cycle_periods": sorted(set(repeated_cycle_periods)),
+        "keyboard_trap_suspected": trap_suspected,
+        "sequence": sequence,
+        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required",
+    }
+
+def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
+    """Record keyboard-only Tab traversal without claiming full WCAG conformance."""
+    sequence = []
+    for _ in range(steps):
+        page.keyboard.press("Tab")
+        state = page.evaluate("""() => {
+          const e = document.activeElement;
+          if (!e) return null;
+          const text = (e.innerText || e.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 100);
+          const snapshot = element => {
+            const s = getComputedStyle(element);
+            return {
+              outline_style: s.outlineStyle,
+              outline_width: s.outlineWidth,
+              outline_color: s.outlineColor,
+              outline_offset: s.outlineOffset,
+              box_shadow: s.boxShadow,
+              border_top_style: s.borderTopStyle,
+              border_top_width: s.borderTopWidth,
+              border_top_color: s.borderTopColor
+            };
+          };
+          const focusStyle = snapshot(e);
+          // Compare focused and resting styles; static non-default CSS is not by itself a focus indicator.
+          e.blur();
+          const restingStyle = snapshot(e);
+          e.focus({preventScroll: true});
+          const restoredStyle = snapshot(e);
+          const visibleColor = value => {
+            if (!value || value.toLowerCase().includes("transparent")) return false;
+            const rgbaColors = [...value.matchAll(/rgba\\(([^)]*)\\)/ig)];
+            if (rgbaColors.length) {
+              return rgbaColors.some(match => {
+                const components = match[1].split(",");
+                return components.length < 4 || Number(components[3]) > 0;
+              });
+            }
+            const alpha = value.match(/\\/\\s*([0-9.]+%?)\\s*\\)/i);
+            if (alpha) return Number.parseFloat(alpha[1]) > 0;
+            return true;
+          };
+          const changed = property => focusStyle[property] !== restingStyle[property];
+          const outlinePainted = focusStyle.outline_style !== "none"
+            && focusStyle.outline_width !== "0px"
+            && visibleColor(focusStyle.outline_color)
+            && ["outline_style", "outline_width", "outline_color", "outline_offset"].some(changed);
+          const boxShadowPainted = focusStyle.box_shadow !== "none"
+            && focusStyle.box_shadow !== ""
+            && visibleColor(focusStyle.box_shadow)
+            && changed("box_shadow");
+          const borderPainted = focusStyle.border_top_style !== "none"
+            && focusStyle.border_top_width !== "0px"
+            && visibleColor(focusStyle.border_top_color)
+            && ["border_top_style", "border_top_width", "border_top_color"].some(changed);
+          const rect = e.getBoundingClientRect();
+          return {
+            tag: e.tagName.toLowerCase(),
+            id: e.id || "",
+            role: e.getAttribute("role") || "",
+            text,
+            tab_index: e.tabIndex,
+            focus_visible: e.matches(":focus-visible"),
+            rendered: rect.width > 0 && rect.height > 0 && getComputedStyle(e).visibility !== "hidden" && getComputedStyle(e).display !== "none",
+            ...restoredStyle,
+            focus_indicator_visible: Boolean(outlinePainted || boxShadowPainted || borderPainted),
+            focus_style_changed_from_resting: Boolean(
+              ["outline_style", "outline_width", "outline_color", "outline_offset",
+               "box_shadow", "border_top_style", "border_top_width", "border_top_color"].some(changed)
+            )
+          };
+        }""")
+        if state and state["tag"] not in {"body", "html"}:
+            sequence.append(state)
+    return _summarize_keyboard_sequence(sequence, steps)
+
+
 def main() -> int:
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     evidence = {
@@ -114,6 +246,8 @@ def main() -> int:
                   return {lang_present:!!(document.documentElement.getAttribute('lang')||'').trim(),title_present:!!document.title.trim(),images_missing_alt:[...document.images].filter(rendered).filter(e=>!e.hasAttribute('alt')).length,interactive_control_count:controls.length,unnamed_interactive_controls:unnamed.length,unnamed_control_details:unnamed};
                 }""")
                 evidence["details"] = {"status_code": response.status if response else None, **metrics}
+                keyboard = _keyboard_focus_sequence(page)
+                evidence["details"]["keyboard_navigation"] = keyboard
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
                 page.add_script_tag(content=axe_source)
@@ -123,9 +257,25 @@ def main() -> int:
                 }""", AXE_RULES)
                 diagnostic_oracle = page.evaluate("""async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""", AXE_DIAGNOSTIC_RULES)
                 evidence["details"]["independent_oracle"] = {"engine":"axe-core","gated_rules":AXE_RULES,"diagnostic_rules":AXE_DIAGNOSTIC_RULES,"violation_count":len(oracle),"violations":oracle,"diagnostic_violation_count":len(diagnostic_oracle),"diagnostic_violations":diagnostic_oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
+                # Repeat keyboard-only traversal after a fresh load at a narrow mobile viewport.
+                # This remains diagnostic smoke evidence, not a claim of native mobile or WCAG certification.
+                page.set_viewport_size({"width": 390, "height": 844})
+                mobile_response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
+                _assert_loopback_http(page.url)
+                page.locator("app-root").wait_for(state="attached", timeout=15000)
+                page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
+                mobile_keyboard = _keyboard_focus_sequence(page)
+                evidence["details"]["keyboard_navigation_mobile_viewport"] = {
+                    "viewport": {"width": 390, "height": 844},
+                    "status_code": mobile_response.status if mobile_response else None,
+                    **mobile_keyboard,
+                }
                 disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
+                if keyboard["unique_focus_targets"] == 0: failures.append("keyboard Tab sequence did not reach a focusable target")
+                if not mobile_response or mobile_response.status < 200 or mobile_response.status >= 400: failures.append("mobile viewport page reload did not return a successful response")
+                if mobile_keyboard["unique_focus_targets"] == 0: failures.append("mobile viewport keyboard Tab sequence did not reach a focusable target")
                 if not metrics["lang_present"]: failures.append("document language is missing")
                 if not metrics["title_present"]: failures.append("document title is missing")
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")

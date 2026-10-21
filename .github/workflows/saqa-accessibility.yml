@@ -50,7 +50,10 @@ jobs:
       - name: Verify axe-core version
         run: node -e "const p=require('./node_modules/axe-core/package.json'); if(p.version !== process.env.SAQA_AXE_CORE_VERSION) process.exit(1); console.log('axe-core', p.version)"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start Juice Shop
         run: docker run --detach --rm --name saqa-juice-shop-a11y -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
       - name: Wait for Juice Shop

@@ -1,0 +1,13 @@
+{
+  "schema": "saqa.test-quarantine-policy.v1",
+  "version": 1,
+  "quarantines": [],
+  "requirements": {
+    "test_id": "exact JUnit test identifier",
+    "owner": "responsible team or person",
+    "reason": "specific reproducible flakiness or infrastructure issue",
+    "ticket": "tracked issue identifier",
+    "expires_on": "future ISO-8601 date"
+  },
+  "policy": "Quarantine is not a pass. Expired entries, stale test IDs, and quarantined failures are surfaced and fail the report."
+}

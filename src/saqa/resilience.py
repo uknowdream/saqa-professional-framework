@@ -4,8 +4,8 @@ from collections.abc import Callable
 import httpx
 
 def retry_read_only(operation: Callable[[], object], *, attempts: int = 3) -> tuple[object, int]:
-    if attempts < 1:
-        raise ValueError("attempts must be >= 1")
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        raise ValueError("attempts must be a positive integer")
     last: BaseException | None = None
     for attempt in range(1, attempts + 1):
         try:

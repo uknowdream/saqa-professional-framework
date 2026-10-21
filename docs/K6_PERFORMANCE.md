@@ -25,3 +25,19 @@ docker stop saqa-juice-shop-k6 >/dev/null 2>&1 || true
 exit "$status"
 
 The k6 container uses host networking to reach the loopback-bound authorized target on the GitHub runner.
+
+## Optional exploratory load profiles
+
+A separate script provides local-only smoke, load, stress, spike, and soak profiles. These profiles are useful for characterizing behavior but **do not count as mandatory release certification evidence** and do not establish production capacity or SLOs.
+
+Start the pinned local target as described above, then run the exploratory script with a locally installed k6:
+
+~~~bash
+SAQA_K6_PROFILE=smoke k6 run performance/k6/juice-shop-scenarios.js
+SAQA_K6_PROFILE=load k6 run performance/k6/juice-shop-scenarios.js
+SAQA_K6_PROFILE=stress k6 run performance/k6/juice-shop-scenarios.js
+SAQA_K6_PROFILE=spike k6 run performance/k6/juice-shop-scenarios.js
+SAQA_K6_PROFILE=soak k6 run performance/k6/juice-shop-scenarios.js
+~~~
+
+The script rejects non-loopback targets and uses GET-only requests. The stress profile peaks at 75 virtual users; the soak profile runs for approximately 17 minutes. The existing mandatory CI gate remains the shorter, separately policy-validated `juice-shop.js` workload. Treat the initial thresholds as local guardrails until repeated measurements and environment-specific SLOs justify a reviewed policy.

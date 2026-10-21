@@ -15,7 +15,7 @@ def _verify_lines(lines: list[str]) -> bool:
         saw_entry = True
         try:
             entry = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
             return False
         if not isinstance(entry, dict):
             return False
@@ -24,7 +24,11 @@ def _verify_lines(lines: list[str]) -> bool:
             return False
         unsigned = dict(entry)
         unsigned.pop("chain_sha256", None)
-        if hashlib.sha256(canonical_json(unsigned)).hexdigest() != digest:
+        try:
+            actual = hashlib.sha256(canonical_json(unsigned)).hexdigest()
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            return False
+        if actual != digest:
             return False
         previous = digest
     return saw_entry

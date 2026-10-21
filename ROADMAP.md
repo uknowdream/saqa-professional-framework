@@ -69,3 +69,23 @@ A roadmap item is not marked complete merely because code exists; it requires im
 ## Engineering rule
 
 The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED/PENDING control.
+## Phase 6 — Continuous Assurance and Evidence Operations
+
+- [x] Add repeated-run performance baseline comparison with metadata compatibility, fail-closed sample validation, and median/p95/p99 regression checks.
+- [x] Schedule weekly dependency/SBOM/compatibility checks and pinned reference-container security scans.
+- [x] Document exact-commit artifact retention, integrity verification, and recovery procedures.
+- [x] Generate five-run candidate sets from independently executed k6 summaries with raw-source SHA-256 and source-root confinement; never create synthetic baseline measurements.
+- [x] Add a manually dispatched comparator workflow that downloads two explicitly selected run artifacts, re-verifies raw-source hashes and metric binding, checks metadata compatibility, and uploads the decision report. It never auto-promotes a baseline.
+- [x] Record the current pinned-image Trivy counts, raw report hashes, blocking-signal counts, and conservative report-only disposition in `docs/security/REFERENCE_IMAGE_TRIAGE_2026-10-21.md`.
+- [x] Keep a versioned severity policy with exact-match-only exceptions requiring owner, ticket, reason, and future expiry; keep the intentionally vulnerable training target in report-only mode.
+- [ ] A security maintainer must manually verify the six embedded secret-pattern matches and record a named owner/ticket before treating any of them as confirmed placeholders or adding exceptions. Production-image enforcement requires a separate approved target/policy.
+- [x] Add signed GitHub artifact provenance attestation for the release-certification report; verify it in the trusted release workflow. This attests provenance, not correctness or production security.
+- [x] Implement and test automated artifact expiry/missing-artifact detection against exact-run GitHub Actions metadata; the daily audit preserves a report and fails closed on missing, empty, expired, near-expiry, or previous-attempt artifacts.
+- [x] Add scheduled cross-run JUnit outcome history by Python-version cohort; identify same-commit result variation separately from cross-commit variation and keep the report advisory.
+- [x] Add retry-aware per-attempt telemetry to Python CI with per-worker JSON evidence, a bounded retry, and a fail-closed summary gate. A recovered failure still fails CI; outcome variation is labelled a candidate intermittent result, not proof of intrinsic flakiness.
+- [ ] Add native Android/iOS E2E only when an actual native app target and emulator/device build are supplied; browser viewport tests are not native mobile evidence.
+
+## Definition of done for Phase 6
+
+Every completed item requires code or workflow changes, automated tests where applicable, current workflow evidence, and documentation. Report-only security findings and unexecuted native/mobile scenarios must remain clearly labelled; they must not be silently promoted to PASS.
+

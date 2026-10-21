@@ -1,0 +1,18 @@
+{
+  "schema": "saqa.container-security-policy.v1",
+  "policy_id": "reference-image-security-gate",
+  "version": 1,
+  "blocking_rules": [
+    {"type": "secret", "severities": ["UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]},
+    {"type": "misconfiguration", "severities": ["HIGH", "CRITICAL"]},
+    {"type": "vulnerability", "severities": ["CRITICAL"]}
+  ],
+  "exceptions": [],
+  "exception_requirements": [
+    "finding_type, finding_id, severity, and target must exactly match a normalized finding",
+    "reason, owner, and ticket must be non-empty",
+    "expires_on must be a future ISO-8601 date",
+    "expired exceptions never suppress findings"
+  ],
+  "notes": "Do not add blanket severity or wildcard exceptions. Exceptions are temporary risk acceptances, not remediation."
+}

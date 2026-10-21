@@ -5,12 +5,15 @@ on:
     branches: [main, 'saqa/**']
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '17 4 * * 1' # Weekly dependency, SBOM, and test compatibility review
 
 permissions:
   contents: read
 
 concurrency:
-  group: saqa-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Keep the scheduled maintenance sweep isolated so it cannot cancel a main push's release evidence.
+  group: saqa-ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -35,8 +38,26 @@ jobs:
         run: python -m pip install -e '.[test,ci]'
       - name: Compile
         run: python -m compileall -q src tests
-      - name: Tests
-        run: python -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+      - name: Tests with retry-aware per-attempt telemetry
+        shell: bash
+        run: |
+          mkdir -p artifacts/test-attempts
+          set +e
+          python -m pytest -p scripts.pytest_attempt_telemetry --reruns=1 --reruns-delay=1 -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+          pytest_status=$?
+          python scripts/summarize_test_attempts.py --input-dir artifacts/test-attempts --output artifacts/test-attempt-telemetry.json
+          telemetry_status=$?
+          set -e
+          if [ "$pytest_status" -ne 0 ]; then exit "$pytest_status"; fi
+          exit "$telemetry_status"
+      - name: Summarize test quality and quarantine policy
+        if: always()
+        run: |
+          if [ ! -s artifacts/junit.xml ]; then
+            echo "Missing JUnit XML; cannot report test quality."
+            exit 2
+          fi
+          python scripts/test_quality_report.py --junit artifacts/junit.xml --policy quality/test-quarantine-policy.json --output artifacts/quality/test-quality-report.json
       - name: Generate and verify evidence
         run: python -m saqa.ci_evidence
       - name: Optimized-mode compile and import
@@ -50,26 +71,110 @@ jobs:
           name: saqa-python-${{ matrix.python }}
           path: artifacts/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   dependency-and-security:
-    name: Dependency and secret hygiene
+    name: Dependency, SBOM, and secret hygiene
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
+          cache: pip
       - name: Install project and audit tooling
         run: |
           python -m pip install -e .
-          python -m pip install pip-audit
-      - name: Dependency audit
-        run: pip-audit
-      - name: Secret pattern scan
+          python -m pip install pip-audit==2.10.1 cyclonedx-bom==7.5.0 bandit==1.8.6
+          mkdir -p artifacts/security
+      - name: Secret pattern scan before generating reports
+        shell: bash
         run: |
-          ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
-            --exclude-dir=.git --exclude='*.zip'
+          set -euo pipefail
+          set +e
+          grep -RIlE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . --exclude-dir=.git --exclude='*.zip' > "$RUNNER_TEMP/saqa-secret-pattern-paths.txt"
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -eq 0 ]; then
+            echo "Secret-pattern match found in checked-out source files:"
+            sed 's#^#  - #' "$RUNNER_TEMP/saqa-secret-pattern-paths.txt"
+            echo "Review findings without copying secret values into logs or issues."
+            exit 1
+          elif [ "$scan_status" -ne 1 ]; then
+            echo "Secret scanner failed with exit code $scan_status; cannot treat scan as clean."
+            exit 2
+          fi
+      - name: Generate CycloneDX SBOM
+        run: cyclonedx-py environment --output-format JSON --output-file artifacts/security/sbom.cdx.json
+      - name: Dependency vulnerability audit
+        id: dependency-audit
+        continue-on-error: true
+        run: pip-audit --skip-editable --format=json > artifacts/security/pip-audit.json
+      - name: Validate audit output
+        if: always()
+        run: python scripts/validate_pip_audit_report.py --input artifacts/security/pip-audit.json
+      - name: Static application security testing (Bandit)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bandit -r src scripts -lll -iii --exit-zero -f json -o artifacts/security/bandit-sast.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("artifacts/security/bandit-sast.json").read_text(encoding="utf-8"))
+          if not isinstance(report, dict) or not isinstance(report.get("results"), list):
+              raise SystemExit("Bandit report schema invalid")
+          if any(not isinstance(item, dict) for item in report["results"]):
+              raise SystemExit("Bandit results must contain only objects")
+          high = [item for item in report["results"]
+                  if item.get("issue_severity") == "HIGH" and item.get("issue_confidence") == "HIGH"]
+          print(f"Bandit validated {len(report['results'])} finding(s); {len(high)} high-severity/high-confidence finding(s).")
+          if high:
+              raise SystemExit(f"Bandit gate failed on {len(high)} high-severity/high-confidence finding(s)")
+          PY
+      - name: Upload security evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-security-evidence
+          path: artifacts/security/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce dependency audit
+        if: steps.dependency-audit.outcome != 'success'
+        run: |
+          echo 'Dependency vulnerability audit failed; inspect the JSON artifact and remediate or review a documented exception.'
+          exit 1
+
+  attest-security-sbom:
+    name: Attest trusted SBOM after security gates
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: [dependency-and-security]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - name: Download security evidence from successful gated job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: saqa-security-evidence
+          path: artifacts/security
+      - name: Attest SBOM provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/security/sbom.cdx.json
+      - name: Verify SBOM attestation signer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh attestation verify artifacts/security/sbom.cdx.json --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/saqa-ci.yml"
 
   database-quality:
     name: Isolated database quality gate
@@ -121,7 +226,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Browser smoke
         env:
           SAQA_BROWSER: ${{ matrix.browser }}
@@ -146,7 +254,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start Juice Shop
         run: docker run --detach --rm --name saqa-juice-shop -p 127.0.0.1:3000:3000 bkimminich/juice-shop:v20.2.0
       - name: Wait for Juice Shop
@@ -264,7 +375,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install selected browser
-        run: python -m playwright install --with-deps ${{ matrix.browser }}
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps ${{ matrix.browser }}
       - name: Start WebGoat
         run: docker run --detach --rm --name saqa-webgoat -p 127.0.0.1:8080:8080 webgoat/webgoat:v2026.4
       - name: Wait for WebGoat login page
@@ -353,7 +467,10 @@ jobs:
       - name: Install pinned Playwright
         run: python -m pip install "playwright==${SAQA_PLAYWRIGHT_VERSION}"
       - name: Install Chromium
-        run: python -m playwright install --with-deps chromium
+        run: |
+          # A blocked Microsoft apt feed on hosted runners can break Playwright's dependency install.
+          sudo find /etc/apt/sources.list.d -maxdepth 1 -type f -exec grep -l 'packages.microsoft.com' {} + | xargs -r sudo rm -f
+          python -m playwright install --with-deps chromium
       - name: Validate Docker Compose definition
         run: docker compose -f docker-compose.qa-targets.yml config
       - name: Start and validate local OWASP targets

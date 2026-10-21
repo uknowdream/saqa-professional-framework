@@ -1,0 +1,92 @@
+name: SAQA Native iOS Simulator Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag in this repository containing a simulator .app ZIP
+        required: true
+        type: string
+      app_asset_name:
+        description: Exact ZIP asset containing one iOS Simulator .app bundle
+        required: true
+        type: string
+      bundle_id:
+        description: Expected iOS bundle identifier, e.g. com.example.app
+        required: true
+        type: string
+      expected_sha256:
+        description: Independently obtained lowercase SHA-256 digest of the ZIP asset
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  ios-simulator-smoke:
+    name: Install and launch authorized iOS Simulator app
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      APP_ASSET_NAME: ${{ inputs.app_asset_name }}
+      BUNDLE_ID: ${{ inputs.bundle_id }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Validate inputs and download exact release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid release tag format"; exit 2; }
+          [[ "$APP_ASSET_NAME" =~ ^[A-Za-z0-9._-]+\.zip$ ]] || { echo "App asset must be a simple .zip filename"; exit 2; }
+          [[ "$BUNDLE_ID" =~ ^[A-Za-z][A-Za-z0-9-]*(\.[A-Za-z][A-Za-z0-9-]*)+$ ]] || { echo "Invalid iOS bundle ID"; exit 2; }
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Expected SHA-256 must be 64 lowercase hex characters"; exit 2; }
+          mkdir -p artifacts/native-mobile
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$APP_ASSET_NAME" --dir artifacts/native-mobile
+          test -f "artifacts/native-mobile/$APP_ASSET_NAME"
+          printf '%s  %s\n' "$EXPECTED_SHA256" "artifacts/native-mobile/$APP_ASSET_NAME" | shasum -a 256 -c -
+      - name: Select and boot an available iOS simulator
+        run: |
+          set -euo pipefail
+          DEVICE_UDID=$(python - <<'PY'
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"], text=True))
+          for runtime, devices in data.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iOS Simulator iPhone found")
+          PY
+          )
+          echo "SAQA_IOS_SIMULATOR_UDID=$DEVICE_UDID" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE_UDID" || true
+          xcrun simctl bootstatus "$DEVICE_UDID" -b
+      - name: Install and launch verified simulator app
+        run: |
+          python scripts/run_native_ios_smoke.py \
+            --app-archive "artifacts/native-mobile/$APP_ASSET_NAME" \
+            --bundle-id "$BUNDLE_ID" \
+            --expected-sha256 "$EXPECTED_SHA256" \
+            --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --output artifacts/native-mobile/ios-validated-evidence.json
+      - name: Upload native iOS evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-native-ios-evidence-${{ github.run_id }}
+          path: artifacts/native-mobile/ios-validated-evidence.json
+          if-no-files-found: warn
+          retention-days: 30

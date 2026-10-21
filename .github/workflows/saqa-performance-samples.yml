@@ -1,0 +1,130 @@
+name: SAQA Repeated Performance Sample Collection
+
+on:
+  push:
+    branches: ['performance/**']
+    paths:
+      - '.github/workflows/saqa-performance-samples.yml'
+      - 'performance/k6/**'
+      - 'performance/baselines/**'
+      - 'scripts/k6_gate.py'
+      - 'scripts/build_performance_run_set.py'
+      - 'scripts/compare_performance_baseline.py'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 5 * * 1' # Weekly measured sample set; never auto-promoted to a baseline
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saqa-performance-samples-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect-repeated-samples:
+    name: Collect ten independent k6 samples for repeatability
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SAQA_K6_SCRIPT: performance/k6/juice-shop.js
+      SAQA_K6_POLICY: performance/baselines/juice-shop-local-v1.json
+      TRAINING_IMAGE: "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Collect two independent five-run sets
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/performance/raw-runs
+          run_failed=0
+          for run in 1 2 3 4 5 6 7 8 9 10; do
+            # Give each sample a fresh application process so accumulated app state does not leak across samples.
+            docker rm --force saqa-juice-shop-samples >/dev/null 2>&1 || true
+            docker run --detach --rm --name saqa-juice-shop-samples -p 127.0.0.1:3000:3000 "$TRAINING_IMAGE" >/dev/null
+            ready=0
+            for attempt in {1..30}; do
+              if curl --fail --silent --show-error --max-time 5 http://127.0.0.1:3000/ >/dev/null; then
+                ready=1
+                break
+              fi
+              sleep 2
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo "run ${run}: fresh pinned Juice Shop process failed readiness" >&2
+              docker logs saqa-juice-shop-samples || true
+              exit 2
+            fi
+            export SAQA_K6_OUTPUT="artifacts/performance/raw-runs/run-${run}/gate-evidence.json"
+            if python scripts/k6_gate.py; then
+              echo "run ${run}: absolute guardrails PASS"
+            else
+              echo "run ${run}: absolute guardrails FAILED" >&2
+              run_failed=1
+            fi
+            summary="artifacts/performance/raw-runs/run-${run}/k6-summary.json"
+            if [ ! -s "$summary" ]; then
+              echo "run ${run}: missing raw summary; refusing to fabricate a sample" >&2
+              exit 2
+            fi
+          done
+          fingerprint="github-hosted-ubuntu-24.04-x64-k6-1.2.0"
+          runner_image_version="${ImageOS:-ubuntu-latest}-${ImageVersion:-unreported}"
+          build_set() {
+            output="$1"
+            shift
+            args=()
+            for run in "$@"; do
+              args+=(--summary "artifacts/performance/raw-runs/run-$run/k6-summary.json")
+            done
+            python scripts/build_performance_run_set.py \
+              "${args[@]}" \
+              --policy performance/baselines/juice-shop-local-v1.json \
+              --target-profile juice-shop-v20.2.0-local-loopback \
+              --workload-profile products-search-v1 \
+              --workload-script performance/k6/juice-shop.js \
+              --environment-fingerprint "$fingerprint" \
+              --runner-image-version "$runner_image_version" \
+              --source-root artifacts/performance/raw-runs \
+              --output "$output"
+          }
+          build_set artifacts/performance/baseline-run-set.json 1 2 3 4 5
+          build_set artifacts/performance/candidate-run-set.json 6 7 8 9 10
+
+          mkdir -p artifacts/performance/comparison
+          set +e
+          python scripts/compare_performance_baseline.py \
+            --baseline artifacts/performance/baseline-run-set.json \
+            --candidate artifacts/performance/candidate-run-set.json \
+            --baseline-source-root artifacts/performance/raw-runs \
+            --candidate-source-root artifacts/performance/raw-runs \
+            --policy performance/baselines/juice-shop-local-v1.json \
+            --workload-script performance/k6/juice-shop.js \
+            > artifacts/performance/comparison/repeatability-result.json
+          comparison_code=$?
+          set -e
+          cat artifacts/performance/comparison/repeatability-result.json
+          echo "run_failed=$run_failed" >> "$GITHUB_OUTPUT"
+          echo "comparison_exit_code=$comparison_code" >> "$GITHUB_OUTPUT"
+      - name: Upload raw samples and run-set candidate
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-performance-samples-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/performance/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Enforce every sample's absolute guardrails
+        if: always() && steps.collect.outcome == 'success'
+        run: test "${{ steps.collect.outputs.run_failed }}" = "0"
+      - name: Enforce same-runner repeatability comparison
+        if: always() && steps.collect.outcome == 'success'
+        run: test "${{ steps.collect.outputs.comparison_exit_code }}" = "0"
+      - name: Stop Juice Shop
+        if: always()
+        run: docker rm --force saqa-juice-shop-samples || true

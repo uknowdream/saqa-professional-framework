@@ -1,0 +1,80 @@
+name: SAQA Native Android Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing GitHub Release tag in this repository containing the APK
+        required: true
+        type: string
+      apk_asset_name:
+        description: Exact APK asset filename in that release
+        required: true
+        type: string
+      package_id:
+        description: Android application ID, e.g. com.example.app
+        required: true
+        type: string
+      expected_sha256:
+        description: Expected lowercase SHA-256 digest of the APK asset
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  android-emulator-smoke:
+    name: Install and launch authorized Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.release_tag }}
+      APK_ASSET_NAME: ${{ inputs.apk_asset_name }}
+      PACKAGE_ID: ${{ inputs.package_id }}
+      EXPECTED_SHA256: ${{ inputs.expected_sha256 }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install -e .
+      - name: Validate inputs and download exact release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "Invalid release tag format"; exit 2; }
+          [[ "$APK_ASSET_NAME" =~ ^[A-Za-z0-9._-]+\.apk$ ]] || { echo "APK asset name must be a simple .apk filename"; exit 2; }
+          [[ "$PACKAGE_ID" =~ ^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$ ]] || { echo "Invalid Android package ID"; exit 2; }
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "Expected SHA-256 must be 64 lowercase hex characters"; exit 2; }
+          mkdir -p artifacts/native-mobile
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$APK_ASSET_NAME" --dir artifacts/native-mobile
+          test -f "artifacts/native-mobile/$APK_ASSET_NAME"
+          printf '%s  %s\n' "$EXPECTED_SHA256" "artifacts/native-mobile/$APK_ASSET_NAME" | sha256sum --check -
+      - name: Run Android emulator install-and-launch smoke
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_8
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            python scripts/run_native_android_smoke.py \
+              --apk "artifacts/native-mobile/$APK_ASSET_NAME" \
+              --package-id "$PACKAGE_ID" \
+              --expected-sha256 "$EXPECTED_SHA256" \
+              --run-id "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+              --output artifacts/native-mobile/validated-evidence.json
+      - name: Upload native Android evidence
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-native-android-evidence-${{ github.run_id }}
+          path: artifacts/native-mobile/validated-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
