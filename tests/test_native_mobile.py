@@ -98,3 +98,34 @@ def test_invalid_platform_is_rejected(platform):
     value["platform"] = platform
     with pytest.raises(ValueError, match="platform must be android or ios"):
         validate_native_mobile_evidence(value)
+
+
+def test_ios_bundle_id_missing_is_rejected_even_when_android_id_exists():
+    value = payload()
+    value["platform"] = "ios"
+    value.pop("package_id")
+    with pytest.raises(ValueError, match="bundle_id"):
+        validate_native_mobile_evidence(value)
+
+
+@pytest.mark.parametrize(("platform", "field", "bad"), [
+    ("android", "package_id", "x y; rm -rf"),
+    ("android", "package_id", "com"),
+    ("ios", "bundle_id", "x y; rm -rf"),
+    ("ios", "bundle_id", "com"),
+])
+def test_native_app_identifiers_must_match_platform_format(platform, field, bad):
+    value = payload()
+    value["platform"] = platform
+    value.pop("package_id", None)
+    value.pop("bundle_id", None)
+    value[field] = bad
+    with pytest.raises(ValueError, match="valid reverse-domain identifier"):
+        validate_native_mobile_evidence(value)
+
+
+def test_future_execution_timestamp_is_rejected():
+    value = payload()
+    value["executed_at"] = "2099-01-01T00:00:00Z"
+    with pytest.raises(ValueError, match="must not be in the future"):
+        validate_native_mobile_evidence(value)
