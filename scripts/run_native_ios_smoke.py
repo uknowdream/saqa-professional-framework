@@ -58,22 +58,35 @@ def run_smoke(archive: Path, bundle_id: str, expected_sha256: str, run_id: str, 
             tests.append({"test_id": "app-launch", "status": "BLOCKED"})
         else:
             tests.append({"test_id": "bundle-id-matches-input", "status": "PASS"})
-            listing = run(["xcrun", "simctl", "list", "devices", "available"])
+            listing = run(["xcrun", "simctl", "list", "devices", "available", "-j"])
             if listing.returncode != 0:
                 tests.extend([{"test_id": "simulator-metadata", "status": "BLOCKED"},
                               {"test_id": "simulator-install", "status": "BLOCKED"},
                               {"test_id": "app-launch", "status": "BLOCKED"}])
             else:
-                first = next((line.strip() for line in listing.stdout.splitlines() if "(Booted)" in line), "")
-                match = re.match(r"(.+?) \(([0-9A-Fa-f-]{36})\) \(Booted\)", first)
-                if not match:
+                try:
+                    inventory = json.loads(listing.stdout)
+                except json.JSONDecodeError:
+                    inventory = {}
+                selected = None
+                runtime_name = ""
+                for runtime, devices in inventory.get("devices", {}).items():
+                    if not isinstance(devices, list):
+                        continue
+                    for item in devices:
+                        if isinstance(item, dict) and item.get("state") == "Booted":
+                            selected = item
+                            runtime_name = runtime
+                            break
+                    if selected:
+                        break
+                if not selected:
                     tests.extend([{"test_id": "simulator-metadata", "status": "BLOCKED"},
                                   {"test_id": "simulator-install", "status": "BLOCKED"},
                                   {"test_id": "app-launch", "status": "BLOCKED"}])
                 else:
-                    device["model"] = match.group(1).strip()
-                    runtime = next((line.strip() for line in listing.stdout.splitlines() if "iOS" in line and match.group(2) in line), "")
-                    runtime_match = re.search(r"iOS[- ](\d+(?:[-.]\d+){0,2})", runtime)
+                    device["model"] = str(selected.get("name") or "unknown")
+                    runtime_match = re.search(r"iOS-(\\d+(?:-\\d+)*)", runtime_name)
                     device["os_version"] = runtime_match.group(1).replace("-", ".") if runtime_match else "unknown"
                     tests.append({"test_id": "simulator-metadata", "status": "PASS" if device["model"] else "BLOCKED"})
                     install = run(["xcrun", "simctl", "install", "booted", str(app)], timeout=180)
