@@ -1,0 +1,80 @@
+name: SAQA Authorized Application Container Security
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: "Authorized application image, registry-qualified and pinned to @sha256:<64 lowercase hex>. Public registry access only unless credentials are separately provisioned."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saqa-authorized-container-security-${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  scan-authorized-image:
+    name: Scan an explicitly selected immutable application image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_REF: ${{ inputs.image_ref }}
+      TRIVY_VERSION: "0.76.0"
+      TRIVY_IMAGE: "aquasec/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222"
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Validate immutable target reference
+        run: |
+          set -euo pipefail
+          python scripts/validate_container_image_ref.py --image-ref "$IMAGE_REF"
+          mkdir -p artifacts/security/application-container
+          printf '%s' "$IMAGE_REF" > artifacts/security/application-container/image-ref.txt
+      - name: Pull and verify exact image digest
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE_REF"
+          docker image inspect "$IMAGE_REF" --format '{{json .RepoDigests}}' > artifacts/security/application-container/resolved-repo-digests.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          image = os.environ["IMAGE_REF"]
+          resolved = json.loads(Path("artifacts/security/application-container/resolved-repo-digests.json").read_text(encoding="utf-8"))
+          if not isinstance(resolved, list) or image not in resolved:
+              raise SystemExit("Pulled image digest did not exactly match the requested immutable reference")
+          print("Exact requested image digest verified.")
+          PY
+      - name: Generate SPDX SBOM from immutable registry reference
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/artifacts/security/application-container:/out" anchore/syft:v1.30.0 "registry:$IMAGE_REF" -o spdx-json=/out/application-container.spdx.json
+      - name: Validate SPDX SBOM and record its digest
+        run: python scripts/validate_spdx_sbom.py --input artifacts/security/application-container/application-container.spdx.json --output artifacts/security/application-container/application-container-sbom-validation.json
+      - name: Verify pinned Trivy runtime
+        run: |
+          set -euo pipefail
+          docker run --rm "$TRIVY_IMAGE" --version | tee artifacts/security/application-container/trivy-version.txt
+          grep -F "Version: $TRIVY_VERSION" artifacts/security/application-container/trivy-version.txt
+      - name: Scan image for vulnerabilities, secrets, and misconfiguration
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/artifacts/security/application-container:/out" "$TRIVY_IMAGE" image --image-src remote --image-config-scanners misconfig,secret --scanners vuln,secret,misconfig --format json --output /out/application-container-trivy.json "$IMAGE_REF"
+      - name: Validate scanner report and normalize findings
+        run: python scripts/summarize_trivy_report.py --input artifacts/security/application-container/application-container-trivy.json --output artifacts/security/application-container/application-container-trivy-summary.json --image "$IMAGE_REF" --scanner "trivy-$TRIVY_VERSION"
+      - name: Enforce blocking application container policy
+        id: policy
+        run: python scripts/evaluate_container_security_policy.py --summary artifacts/security/application-container/application-container-trivy-summary.json --policy security/application-container-policy.json --output artifacts/security/application-container/application-container-security-policy-result.json
+      - name: Upload complete security evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-authorized-container-security-${{ github.sha }}-${{ github.run_id }}
+          path: artifacts/security/application-container/
+          if-no-files-found: error
+          retention-days: 30
