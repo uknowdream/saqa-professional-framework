@@ -1,6 +1,15 @@
 name: SAQA Repeated Performance Sample Collection
 
 on:
+  push:
+    branches: ['performance/**']
+    paths:
+      - '.github/workflows/saqa-performance-samples.yml'
+      - 'performance/k6/**'
+      - 'performance/baselines/**'
+      - 'scripts/k6_gate.py'
+      - 'scripts/build_performance_run_set.py'
+      - 'scripts/compare_performance_baseline.py'
   workflow_dispatch:
   schedule:
     - cron: '0 5 * * 1' # Weekly measured sample set; never auto-promoted to a baseline
