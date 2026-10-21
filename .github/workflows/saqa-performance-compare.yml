@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       baseline_run_id:
-        description: GitHub Actions run ID that contains the approved baseline sample artifact
+        description: GitHub Actions run ID that contains the baseline candidate sample artifact
         required: true
         type: string
       baseline_artifact_name:
-        description: Exact artifact name containing measured-run-set.json and raw-runs/
+        description: Exact artifact name containing measured-run-set.json and raw-runs/ (from a reviewed run)
         required: true
         type: string
       candidate_run_id:
