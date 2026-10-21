@@ -13,6 +13,7 @@ python scripts/build_performance_run_set.py \
   --target-profile juice-shop-v20.2.0-local-loopback \
   --workload-profile products-search-v1 \
   --environment-fingerprint ubuntu-24.04-k6-1.2.0 \
+  --workload-script performance/k6/juice-shop.js \
   --output artifacts/performance/run-set.json
 ~~~
 
