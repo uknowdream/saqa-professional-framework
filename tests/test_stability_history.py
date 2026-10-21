@@ -139,3 +139,14 @@ def test_cli_exits_blocked_for_invalid_min_runs(tmp_path):
     assert exit_code == 2
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["status"] == "BLOCKED"
+
+
+def test_missing_matrix_artifacts_are_explicit_history_gaps(tmp_path):
+    root = tmp_path / "history"
+    _write_run(root, "601", "d" * 40, version="3.11",
+               outcomes={"tests.test_api::test_item": "PASS"})
+    report = build_history(root, min_runs=2)
+    gaps = {(item["run_id"], item["python_version"]) for item in report["artifact_gaps"]}
+    assert gaps == {("601", "3.12"), ("601", "3.13")}
+    assert report["summary"]["artifact_gap_count"] == 2
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
