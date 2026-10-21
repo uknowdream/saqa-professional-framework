@@ -71,7 +71,7 @@ def run_smoke(archive: Path, bundle_id: str, expected_sha256: str, run_id: str, 
                 selected = None
                 runtime_name = ""
                 for runtime, devices in inventory.get("devices", {}).items():
-                    if not isinstance(devices, list):
+                    if "iOS" not in runtime or not isinstance(devices, list):
                         continue
                     for item in devices:
                         if isinstance(item, dict) and item.get("state") == "Booted":
@@ -86,7 +86,7 @@ def run_smoke(archive: Path, bundle_id: str, expected_sha256: str, run_id: str, 
                                   {"test_id": "app-launch", "status": "BLOCKED"}])
                 else:
                     device["model"] = str(selected.get("name") or "unknown")
-                    runtime_match = re.search(r"iOS-(\\d+(?:-\\d+)*)", runtime_name)
+                    runtime_match = re.search(r"iOS-(\d+(?:-\d+)*)", runtime_name)
                     device["os_version"] = runtime_match.group(1).replace("-", ".") if runtime_match else "unknown"
                     tests.append({"test_id": "simulator-metadata", "status": "PASS" if device["model"] else "BLOCKED"})
                     install = run(["xcrun", "simctl", "install", "booted", str(app)], timeout=180)
