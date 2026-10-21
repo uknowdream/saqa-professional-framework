@@ -78,3 +78,17 @@ def test_non_finite_test_duration_rejected(tmp_path):
 def test_timezone_naive_report_time_rejected(tmp_path):
     with pytest.raises(ValueError, match="timezone-aware"):
         summarize_junit(junit(tmp_path), policy(), generated_at=datetime(2026, 10, 21))
+
+
+def test_default_quarantine_expiry_uses_utc_calendar_date(monkeypatch):
+    import scripts.test_quality_report as report_module
+
+    class FixedUtcDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is timezone.utc
+            return cls(2026, 10, 21, 0, 15, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(report_module, "datetime", FixedUtcDateTime)
+    with pytest.raises(ValueError, match="expired or expires today"):
+        report_module.validate_quarantine_policy(policy([entry(expiry="2026-10-21")]))
