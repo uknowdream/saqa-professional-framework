@@ -75,7 +75,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Schedule the pinned reference-container Trivy scan weekly (Monday 04:43 UTC), in addition to PR/push runs.
 - A successful scan means the scanner ran and produced a validated report. The pinned intentionally vulnerable Juice Shop scan is report-only by design; apply the versioned blocking policy to authorized non-training targets before treating findings as release-blocking.
 - [x] Publish JUnit test count, failure/skip rate, aggregate duration, and slowest-test list; validate an owner/ticket/reason/expiry quarantine registry in CI.
-- Retry-rate and true flaky-test trends still require retry-aware runner events and cross-run history; the report explicitly does not infer them from one JUnit file.
+- [x] Add cross-run JUnit outcome history by Python-version cohort, with same-commit variation separated from cross-commit differences and missing artifacts reported as gaps (`docs/TEST_STABILITY_HISTORY.md`).
+- Retry-rate and retry-recovered failures still require retry-aware runner events or explicit per-attempt records. Cross-commit outcome variation is not classified as true flakiness.
 - Keep the release report and roadmap synchronized with actual workflow evidence.
 
 ## Definition of done for future work
