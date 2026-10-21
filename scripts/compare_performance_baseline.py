@@ -4,6 +4,8 @@ import argparse, hashlib, json, math, statistics, re
 from pathlib import Path
 from typing import Any
 
+from scripts.build_performance_run_set import extract_sample, read_json
+
 SCHEMA = "saqa.performance-run-set.v1"
 METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "environment_fingerprint")
 METRICS = ("p95_ms", "p99_ms", "error_rate", "throughput_rps", "check_pass_rate")
@@ -37,8 +39,8 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
 
 
 
-def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str) -> None:
-    """Verify each declared raw sample file is inside source_root and matches its SHA-256."""
+def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str, policy: dict[str, Any] | None = None) -> None:
+    """Verify raw source hashes and bind metric rows to raw JSON when policy is supplied."""
     root = source_root.resolve()
     for index, source in enumerate(run_set["sample_sources"]):
         candidate = (root / source["path"]).resolve()
@@ -46,9 +48,20 @@ def verify_source_files(run_set: dict[str, Any], source_root: Path, label: str) 
             raise ValueError(f"{label} sample_sources[{index}] escapes source root")
         if not candidate.is_file():
             raise ValueError(f"{label} source file does not exist: {source['path']}")
-        digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        raw = candidate.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
         if digest != source["sha256"]:
             raise ValueError(f"{label} source SHA-256 mismatch: {source['path']}")
+        if policy is not None:
+            try:
+                summary = json.loads(raw.decode("utf-8"))
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise ValueError(f"{label} source is not valid UTF-8 JSON: {source['path']}") from exc
+            source_sample = extract_sample(summary, policy, f"{label} source {source['path']}")
+            declared_sample = run_set["samples"][index]
+            for metric_name in METRICS:
+                if not math.isclose(source_sample[metric_name], declared_sample[metric_name], rel_tol=0.0, abs_tol=1e-9):
+                    raise ValueError(f"{label} sample/source metric mismatch: {source['path']}:{metric_name}")
 
 def load_run_set(path: Path) -> dict[str, Any]:
     try:
@@ -157,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
     parser.add_argument("--source-root", required=True, type=Path, help="root directory containing the raw sample artifacts referenced by both run sets")
+    parser.add_argument("--policy", required=True, type=Path, help="versioned policy used to derive samples from raw k6 summaries")
     parser.add_argument("--max-latency-regression-pct", type=float, default=10.0)
     parser.add_argument("--max-throughput-drop-pct", type=float, default=10.0)
     parser.add_argument("--max-error-rate-increase", type=float, default=0.005,
@@ -165,8 +179,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         baseline = load_run_set(args.baseline)
         candidate = load_run_set(args.candidate)
-        verify_source_files(baseline, args.source_root, "baseline")
-        verify_source_files(candidate, args.source_root, "candidate")
+        policy = read_json(args.policy)
+        if not isinstance(policy, dict) or policy.get("schema") != "saqa.performance-guardrails.v1":
+            raise ValueError("unsupported performance policy schema")
+        for label, run_set in (("baseline", baseline), ("candidate", candidate)):
+            if run_set["policy_id"] != policy.get("policy_id") or run_set["policy_version"] != policy.get("version"):
+                raise ValueError(f"{label} run-set policy ID/version does not match the supplied policy")
+        verify_source_files(baseline, args.source_root, "baseline", policy)
+        verify_source_files(candidate, args.source_root, "candidate", policy)
         result = compare_run_sets(baseline, candidate,
                                   max_latency_regression_pct=args.max_latency_regression_pct,
                                   max_throughput_drop_pct=args.max_throughput_drop_pct,
