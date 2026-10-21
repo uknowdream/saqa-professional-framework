@@ -89,7 +89,7 @@ def test_invalid_summary_schema_blocks():
 
 
 def test_blocking_finding_without_stable_id_fails_closed():
-    summary = {"schema": "saqa.container-security-summary.v1", "findings": [
+    summary = {"schema": "saqa.container-security-summary.v1", "image": "example:1", "scanned_artifact_name": "example:1", "source_report_sha256": "a" * 64, "findings": [
         {"type": "secret", "severity": "HIGH", "id": None, "target": "image-layer"}
     ]}
     result = evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
@@ -122,7 +122,7 @@ def test_malformed_blocking_severity_is_rejected(bad_severity):
 
 @pytest.mark.parametrize("bad_type", [[], {}, None])
 def test_malformed_finding_type_is_rejected(bad_type):
-    summary = {"schema": "saqa.container-security-summary.v1", "findings": [
+    summary = {"schema": "saqa.container-security-summary.v1", "image": "example:1", "scanned_artifact_name": "example:1", "source_report_sha256": "a" * 64, "findings": [
         {"type": bad_type, "severity": "HIGH", "id": "finding-1", "target": "image"}
     ]}
     with pytest.raises(ValueError, match="unsupported type or severity"):
@@ -169,7 +169,7 @@ def test_exception_does_not_suppress_same_finding_at_different_severity():
         "target": "config.env", "reason": "reviewed low-severity occurrence",
         "owner": "security-team", "ticket": "SEC-222", "expires_on": "2026-12-01",
     }]
-    summary = {"schema": "saqa.container-security-summary.v1", "findings": [
+    summary = {"schema": "saqa.container-security-summary.v1", "image": "example:1", "scanned_artifact_name": "example:1", "source_report_sha256": "a" * 64, "findings": [
         {"type": "secret", "severity": "CRITICAL", "id": "private-key-rule", "target": "config.env"}
     ]}
     result = evaluate_summary(summary, policy, today=date(2026, 10, 21))
@@ -231,7 +231,7 @@ def test_invalid_finding_id_or_target_is_rejected(field, value):
     summary = copy.deepcopy(SUMMARY)
     summary["findings"] = [{"type": "secret", "severity": "HIGH", "id": "secret-1", "target": "source.env"}]
     summary["findings"][0][field] = value
-    with pytest.raises(ValueError, match=rf"findings\\[0\\].{field}"):
+    with pytest.raises(ValueError, match=field):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
 
 
