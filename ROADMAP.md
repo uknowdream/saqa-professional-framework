@@ -74,7 +74,8 @@ The project must not claim “complete” or “certified” solely from source 
 - [x] Add repeated-run performance baseline comparison with metadata compatibility and fail-closed sample validation.
 - [x] Schedule weekly dependency/SBOM/compatibility checks and pinned reference-container security scans.
 - [x] Document exact-commit artifact retention, integrity verification, and recovery procedures.
-- [ ] Generate repeated performance run sets from archived CI artifacts; do not create synthetic baseline measurements.
+- [x] Generate five-run candidate sets from independently executed k6 summaries with raw-source SHA-256 and source-root confinement; never create synthetic baseline measurements.
+- [x] Add a manually dispatched comparator workflow that downloads two explicitly selected run artifacts, re-verifies raw-source hashes and metric binding, checks metadata compatibility, and uploads the decision report. It never auto-promotes a baseline.
 - [ ] Triage current Trivy findings and introduce a reviewed severity/exception policy with owner and expiry before making image findings release-blocking.
 - [ ] Add signed artifact attestations where supported and independently verify provenance.
 - [ ] Implement and test automated artifact expiry/missing-artifact detection against GitHub Actions metadata.
