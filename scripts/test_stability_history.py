@@ -241,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         "summary": report.get("summary", {}),
         "issues": report.get("issues", []),
     }, indent=2))
-    return 0 if report.get("schema") == SCHEMA else 2
+    return 2 if report.get("schema") != SCHEMA or report.get("status") == "BLOCKED" else 0
 
 
 if __name__ == "__main__":
