@@ -11,7 +11,7 @@ POLICY_SCHEMA = "saqa.container-security-policy.v1"
 SUMMARY_SCHEMA = "saqa.container-security-summary.v1"
 ALLOWED_TYPES = {"vulnerability", "secret", "misconfiguration"}
 ALLOWED_SEVERITIES = {"UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
-REQUIRED_EXCEPTION_FIELDS = {"finding_type", "finding_id", "target", "reason", "owner", "ticket", "expires_on"}
+REQUIRED_EXCEPTION_FIELDS = {"finding_type", "finding_id", "severity", "target", "reason", "owner", "ticket", "expires_on"}
 
 
 def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]:
@@ -58,7 +58,7 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
             raise ValueError(f"exceptions[{i}].expires_on must be an ISO-8601 date") from exc
         if expires <= today:
             raise ValueError(f"exceptions[{i}] expired or expires today ({expires.isoformat()}); remove or renew with review")
-        key = (exception["finding_type"], exception["finding_id"], exception["target"])
+        key = (exception["finding_type"], exception["finding_id"], exception["severity"], exception["target"])
         if key in seen:
             raise ValueError(f"duplicate exception for {key}")
         seen.add(key)
@@ -78,7 +78,7 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
     suppressed = []
     observed = []
     exception_keys = {
-        (e["finding_type"], e["finding_id"], e["target"]): e
+        (e["finding_type"], e["finding_id"], e["severity"], e["target"]): e
         for e in validated["exceptions"]
     }
     for i, finding in enumerate(findings):
@@ -100,7 +100,7 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, re
             blocking.append({"type": kind, "severity": severity, "id": finding_id, "target": target,
                              "reason": "blocking finding lacks stable ID or target"})
             continue
-        exception = exception_keys.get((kind, finding_id, target))
+        exception = exception_keys.get((kind, finding_id, severity, target))
         record = {"type": kind, "severity": severity, "id": finding_id, "target": target}
         if exception:
             suppressed.append({**record, "exception": {
