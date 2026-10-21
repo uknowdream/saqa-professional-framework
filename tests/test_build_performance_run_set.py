@@ -6,6 +6,7 @@ from scripts.build_performance_run_set import build_run_set, finite
 from scripts.compare_performance_baseline import load_run_set
 from scripts.k6_gate import ROOT
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
+WORKLOAD_SCRIPT = ROOT / "performance/k6/juice-shop.js"
 
 def summary(p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0):
     return {"schema": "saqa.k6-summary.v1", "metrics": {
@@ -18,7 +19,7 @@ def write_summary(folder, name, data):
 
 def build(paths):
     return build_run_set(paths, POLICY, target_profile="juice-shop-v20.2.0-local-loopback",
-                         workload_profile="products-search-v1", environment_fingerprint="runner-x-k6-1.2.0")
+                         workload_profile="products-search-v1", environment_fingerprint="runner-x-k6-1.2.0", workload_script=WORKLOAD_SCRIPT)
 
 def test_builds_run_set_with_hashes_and_compatible_schema(tmp_path):
     paths = [write_summary(tmp_path, f"run-{i}.json", summary(p95=400+i, p99=700+i)) for i in range(5)]
@@ -61,7 +62,7 @@ def test_builder_records_source_paths_relative_to_explicit_root(tmp_path):
     paths = [write_summary(tmp_path, f"run-{i}.json", summary(p95=400 + i, p99=700 + i)) for i in range(5)]
     result = build_run_set(paths, POLICY, target_profile="juice-shop-v20.2.0-local-loopback",
                            workload_profile="products-search-v1", environment_fingerprint="runner-x-k6-1.2.0",
-                           source_root=tmp_path)
+                           workload_script=WORKLOAD_SCRIPT, source_root=tmp_path)
     assert result["sample_sources"][0]["path"] == "run-0.json"
     assert all(not Path(source["path"]).is_absolute() for source in result["sample_sources"])
 
@@ -73,7 +74,7 @@ def test_builder_rejects_summary_outside_source_root(tmp_path):
     paths = [outside] * 5
     with pytest.raises(ValueError, match="escapes source root"):
         build_run_set(paths, POLICY, target_profile="target", workload_profile="workload",
-                      environment_fingerprint="runner", source_root=root)
+                      environment_fingerprint="runner", workload_script=WORKLOAD_SCRIPT, source_root=root)
 
 
 def test_rejects_duplicate_raw_summary_content(tmp_path):
@@ -122,7 +123,7 @@ def test_rejects_non_string_or_blank_policy_metric_name(tmp_path, mapping_key, v
     paths = [write_summary(tmp_path, f"metric-{i}.json", summary()) for i in range(5)]
     with pytest.raises(ValueError, match="policy metric mapping"):
         build_run_set(paths, policy, target_profile="target", workload_profile="workload",
-                      environment_fingerprint="runner")
+                      environment_fingerprint="runner", workload_script=WORKLOAD_SCRIPT)
 
 
 def test_rejects_deeply_nested_summary_without_traceback(tmp_path):
