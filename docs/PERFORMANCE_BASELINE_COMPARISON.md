@@ -1,6 +1,6 @@
 # Building a measured performance run set
 
-The builder converts raw k6 summary files into a run set for the repeated-run comparator. It requires at least five separate summaries and records the SHA-256 of each input file.
+The builder converts raw k6 summary files into a run set for the repeated-run comparator. It requires at least five separate summaries and records the SHA-256 of each input file and a canonical SHA-256 of the exact versioned policy.
 
 ~~~bash
 python scripts/build_performance_run_set.py \
@@ -16,7 +16,7 @@ python scripts/build_performance_run_set.py \
   --output artifacts/performance/run-set.json
 ~~~
 
-The target, workload, and environment labels are supplied by the operator and are not independently discovered. Keep them accurate and consistent between baseline and candidate. Preserve original run artifacts and trusted provenance separately: hashes identify bytes but do not prove who generated them. Do not combine runs from different target versions, workload profiles, policy versions, or materially different runners.
+The target, workload, and environment labels are supplied by the operator and are not independently discovered. Keep them accurate and consistent between baseline and candidate. Preserve original run artifacts and trusted provenance separately: hashes identify bytes but do not prove who generated them. Do not combine runs from different target versions, workload profiles, policy versions or policy contents, or materially different runners.
 
 Then compare the run sets using scripts/compare_performance_baseline.py. A passing result means only that configured median-based checks stayed within limits; it is not statistical significance or a production SLO.
 
@@ -24,4 +24,4 @@ Then compare the run sets using scripts/compare_performance_baseline.py. A passi
 
 The manual/scheduled workflow `.github/workflows/saqa-performance-samples.yml` runs the pinned local target five separate times, retains each raw k6 summary and gate evidence, and builds a run-set candidate whose source paths are relative to the raw-artifact directory. It uploads the candidate and raw evidence for 30 days. Any individual run that fails the absolute guardrails causes the workflow to fail after evidence upload.
 
-A collected run set is **not automatically promoted to an approved baseline**. Review the run, runner image, workload, policy version, raw source digests, and test results first. Download the artifact, keep its raw files together, and pass the raw-artifact directory as `--source-root` to the comparator. Compare against a separate approved baseline collected under the same metadata. The scheduled collector starts only after this workflow is present on the default branch; it can also be dispatched manually from the feature branch.
+A collected run set is **not automatically promoted to an approved baseline**. Review the run, runner image, workload, policy version, raw source digests, and test results first. Download the artifact, keep its raw files together, and pass the raw-artifact directories as `--baseline-source-root` and `--candidate-source-root` to the comparator. The comparison workflow also verifies that both selected run IDs belong to completed, successful runs of the measured-sample workflow in this repository. Compare against a separate approved baseline collected under the same metadata. The scheduled collector starts only after this workflow is present on the default branch; it can also be dispatched manually from the feature branch.
