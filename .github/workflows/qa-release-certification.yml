@@ -4,10 +4,6 @@ on:
   workflow_run:
     workflows:
       - SAQA CI
-      - SAQA Contract Testing
-      - SAQA Accessibility
-      - SAQA Mobile Readiness
-      - SAQA k6 Performance
     types: [completed]
     branches:
       - main
@@ -30,6 +26,7 @@ jobs:
   readiness:
     name: Wait for mandatory domains
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       actions: read
       contents: read
@@ -66,7 +63,45 @@ jobs:
             ready=false
             runs='[]'
           else
-            runs="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
+            # SAQA CI is the single automatic trigger. Wait for every other mandatory
+            # domain to finish so transiently incomplete evidence does not create
+            # misleading or duplicate release-certification runs.
+            MAX_ATTEMPTS=40
+            for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+              CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+              if [ "$SHA" != "$CURRENT_MAIN_SHA" ]; then
+                echo "Refusing certification because main moved to $CURRENT_MAIN_SHA while waiting for $SHA."
+                ready=false
+                runs='[]'
+                break
+              fi
+              runs="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${SHA}&per_page=100" --jq '.workflow_runs[]' | jq -s '.')"
+              pending=0
+              while IFS='|' read -r workflow workflow_path workflow_id; do
+                run_status="$(jq -r --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then "MISSING" else .[-1].status end' <<< "$runs")"
+                if [ "$run_status" != "completed" ]; then pending=1; fi
+              done <<'SAQA_WAIT_FOR_MANDATORY'
+SAQA CI|.github/workflows/saqa-ci.yml|345839221
+SAQA Contract Testing|.github/workflows/saqa-contract.yml|364893043
+SAQA Accessibility|.github/workflows/saqa-accessibility.yml|355591975
+SAQA Mobile Readiness|.github/workflows/saqa-mobile.yml|355328607
+SAQA k6 Performance|.github/workflows/saqa-k6.yml|364897799
+SAQA_WAIT_FOR_MANDATORY
+              if [ "$pending" -eq 0 ]; then
+                echo "All mandatory workflow runs reached completed status for main/$SHA."
+                break
+              fi
+              if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+                echo "Waiting for mandatory workflows to complete (attempt $attempt/$MAX_ATTEMPTS)."
+                sleep 15
+              fi
+            done
+            CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+            if [ "$SHA" != "$CURRENT_MAIN_SHA" ]; then
+              ready=false
+              runs='[]'
+              echo "Refusing certification because main moved during readiness evaluation."
+            fi
           fi
           MAX_AGE_HOURS="${SAQA_RELEASE_MAX_AGE_HOURS:-6}"
           if ! MAX_AGE_SECONDS="$(python -c 'import math,sys; v=float(sys.argv[1]); seconds=v*3600; valid=math.isfinite(v) and v > 0 and math.isfinite(seconds) and seconds >= 1 and seconds <= 86399999999999; print(int(seconds)) if valid else sys.exit(2)' "$MAX_AGE_HOURS" 2>/dev/null)"; then

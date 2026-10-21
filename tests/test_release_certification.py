@@ -43,3 +43,18 @@ def test_release_workflow_fails_when_readiness_is_not_certified():
     assert "if: steps.check.outputs.ready != 'true'" in workflow
     assert "Release not certified" in workflow
     assert "exit 1" in workflow[fail_closed:workflow.index("certify:", fail_closed)]
+
+
+def test_release_readiness_has_a_single_trigger_and_waits_for_all_domains():
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/qa-release-certification.yml").read_text(encoding="utf-8")
+    trigger = workflow.split("workflow_run:", 1)[1].split("workflow_dispatch:", 1)[0]
+    assert "- SAQA CI" in trigger
+    assert "SAQA Contract Testing" not in trigger
+    assert "SAQA Accessibility" not in trigger
+    assert "SAQA Mobile Readiness" not in trigger
+    assert "SAQA k6 Performance" not in trigger
+    assert "MAX_ATTEMPTS=40" in workflow
+    assert "Waiting for mandatory workflows to complete" in workflow
+    assert "timeout-minutes: 15" in workflow
+    assert "main moved while readiness evaluation" in workflow
