@@ -69,3 +69,18 @@ A roadmap item is not marked complete merely because code exists; it requires im
 ## Engineering rule
 
 The project must not claim “complete” or “certified” solely from source inspection. The final release state requires fresh workflow evidence for the exact release commit and no unresolved mandatory FAIL/BLOCKED/UNVERIFIED/PENDING control.
+## Phase 6 — Continuous Assurance and Evidence Operations
+
+- [x] Add repeated-run performance baseline comparison with metadata compatibility and fail-closed sample validation.
+- [x] Schedule weekly dependency/SBOM/compatibility checks and pinned reference-container security scans.
+- [x] Document exact-commit artifact retention, integrity verification, and recovery procedures.
+- [ ] Generate repeated performance run sets from archived CI artifacts; do not create synthetic baseline measurements.
+- [ ] Triage current Trivy findings and introduce a reviewed severity/exception policy with owner and expiry before making image findings release-blocking.
+- [ ] Add signed artifact attestations where supported and independently verify provenance.
+- [ ] Implement and test automated artifact expiry/missing-artifact detection against GitHub Actions metadata.
+- [ ] Add native Android/iOS E2E only when an actual native app target and emulator/device build are supplied; browser viewport tests are not native mobile evidence.
+
+## Definition of done for Phase 6
+
+Every completed item requires code or workflow changes, automated tests where applicable, current workflow evidence, and documentation. Report-only security findings and unexecuted native/mobile scenarios must remain clearly labelled; they must not be silently promoted to PASS.
+
