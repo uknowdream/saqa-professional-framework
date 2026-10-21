@@ -115,7 +115,7 @@ jobs:
           echo "ready=$ready" >> "$GITHUB_OUTPUT"
       - name: Upload readiness decision
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-release-readiness-${{ steps.check.outputs.head_sha }}
           path: artifacts/release-readiness.json
@@ -164,7 +164,7 @@ jobs:
           gh attestation verify artifacts/release-certification.json --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/qa-release-certification.yml"
       - name: Upload certification decision
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-release-certification-${{ needs.readiness.outputs.head_sha }}
           path: artifacts/release-certification.json

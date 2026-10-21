@@ -65,7 +65,7 @@ jobs:
           python scripts/build_container_security_manifest.py --artifact-dir artifacts/security --output artifacts/security/juice-shop-security-artifact-manifest.json --image "$TRAINING_IMAGE" --scanner-version "$TRIVY_VERSION" --source-sha "$SOURCE_SHA" --execution-sha "$EXECUTION_SHA" --event "$EVENT_NAME" --ref "$SOURCE_REF" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --workflow-ref "$WORKFLOW_REF" --workflow-sha "$WORKFLOW_SHA"
       - name: Upload container security evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-container-security-${{ github.sha }}
           path: artifacts/security/

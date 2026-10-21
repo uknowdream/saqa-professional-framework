@@ -74,7 +74,7 @@ jobs:
           find artifacts/test-stability/input -depth -type d -empty -delete || true
       - name: Upload cross-run stability report and retained source JUnit
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-test-stability-history-${{ github.run_id }}
           path: artifacts/test-stability/

@@ -66,7 +66,7 @@ jobs:
           python -O -c "import saqa; from saqa import Evidence, ResultStatus; assert Evidence and ResultStatus"
       - name: Upload test and evidence artifacts
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-python-${{ matrix.python }}
           path: artifacts/
@@ -136,7 +136,7 @@ jobs:
           PY
       - name: Upload security evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-security-evidence
           path: artifacts/security/
@@ -188,7 +188,7 @@ jobs:
         run: python scripts/database_quality_gate.py
       - name: Upload database evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-database-quality
           path: artifacts/targets/database-quality.json
@@ -274,7 +274,7 @@ jobs:
         run: python scripts/juice_shop_e2e.py
       - name: Upload E2E evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: juice-shop-e2e-${{ matrix.browser }}
           path: artifacts/targets/juice-shop-e2e-${{ matrix.browser }}.json
@@ -310,7 +310,7 @@ jobs:
         run: python scripts/juice_shop_api_smoke.py
       - name: Upload API evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: juice-shop-api-smoke
           path: artifacts/targets/juice-shop-api.json
@@ -346,7 +346,7 @@ jobs:
         run: python scripts/juice_shop_performance_gate.py
       - name: Upload performance evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: juice-shop-performance
           path: artifacts/targets/juice-shop-performance.json
@@ -396,7 +396,7 @@ jobs:
         run: python scripts/webgoat_e2e.py
       - name: Upload WebGoat evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: webgoat-e2e-${{ matrix.browser }}
           path: artifacts/targets/webgoat-e2e-${{ matrix.browser }}.json
@@ -448,7 +448,7 @@ jobs:
         run: python -c "from pathlib import Path; from saqa.result_aggregation import aggregate; print('evidence manifest SHA-256:', aggregate(Path('artifacts/executions'), Path('artifacts/evidence-manifest.json')))"
       - name: Upload canonical evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-canonical-evidence
           path: artifacts/evidence-manifest.json
@@ -477,7 +477,7 @@ jobs:
         run: bash scripts/qa_target_smoke.sh
       - name: Upload target evidence
         if: always()
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: saqa-docker-target-smoke
           path: artifacts/targets/
