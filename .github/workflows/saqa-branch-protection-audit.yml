@@ -1,0 +1,96 @@
+name: SAQA Main Branch Protection Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '37 5 * * 1' # Weekly settings assurance; no pull_request trigger for admin-scoped token safety
+
+permissions:
+  contents: read
+
+concurrency:
+  group: saqa-branch-protection-audit-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Verify main branch protection settings
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      SAQA_ADMIN_AUDIT_TOKEN: ${{ secrets.SAQA_REPO_ADMIN_AUDIT_TOKEN }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+      - name: Prepare output folder
+        run: mkdir -p artifacts/ops
+      - name: Report unavailable admin audit permission
+        if: env.SAQA_ADMIN_AUDIT_TOKEN == ''
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = {
+              "schema": "saqa.branch-protection-audit.v1",
+              "status": "UNVERIFIED",
+              "ready": False,
+              "branch": "main",
+              "failures": [
+                  "SAQA_REPO_ADMIN_AUDIT_TOKEN is not configured; branch protection could not be queried."
+              ],
+              "note": "UNVERIFIED does not mean protection is absent or present. Configure a repository-scoped token with Administration: read-only access to enable the audit."
+          }
+          Path("artifacts/ops/branch-protection-audit.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          print("::warning::Branch protection audit is UNVERIFIED because the read-only admin audit token is not configured.")
+          PY
+      - name: Fetch main branch protection settings
+        id: fetch
+        if: env.SAQA_ADMIN_AUDIT_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ secrets.SAQA_REPO_ADMIN_AUDIT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh api "/repos/${GITHUB_REPOSITORY}/branches/main/protection" > "$RUNNER_TEMP/main-protection.json"; then
+            echo "fetch_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fetch_ok=false" >> "$GITHUB_OUTPUT"
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          report = {
+              "schema": "saqa.branch-protection-audit.v1",
+              "status": "UNVERIFIED",
+              "ready": False,
+              "branch": "main",
+              "failures": ["GitHub denied or failed the branch-protection settings request; inspect workflow logs and token permissions."],
+              "note": "The audit does not change settings and will not infer protection from a failed API call."
+          }
+          Path("artifacts/ops/branch-protection-audit.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+            exit 1
+          fi
+      - name: Evaluate branch protection policy
+        if: env.SAQA_ADMIN_AUDIT_TOKEN != '' && steps.fetch.outputs.fetch_ok == 'true'
+        run: |
+          python scripts/audit_branch_protection.py \
+            --input "$RUNNER_TEMP/main-protection.json" \
+            --policy security/branch-protection-policy.json \
+            --output artifacts/ops/branch-protection-audit.json
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-branch-protection-audit-${{ github.run_id }}
+          path: artifacts/ops/branch-protection-audit.json
+          if-no-files-found: error
+          retention-days: 30
