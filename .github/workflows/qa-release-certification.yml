@@ -81,12 +81,12 @@ jobs:
                 run_status="$(jq -r --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then "MISSING" else .[-1].status end' <<< "$runs")"
                 if [ "$run_status" != "completed" ]; then pending=1; fi
               done <<'SAQA_WAIT_FOR_MANDATORY'
-SAQA CI|.github/workflows/saqa-ci.yml|345839221
-SAQA Contract Testing|.github/workflows/saqa-contract.yml|364893043
-SAQA Accessibility|.github/workflows/saqa-accessibility.yml|355591975
-SAQA Mobile Readiness|.github/workflows/saqa-mobile.yml|355328607
-SAQA k6 Performance|.github/workflows/saqa-k6.yml|364897799
-SAQA_WAIT_FOR_MANDATORY
+          SAQA CI|.github/workflows/saqa-ci.yml|345839221
+          SAQA Contract Testing|.github/workflows/saqa-contract.yml|364893043
+          SAQA Accessibility|.github/workflows/saqa-accessibility.yml|355591975
+          SAQA Mobile Readiness|.github/workflows/saqa-mobile.yml|355328607
+          SAQA k6 Performance|.github/workflows/saqa-k6.yml|364897799
+          SAQA_WAIT_FOR_MANDATORY
               if [ "$pending" -eq 0 ]; then
                 echo "All mandatory workflow runs reached completed status for main/$SHA."
                 break
