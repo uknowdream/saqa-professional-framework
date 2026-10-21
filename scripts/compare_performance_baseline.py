@@ -169,7 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--candidate", required=True, type=Path)
-    parser.add_argument("--source-root", required=True, type=Path, help="root directory containing the raw sample artifacts referenced by both run sets")
+    parser.add_argument("--baseline-source-root", required=True, type=Path, help="root directory containing raw samples referenced by the baseline run set")
+    parser.add_argument("--candidate-source-root", required=True, type=Path, help="root directory containing raw samples referenced by the candidate run set")
     parser.add_argument("--policy", required=True, type=Path, help="versioned policy used to derive samples from raw k6 summaries")
     parser.add_argument("--max-latency-regression-pct", type=float, default=10.0)
     parser.add_argument("--max-throughput-drop-pct", type=float, default=10.0)
@@ -185,8 +186,8 @@ def main(argv: list[str] | None = None) -> int:
         for label, run_set in (("baseline", baseline), ("candidate", candidate)):
             if run_set["policy_id"] != policy.get("policy_id") or run_set["policy_version"] != policy.get("version"):
                 raise ValueError(f"{label} run-set policy ID/version does not match the supplied policy")
-        verify_source_files(baseline, args.source_root, "baseline", policy)
-        verify_source_files(candidate, args.source_root, "candidate", policy)
+        verify_source_files(baseline, args.baseline_source_root, "baseline", policy)
+        verify_source_files(candidate, args.candidate_source_root, "candidate", policy)
         result = compare_run_sets(baseline, candidate,
                                   max_latency_regression_pct=args.max_latency_regression_pct,
                                   max_throughput_drop_pct=args.max_throughput_drop_pct,
