@@ -1,0 +1,75 @@
+name: SAQA Cross-Run Test Stability History
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '13 6 * * 1' # After the weekly CI/dependency/security jobs
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: saqa-test-stability-history-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  stability-history:
+    name: Analyze retained main-branch JUnit history
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Collect recent completed main-branch CI runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/test-stability/input
+          gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/workflows/saqa-ci.yml/runs?branch=main&per_page=100" \
+            --jq '.workflow_runs[] | select(.head_branch == "main" and (.event == "push" or .event == "schedule") and .status == "completed") | [.id, .head_sha, .conclusion, .run_attempt, .event, .created_at] | @tsv' \
+            > "$RUNNER_TEMP/saqa-main-ci-runs.tsv"
+          head -n 12 "$RUNNER_TEMP/saqa-main-ci-runs.tsv" > "$RUNNER_TEMP/saqa-selected-ci-runs.tsv"
+          while IFS=$'\t' read -r run_id head_sha conclusion attempt event created_at; do
+            [ -n "${run_id:-}" ] || continue
+            [[ "$run_id" =~ ^[0-9]+$ ]] || { echo "Ignoring invalid run ID"; continue; }
+            [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Ignoring invalid SHA for run $run_id"; continue; }
+            run_dir="artifacts/test-stability/input/$run_id"
+            mkdir -p "$run_dir"
+            jq -n --arg run_id "$run_id" --arg head_sha "$head_sha" \
+              --arg conclusion "$conclusion" --arg attempt "$attempt" \
+              --arg event "$event" --arg created_at "$created_at" \
+              '{run_id:$run_id,head_sha:$head_sha,conclusion:$conclusion,run_attempt:$attempt,event:$event,head_branch:"main",created_at:$created_at}' \
+              > "$run_dir/run-metadata.json"
+            for version in 3.11 3.12 3.13; do
+              destination="$run_dir/python-$version"
+              mkdir -p "$destination"
+              if gh run download "$run_id" --repo "$GITHUB_REPOSITORY" \
+                --name "saqa-python-$version" --dir "$destination"; then
+                if ! find "$destination" -type f -name junit.xml -print -quit | grep -q .; then
+                  echo "Run $run_id Python $version artifact has no junit.xml"
+                fi
+              else
+                echo "Run $run_id has no downloadable saqa-python-$version artifact; retaining a gap in history."
+                rm -rf "$destination"
+              fi
+            done
+          done < "$RUNNER_TEMP/saqa-selected-ci-runs.tsv"
+      - name: Build advisory stability report
+        if: always()
+        run: |
+          python scripts/test_stability_history.py \
+            --input-root artifacts/test-stability/input \
+            --min-runs 3 \
+            --output artifacts/test-stability/report.json
+      - name: Upload cross-run stability report and retained source JUnit
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: saqa-test-stability-history-${{ github.run_id }}
+          path: artifacts/test-stability/
+          if-no-files-found: error
+          retention-days: 90
