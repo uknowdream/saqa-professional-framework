@@ -11,7 +11,7 @@ def run_set(*, median=250, p95=400, p99=700, error=0.0, throughput=8.0, checks=1
     result = {
         "schema": SCHEMA, "target_profile": "juice-shop-v20.2.0-local-loopback",
         "workload_profile": "products-search-v1", "policy_id": "juice-shop-local-performance",
-        "policy_version": 1, "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
+        "policy_version": 1, "policy_sha256": hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest(), "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
         "samples": [{"median_ms": median, "p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
         "sample_sources": [{"path": f"run-{i}.json", "sha256": "a" * 64} for i in range(5)],
