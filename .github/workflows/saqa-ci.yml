@@ -111,7 +111,7 @@ jobs:
       - name: Dependency vulnerability audit
         id: dependency-audit
         continue-on-error: true
-        run: pip-audit --format=json > artifacts/security/pip-audit.json
+        run: pip-audit --skip-editable --format=json > artifacts/security/pip-audit.json
       - name: Validate audit output
         if: always()
         run: python scripts/validate_pip_audit_report.py --input artifacts/security/pip-audit.json
