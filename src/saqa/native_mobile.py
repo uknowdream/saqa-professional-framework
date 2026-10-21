@@ -26,7 +26,7 @@ def validate_native_mobile_evidence(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
         raise ValueError("unsupported native mobile evidence schema")
     platform = payload.get("platform")
-    if platform not in PLATFORMS:
+    if not isinstance(platform, str) or platform not in PLATFORMS:
         raise ValueError("platform must be android or ios")
     app_id_field = "package_id" if platform == "android" else "bundle_id"
     app_id = _nonempty(payload.get(app_id_field), app_id_field)
