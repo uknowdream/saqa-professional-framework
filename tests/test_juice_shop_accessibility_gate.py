@@ -105,3 +105,36 @@ def test_keyboard_focus_diagnostics_capture_indicators_and_repeated_targets():
     assert "outline_offset" in SOURCE
     assert "box_shadow" in SOURCE
     assert "heuristics, not proof of WCAG conformance" in SOURCE
+
+
+def test_keyboard_sequence_summary_flags_repeated_target_as_diagnostic():
+    sequence = [
+        {"tag": "button", "id": "search", "role": "", "text": "Search", "focus_visible": True,
+         "outline_style": "solid", "outline_width": "2px", "outline_offset": "0px", "box_shadow": "none"},
+        {"tag": "button", "id": "search", "role": "", "text": "Search", "focus_visible": True,
+         "outline_style": "solid", "outline_width": "2px", "outline_offset": "0px", "box_shadow": "none"},
+        {"tag": "a", "id": "home", "role": "", "text": "Home", "focus_visible": True,
+         "outline_style": "none", "outline_width": "0px", "outline_offset": "0px", "box_shadow": "none"},
+        {"tag": "a", "id": "home", "role": "", "text": "Home", "focus_visible": True,
+         "outline_style": "none", "outline_width": "0px", "outline_offset": "0px", "box_shadow": "none"},
+    ]
+    result = module._summarize_keyboard_sequence(sequence, 4)
+    assert result["unique_focus_targets"] == 2
+    assert result["visible_indicator_style_steps"] == 2
+    assert result["repeated_consecutive_targets"] == 2
+    assert result["keyboard_trap_suspected"] is True
+    assert "diagnostic smoke only" in result["scope_note"]
+
+
+def test_keyboard_sequence_summary_does_not_flag_unique_sequence():
+    sequence = [
+        {"tag": "button", "id": "search", "role": "", "text": "Search", "focus_visible": True,
+         "outline_style": "none", "outline_width": "0px", "outline_offset": "0px", "box_shadow": "none"},
+        {"tag": "a", "id": "home", "role": "", "text": "Home", "focus_visible": True,
+         "outline_style": "none", "outline_width": "0px", "outline_offset": "0px", "box_shadow": "none"},
+    ]
+    result = module._summarize_keyboard_sequence(sequence, 2)
+    assert result["unique_focus_targets"] == 2
+    assert result["repeated_consecutive_targets"] == 0
+    assert result["keyboard_trap_suspected"] is False
+    assert result["visible_indicator_style_steps"] == 0
