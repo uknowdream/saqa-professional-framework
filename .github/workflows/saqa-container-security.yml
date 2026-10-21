@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts/security
-          printf '%s\\n' "$TRAINING_IMAGE" > artifacts/security/training-image-ref.txt
+          printf '%s' "$TRAINING_IMAGE" > artifacts/security/training-image-ref.txt
           docker pull "$TRAINING_IMAGE"
           docker image inspect "$TRAINING_IMAGE" --format '{{index .RepoDigests 0}}' | grep -F "$TRAINING_IMAGE"
       - name: Generate pinned-image SPDX SBOM from registry
