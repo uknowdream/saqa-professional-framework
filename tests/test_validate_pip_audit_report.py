@@ -118,3 +118,15 @@ def test_duplicate_local_skip_is_rejected():
 def test_dict_report_rejects_malformed_fixes_collection():
     with pytest.raises(ValueError, match="fixes must be an array"):
         validate_report({"dependencies": [], "fixes": {}})
+
+
+def test_known_editable_local_project_skip_is_explicit():
+    skipped = {
+        "name": "saqa-professional-framework",
+        "skip_reason": "distribution marked as editable",
+    }
+    result = validate_report({"dependencies": [DEPENDENCY, skipped], "fixes": []})
+    assert result["dependency_count"] == 2
+    assert result["audited_dependency_count"] == 1
+    assert result["skipped_dependency_count"] == 1
+    assert result["skipped_dependencies"] == [skipped]
