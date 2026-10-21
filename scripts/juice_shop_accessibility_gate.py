@@ -66,16 +66,43 @@ def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) 
     """Summarize keyboard focus observations; all findings are diagnostic only."""
     def identity(item):
         return (item.get("tag"), item.get("id"), item.get("role"), item.get("text"))
+
     identities = {identity(item) for item in sequence}
+    target_ids = [identity(item) for item in sequence]
     repeated_consecutive_targets = sum(
-        1 for previous, current in zip(sequence, sequence[1:])
-        if identity(previous) == identity(current)
+        1 for previous, current in zip(target_ids, target_ids[1:])
+        if previous == current
     )
+    repeated_cycle_periods = []
+    # Flag repeated A/B/A/B and longer repeated cycles, not just adjacent identical nodes.
+    max_period = min(5, len(target_ids) // 2)
+    for period in range(2, max_period + 1):
+        for offset in range(0, len(target_ids) - (2 * period) + 1):
+            first = target_ids[offset:offset + period]
+            second = target_ids[offset + period:offset + (2 * period)]
+            if first == second and len(set(first)) > 1:
+                repeated_cycle_periods.append(period)
+                break
+
+    def legacy_indicator_heuristic(item):
+        return (
+            (item.get("outline_style") not in {None, "", "none"}
+             and item.get("outline_width") not in {None, "", "0px"})
+            or item.get("box_shadow") not in {None, "", "none"}
+            or item.get("outline_offset") not in {None, "", "0px"}
+        )
+
     indicator_steps = sum(
         1 for item in sequence
-        if (item.get("outline_style") not in {None, "", "none"} and item.get("outline_width") not in {None, "", "0px"})
-        or item.get("box_shadow") not in {None, "", "none"}
-        or item.get("outline_offset") not in {None, "", "0px"}
+        if (
+            bool(item.get("focus_indicator_visible"))
+            if "focus_indicator_visible" in item
+            else bool(legacy_indicator_heuristic(item))
+        )
+    )
+    trap_suspected = (
+        (len(identities) > 1 and repeated_consecutive_targets >= 2)
+        or bool(repeated_cycle_periods)
     )
     return {
         "method": "keyboard Tab only",
@@ -85,11 +112,11 @@ def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) 
         "focus_visible_steps": sum(1 for item in sequence if item.get("focus_visible")),
         "visible_indicator_style_steps": indicator_steps,
         "repeated_consecutive_targets": repeated_consecutive_targets,
-        "keyboard_trap_suspected": bool(len(identities) > 1 and repeated_consecutive_targets >= 2),
+        "repeated_focus_cycle_periods": sorted(set(repeated_cycle_periods)),
+        "keyboard_trap_suspected": trap_suspected,
         "sequence": sequence,
-        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required"
+        "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required",
     }
-
 
 def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
     """Record keyboard-only Tab traversal without claiming full WCAG conformance."""
@@ -100,7 +127,44 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
           const e = document.activeElement;
           if (!e) return null;
           const text = (e.innerText || e.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 100);
-          const style = getComputedStyle(e);
+          const snapshot = element => {
+            const s = getComputedStyle(element);
+            return {
+              outline_style: s.outlineStyle,
+              outline_width: s.outlineWidth,
+              outline_color: s.outlineColor,
+              outline_offset: s.outlineOffset,
+              box_shadow: s.boxShadow,
+              border_top_style: s.borderTopStyle,
+              border_top_width: s.borderTopWidth,
+              border_top_color: s.borderTopColor
+            };
+          };
+          const focusStyle = snapshot(e);
+          // Compare focused and resting styles; static non-default CSS is not by itself a focus indicator.
+          e.blur();
+          const restingStyle = snapshot(e);
+          e.focus({preventScroll: true});
+          const restoredStyle = snapshot(e);
+          const visibleColor = value => {
+            if (!value || value === "transparent") return false;
+            const match = value.match(/rgba?\\([^)]*[,/]\\s*([0-9.]+)\\s*\\)$/i);
+            if (match && value.toLowerCase().startsWith("rgba")) return Number(match[1]) > 0;
+            return true;
+          };
+          const changed = property => focusStyle[property] !== restingStyle[property];
+          const outlinePainted = focusStyle.outline_style !== "none"
+            && focusStyle.outline_width !== "0px"
+            && visibleColor(focusStyle.outline_color)
+            && ["outline_style", "outline_width", "outline_color", "outline_offset"].some(changed);
+          const boxShadowPainted = focusStyle.box_shadow !== "none"
+            && focusStyle.box_shadow !== ""
+            && visibleColor(focusStyle.box_shadow)
+            && changed("box_shadow");
+          const borderPainted = focusStyle.border_top_style !== "none"
+            && focusStyle.border_top_width !== "0px"
+            && visibleColor(focusStyle.border_top_color)
+            && ["border_top_style", "border_top_width", "border_top_color"].some(changed);
           const rect = e.getBoundingClientRect();
           return {
             tag: e.tagName.toLowerCase(),
@@ -109,12 +173,13 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
             text,
             tab_index: e.tabIndex,
             focus_visible: e.matches(":focus-visible"),
-            rendered: rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none",
-            outline_style: style.outlineStyle,
-            outline_width: style.outlineWidth,
-            outline_offset: style.outlineOffset,
-            box_shadow: style.boxShadow,
-            border_top_width: style.borderTopWidth
+            rendered: rect.width > 0 && rect.height > 0 && getComputedStyle(e).visibility !== "hidden" && getComputedStyle(e).display !== "none",
+            ...restoredStyle,
+            focus_indicator_visible: Boolean(outlinePainted || boxShadowPainted || borderPainted),
+            focus_style_changed_from_resting: Boolean(
+              ["outline_style", "outline_width", "outline_color", "outline_offset",
+               "box_shadow", "border_top_style", "border_top_width", "border_top_color"].some(changed)
+            )
           };
         }""")
         if state and state["tag"] not in {"body", "html"}:
