@@ -21,8 +21,6 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
-  attestations: write
 
 concurrency:
   group: saqa-certification-${{ github.event.workflow_run.head_sha || github.event.inputs.head_sha }}
@@ -32,6 +30,9 @@ jobs:
   readiness:
     name: Wait for mandatory domains
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     outputs:
       ready: ${{ steps.check.outputs.ready }}
       head_sha: ${{ steps.check.outputs.head_sha }}
@@ -45,8 +46,12 @@ jobs:
           SAQA_RELEASE_MAX_AGE_HOURS: '6'
         run: |
           set -euo pipefail
+          mkdir -p artifacts
+          REPORT_PATH="artifacts/release-readiness.json"
+          jq -n '{schema:"saqa.release-readiness.v2",head_sha:null,required_branch:"main",ready:false,status:"UNVERIFIED",reason:"readiness evaluation did not complete"}' > "$REPORT_PATH"
+          trap 'rc=$?; if [ "$rc" -ne 0 ]; then jq -n --arg reason "release readiness preflight failed with exit code $rc" \'{schema:"saqa.release-readiness.v2",head_sha:null,required_branch:"main",ready:false,status:"UNVERIFIED",reason:$reason}\' > "$REPORT_PATH" || true; fi' EXIT
           SHA="${EVENT_SHA:-$INPUT_SHA}"
-          test -n "$SHA"
+          if [ -z "$SHA" ] || ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then echo "A full lowercase commit SHA is required."; exit 2; fi
           CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
           echo "head_sha=$SHA" >> "$GITHUB_OUTPUT"
           ready=true
@@ -110,6 +115,11 @@ jobs:
     needs: readiness
     if: needs.readiness.outputs.ready == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      attestations: write
     timeout-minutes: 10
     env:
       GH_TOKEN: ${{ github.token }}
@@ -139,7 +149,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(jq -r '.status' artifacts/release-certification.json)" = "CERTIFIED"
-          gh attestation verify artifacts/release-certification.json --repo "$GITHUB_REPOSITORY"
+          gh attestation verify artifacts/release-certification.json --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/qa-release-certification.yml"
       - name: Upload certification decision
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
