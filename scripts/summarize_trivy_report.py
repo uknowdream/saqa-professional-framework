@@ -66,8 +66,10 @@ def summarize_report(report: Any, *, image: str, scanner: str) -> dict[str, Any]
                     raise ValueError(f"Results[{index}].{field}.{id_field} must be a string when present")
                 findings.append(finding)
     counts = {severity: 0 for severity in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "UNKNOWN")}
+    type_counts = {kind: 0 for kind in ("vulnerability", "secret", "misconfiguration")}
     for finding in findings:
         counts[finding["severity"]] += 1
+        type_counts[finding["type"]] += 1
     return {
         "schema": SCHEMA,
         "image": image,
@@ -75,6 +77,7 @@ def summarize_report(report: Any, *, image: str, scanner: str) -> dict[str, Any]
         "scanner": scanner,
         "finding_count": len(findings),
         "by_severity": counts,
+        "by_type": type_counts,
         "findings": findings,
         "enforcement": "report-only pending triage; not release certification",
     }
@@ -108,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
         result = summarize_file(args.input, args.output, image=args.image, scanner=args.scanner)
     except ValueError as exc:
         parser.error(str(exc))
-    print(json.dumps({"finding_count": result["finding_count"], "by_severity": result["by_severity"]}, indent=2))
+    print(json.dumps({"finding_count": result["finding_count"], "by_severity": result["by_severity"], "by_type": result["by_type"]}, indent=2))
     return 0
 
 
