@@ -52,3 +52,22 @@ def test_rejects_duplicate_raw_summary_path(tmp_path):
     path = write_summary(tmp_path, "same.json", summary())
     with pytest.raises(ValueError, match="duplicate raw summary path"):
         build([path, path, path, path, path])
+
+
+def test_builder_records_source_paths_relative_to_explicit_root(tmp_path):
+    paths = [write_summary(tmp_path, f"run-{i}.json", summary()) for i in range(5)]
+    result = build_run_set(paths, POLICY, target_profile="juice-shop-v20.2.0-local-loopback",
+                           workload_profile="products-search-v1", environment_fingerprint="runner-x-k6-1.2.0",
+                           source_root=tmp_path)
+    assert result["sample_sources"][0]["path"] == "run-0.json"
+    assert all(not Path(source["path"]).is_absolute() for source in result["sample_sources"])
+
+
+def test_builder_rejects_summary_outside_source_root(tmp_path):
+    outside = write_summary(tmp_path, "outside.json", summary())
+    root = tmp_path / "root"
+    root.mkdir()
+    paths = [outside] * 5
+    with pytest.raises(ValueError, match="escapes source root"):
+        build_run_set(paths, POLICY, target_profile="target", workload_profile="workload",
+                      environment_fingerprint="runner", source_root=root)
