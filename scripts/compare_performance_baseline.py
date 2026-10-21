@@ -225,7 +225,7 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
     candidate_check_failures = [
         {"sample_index": index, "check_pass_rate": sample["check_pass_rate"]}
         for index, sample in enumerate(candidate["samples"])
-        if not math.isclose(sample["check_pass_rate"], 1.0, rel_tol=0.0, abs_tol=1e-12)
+        if sample["check_pass_rate"] < 1.0
     ]
     checks.append({
         "id": "functional_check_pass_rate",
