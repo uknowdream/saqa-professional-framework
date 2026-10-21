@@ -131,8 +131,8 @@ def test_malformed_finding_type_is_rejected(bad_type):
 
 def test_pinned_intentionally_vulnerable_image_is_report_only_not_certified():
     summary = copy.deepcopy(SUMMARY)
-    summary["image"] = "bkimminich/juice-shop:v20.2.0"
-    summary["scanned_artifact_name"] = "bkimminich/juice-shop:v20.2.0"
+    summary["image"] = "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
+    summary["scanned_artifact_name"] = "bkimminich/juice-shop@sha256:8739101ade29358abb5469ee66ae78e582c97ed0a5543a4ad102e5fa5193526b"
     summary["source_report_sha256"] = "b" * 64
     result = evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
                                report_only_expected_vulnerable_target=True)
@@ -147,7 +147,7 @@ def test_report_only_mode_rejects_any_other_image():
     summary["image"] = "example.com/production:latest"
     summary["scanned_artifact_name"] = "example.com/production:latest"
     summary["source_report_sha256"] = "c" * 64
-    with pytest.raises(ValueError, match="restricted to the exact pinned"):
+    with pytest.raises(ValueError, match="restricted to the exact digest-pinned"):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
                          report_only_expected_vulnerable_target=True)
 
