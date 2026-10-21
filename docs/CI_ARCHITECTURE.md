@@ -86,3 +86,8 @@ The Python 3.11, 3.12, and 3.13 regression matrix enforces a **minimum 85% total
 ## Dependency update hygiene
 
 Dependabot opens weekly pull requests for Python package constraints and GitHub Actions references. These are proposed updates, not auto-merges: every update must pass the Python-version matrix, immutable-action pin checks, dependency/SBOM audit, container scan where applicable, and release-evidence workflow. Security updates should be reviewed promptly; scheduled checks do not replace review of dependency advisories or exception expiry.
+
+
+## Dependency vulnerability decision policy
+
+The Python package audit emits its raw JSON report and runs through `scripts/evaluate_vulnerability_policy.py`. The default policy in `security/vulnerability-policy.json` blocks **LOW, MEDIUM, HIGH, and CRITICAL** findings to preserve the existing fail-on-any-finding behavior. Unscored or unsupported severity values default to HIGH. A finding can pass only when an exact package plus vulnerability ID/alias exception has a documented reason, accountable owner, and unexpired ISO date. Expired exceptions fail the policy even if the issue disappears from the latest scan. Malformed report schemas, duplicate dependency/exception identities, and unsupported skip records fail closed. Review artifacts before changing the default threshold.
