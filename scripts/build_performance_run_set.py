@@ -49,7 +49,12 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
         if not isinstance(value, str) or not value.strip(): raise ValueError(f"{name} must be a non-empty string")
     if len(summary_paths) < MIN_SAMPLES: raise ValueError(f"at least {MIN_SAMPLES} raw summary files are required")
     samples, sources = [], []
+    seen_paths = set()
     for path in summary_paths:
+        resolved_path = path.resolve()
+        if resolved_path in seen_paths:
+            raise ValueError(f"duplicate raw summary path: {path}")
+        seen_paths.add(resolved_path)
         raw = path.read_bytes()
         try: summary = json.loads(raw.decode("utf-8"))
         except (UnicodeError, json.JSONDecodeError) as exc: raise ValueError(f"cannot parse k6 summary {path}: {exc}") from exc
