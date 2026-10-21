@@ -7,7 +7,7 @@ from scripts.summarize_trivy_report import SCHEMA, summarize_file, summarize_rep
 
 
 def report():
-    return {"Results": [{
+    return {"ArtifactName": "example:1", "Results": [{
         "Target": "alpine:3.20",
         "Vulnerabilities": [{"VulnerabilityID": "CVE-2026-1234", "Severity": "HIGH", "FixedVersion": "3.20.1"}],
         "Secrets": [{"RuleID": "private-key", "Severity": "CRITICAL"}],
@@ -40,20 +40,20 @@ def test_malformed_finding_collection_is_rejected(field):
 
 def test_non_object_result_and_finding_are_rejected():
     with pytest.raises(ValueError, match=r"Results\[0\] must be an object"):
-        summarize_report({"Results": ["bad"]}, image="example:1", scanner="trivy-0.76.0")
+        summarize_report({"ArtifactName": "example:1", "Results": ["bad"]}, image="example:1", scanner="trivy-0.76.0")
     with pytest.raises(ValueError, match="must be an object"):
-        summarize_report({"Results": [{"Vulnerabilities": [False]}]}, image="example:1", scanner="trivy-0.76.0")
+        summarize_report({"ArtifactName": "example:1", "Results": [{"Vulnerabilities": [False]}]}, image="example:1", scanner="trivy-0.76.0")
 
 
 def test_unsupported_severity_is_rejected():
-    bad = {"Results": [{"Vulnerabilities": [{"VulnerabilityID": "CVE-X", "Severity": "SEVERE"}]}]}
+    bad = {"ArtifactName": "example:1", "Results": [{"Vulnerabilities": [{"VulnerabilityID": "CVE-X", "Severity": "SEVERE"}]}]}
     with pytest.raises(ValueError, match="unsupported severity"):
         summarize_report(bad, image="example:1", scanner="trivy-0.76.0")
 
 
 def test_empty_target_metadata_is_rejected():
     with pytest.raises(ValueError, match="image must be a non-empty string"):
-        summarize_report({"Results": []}, image=" ", scanner="trivy-0.76.0")
+        summarize_report({"ArtifactName": "example:1", "Results": []}, image=" ", scanner="trivy-0.76.0")
 
 
 def test_report_file_is_normalized_and_written(tmp_path):
@@ -68,3 +68,15 @@ def test_malformed_json_file_fails_closed(tmp_path):
     source.write_text("{", encoding="utf-8")
     with pytest.raises(ValueError, match="cannot read Trivy report"):
         summarize_file(source, tmp_path / "summary.json", image="example:1", scanner="trivy-0.76.0")
+
+
+def test_requested_image_must_match_actual_trivy_artifact_name():
+    data = report()
+    data["ArtifactName"] = "attacker/production:latest"
+    with pytest.raises(ValueError, match="does not match Trivy-scanned ArtifactName"):
+        summarize_report(data, image="bkimminich/juice-shop:v20.2.0", scanner="trivy-0.76.0")
+
+
+def test_missing_scanned_artifact_identity_is_rejected():
+    with pytest.raises(ValueError, match="actual scanned ArtifactName"):
+        summarize_report({"Results": []}, image="example:1", scanner="trivy-0.76.0")
