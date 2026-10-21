@@ -49,7 +49,13 @@ jobs:
           mkdir -p artifacts
           REPORT_PATH="artifacts/release-readiness.json"
           jq -n '{schema:"saqa.release-readiness.v2",head_sha:null,required_branch:"main",ready:false,status:"UNVERIFIED",reason:"readiness evaluation did not complete"}' > "$REPORT_PATH"
-          trap 'rc=$?; if [ "$rc" -ne 0 ]; then jq -n --arg reason "release readiness preflight failed with exit code $rc" \'{schema:"saqa.release-readiness.v2",head_sha:null,required_branch:"main",ready:false,status:"UNVERIFIED",reason:$reason}\' > "$REPORT_PATH" || true; fi' EXIT
+          write_unverified_on_error() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              jq -n --arg reason "release readiness preflight failed with exit code $rc" '{schema:"saqa.release-readiness.v2",head_sha:null,required_branch:"main",ready:false,status:"UNVERIFIED",reason:$reason}' > "$REPORT_PATH" || true
+            fi
+          }
+          trap write_unverified_on_error EXIT
           SHA="${EVENT_SHA:-$INPUT_SHA}"
           if [ -z "$SHA" ] || ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then echo "A full lowercase commit SHA is required."; exit 2; fi
           CURRENT_MAIN_SHA="$(gh api "/repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
