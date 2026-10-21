@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from saqa.result_aggregation import aggregate, load_results
-from saqa.evidence import verify_manifest
+from saqa.evidence import EvidenceRecord, verify_manifest, write_manifest
 
 
 def test_aggregate_multiple_executor_results(tmp_path: Path) -> None:
@@ -116,3 +116,26 @@ def test_verify_manifest_rejects_deeply_nested_json(tmp_path: Path) -> None:
     manifest = tmp_path / "deep-manifest.json"
     manifest.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
     assert verify_manifest(manifest) is False
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("test_id", " ", "test_id"),
+    ("status", ["PASS"], "invalid status"),
+    ("status", None, "invalid status"),
+    ("observed_at", " ", "observed_at"),
+    ("target", "", "target"),
+    ("details", [], "details"),
+])
+def test_evidence_record_rejects_wrong_runtime_types(field, value, message):
+    record = {
+        "test_id": "T-001", "status": "PASS", "observed_at": "2026-10-20T00:00:00Z",
+        "target": "local", "details": {},
+    }
+    record[field] = value
+    with pytest.raises(ValueError, match=message):
+        EvidenceRecord(**record)
+
+
+def test_write_manifest_rejects_empty_record_list(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="at least one record"):
+        write_manifest([], tmp_path / "manifest.json")
