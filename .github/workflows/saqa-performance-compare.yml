@@ -34,6 +34,36 @@ jobs:
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
+      - name: Verify selected runs are successful measured-sample workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
+          CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Baseline run ID must be numeric" >&2; exit 2; }
+          [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Candidate run ID must be numeric" >&2; exit 2; }
+          python - <<'PY'
+          import json, os, subprocess, sys
+          repo = os.environ["GITHUB_REPOSITORY"]
+          expected_path = ".github/workflows/saqa-performance-samples.yml"
+          for label, key in (("baseline", "BASELINE_RUN_ID"), ("candidate", "CANDIDATE_RUN_ID")):
+              run_id = os.environ[key]
+              raw = subprocess.check_output(
+                  ["gh", "api", f"repos/{repo}/actions/runs/{run_id}"],
+                  text=True,
+              )
+              run = json.loads(raw)
+              if run.get("status") != "completed" or run.get("conclusion") != "success":
+                  raise SystemExit(f"{label} run must be completed successfully")
+              if run.get("path") != expected_path:
+                  raise SystemExit(f"{label} run did not originate from {expected_path}")
+              if (run.get("head_repository") or {}).get("full_name") != repo:
+                  raise SystemExit(f"{label} run originated from a different repository")
+              if run.get("event") not in {"workflow_dispatch", "schedule"}:
+                  raise SystemExit(f"{label} run has unsupported event {run.get('event')!r}")
+              print(f"{label} run {run_id}: verified successful sample-collection workflow")
+          PY
       - name: Download baseline artifact from selected run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
