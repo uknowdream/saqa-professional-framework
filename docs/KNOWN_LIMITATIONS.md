@@ -61,6 +61,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Configure GitHub artifact provenance attestation for the CycloneDX SBOM on non-PR trusted runs; pull-request runs skip publishing attestations.
 - [x] Verify SBOM provenance attestation on non-PR trusted runs with GitHub CLI; pull-request runs skip attestation publication and verification. Keep SHA-256 manifest verification as a separate integrity check.
 - [x] Add release-report freshness checks: evidence must have timezone-aware timestamps and default to a 24-hour maximum age (configurable with `SAQA_MAX_EVIDENCE_AGE_HOURS`).
+- [x] Delete any prior native-mobile validation output or `CERTIFIED` release report before re-validating, so an invalid rerun cannot leave stale PASS evidence on disk.
 - [x] Document artifact retention periods, checksum verification, exact-SHA recovery, and the rule that missing/expired evidence leaves certification NOT_CERTIFIED (`docs/ARTIFACT_RETENTION_AND_RECOVERY.md`).
 - Automated API-level artifact-expiry discovery remains dependent on repository token permissions and is not represented as implemented.
 - Verify branch protection and required-check configuration in repository settings; this integration currently may not have permission to read branch-protection settings.
