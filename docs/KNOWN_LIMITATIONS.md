@@ -70,7 +70,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Delete any prior native-mobile validation output or `CERTIFIED` release report before re-validating, so an invalid rerun cannot leave stale PASS evidence on disk.
 - [x] Document artifact retention periods, checksum verification, exact-SHA recovery, and the rule that missing/expired evidence leaves certification NOT_CERTIFIED (`docs/ARTIFACT_RETENTION_AND_RECOVERY.md`).
 - [x] Add a daily API-level artifact retention audit that reads exact-workflow run and artifact metadata for current `main`, rejects missing/empty/expired/near-expiry artifacts and artifacts predating the selected attempt, and uploads its decision report. It requires the configured GitHub Actions `actions: read` permission.
-- Verify branch protection and required-check configuration in repository settings; this integration currently may not have permission to read branch-protection settings.
+- [x] Add the manual/weekly read-only main-branch protection audit with exact required-check names and fail-closed status-check validation (`scripts/audit_branch_protection.py`).
+- The branch-protection audit remains `UNVERIFIED` until the repository owner configures `SAQA_REPO_ADMIN_AUDIT_TOKEN` with repository-scoped Administration: read-only permission and runs the workflow. The audit never changes settings.
 
 ### P2 — Maintainability
 - [x] Schedule the CI dependency audit, CycloneDX SBOM generation, and compatibility matrix weekly (Monday 04:17 UTC), in addition to PR/push runs.
