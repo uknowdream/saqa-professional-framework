@@ -55,7 +55,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 ### P2 — Evidence trust and operations
 - Add signed attestations or artifact attestations where supported; keep SHA-256 manifest verification as a separate integrity check.
 - [x] Add release-report freshness checks: evidence must have timezone-aware timestamps and default to a 24-hour maximum age (configurable with `SAQA_MAX_EVIDENCE_AGE_HOURS`).
-- Add artifact retention/expiry checks and a documented recovery procedure for missing or expired uploaded artifacts.
+- [x] Document artifact retention periods, checksum verification, exact-SHA recovery, and the rule that missing/expired evidence leaves certification NOT_CERTIFIED (`docs/ARTIFACT_RETENTION_AND_RECOVERY.md`).
+- Automated API-level artifact-expiry discovery remains dependent on repository token permissions and is not represented as implemented.
 - Verify branch protection and required-check configuration in repository settings; this integration currently may not have permission to read branch-protection settings.
 
 ### P2 — Maintainability
