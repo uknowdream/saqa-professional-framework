@@ -33,8 +33,7 @@ jobs:
       - name: Generate pinned-image SPDX SBOM from registry
         run: |
           mkdir -p artifacts/security
-          docker run --rm -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 \\
-            "registry:docker.io/$TRAINING_IMAGE" -o spdx-json=/out/juice-shop-sbom.spdx.json
+          docker run --rm -v "$PWD/artifacts/security:/out" anchore/syft:v1.30.0 "registry:docker.io/$TRAINING_IMAGE" -o spdx-json=/out/juice-shop-sbom.spdx.json
       - name: Validate SBOM and record digest
         run: python scripts/validate_spdx_sbom.py --input artifacts/security/juice-shop-sbom.spdx.json --output artifacts/security/juice-shop-sbom-validation.json
       - name: Verify pinned Trivy runtime
@@ -45,13 +44,7 @@ jobs:
       - name: Scan image for vulnerabilities, secrets, and misconfiguration
         run: |
           mkdir -p artifacts/security
-          docker run --rm -v "$PWD/artifacts/security:/out" "$TRIVY_IMAGE" image \\
-            --image-src remote \\
-            --image-config-scanners misconfig,secret \\
-            --scanners vuln,secret,misconfig \\
-            --format json \\
-            --output /out/juice-shop-trivy.json \\
-            "$TRAINING_IMAGE"
+          docker run --rm -v "$PWD/artifacts/security:/out" "$TRIVY_IMAGE" image --image-src remote --image-config-scanners misconfig,secret --scanners vuln,secret,misconfig --format json --output /out/juice-shop-trivy.json "$TRAINING_IMAGE"
       - name: Validate scanner report and summarize findings
         run: |
           python scripts/summarize_trivy_report.py --input artifacts/security/juice-shop-trivy.json --output artifacts/security/juice-shop-trivy-summary.json --image "$TRAINING_IMAGE" --scanner "trivy-${TRIVY_VERSION}"
@@ -69,19 +62,7 @@ jobs:
           WORKFLOW_REF: ${{ github.workflow_ref }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
-          python scripts/build_container_security_manifest.py \\
-            --artifact-dir artifacts/security \\
-            --output artifacts/security/juice-shop-security-artifact-manifest.json \\
-            --image "$TRAINING_IMAGE" \\
-            --scanner-version "${TRIVY_VERSION}" \\
-            --source-sha "$SOURCE_SHA" \\
-            --execution-sha "$EXECUTION_SHA" \\
-            --event "$EVENT_NAME" \\
-            --ref "$SOURCE_REF" \\
-            --run-id "$RUN_ID" \\
-            --run-attempt "$RUN_ATTEMPT" \\
-            --workflow-ref "$WORKFLOW_REF" \\
-            --workflow-sha "$WORKFLOW_SHA"
+          python scripts/build_container_security_manifest.py --artifact-dir artifacts/security --output artifacts/security/juice-shop-security-artifact-manifest.json --image "$TRAINING_IMAGE" --scanner-version "$TRIVY_VERSION" --source-sha "$SOURCE_SHA" --execution-sha "$EXECUTION_SHA" --event "$EVENT_NAME" --ref "$SOURCE_REF" --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --workflow-ref "$WORKFLOW_REF" --workflow-sha "$WORKFLOW_SHA"
       - name: Upload container security evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
