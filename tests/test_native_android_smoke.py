@@ -18,6 +18,8 @@ def fake_run(command, *, timeout=120):
         return SimpleNamespace(returncode=0, stdout="Success\n", stderr="")
     if "monkey" in joined:
         return SimpleNamespace(returncode=0, stdout="Events injected: 1\n", stderr="")
+    if "pidof" in joined:
+        return SimpleNamespace(returncode=0, stdout="1234\n", stderr="")
     return SimpleNamespace(returncode=0, stdout="", stderr="")
 
 
