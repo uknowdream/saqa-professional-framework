@@ -57,7 +57,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Add a dedicated Trivy image/secret/misconfiguration scan workflow for the pinned Juice Shop reference image and retain JSON evidence.
 - [x] Fail closed on malformed Trivy report structure, malformed finding arrays, and unsupported severity values before writing a normalized summary.
 - [x] Enforce a versioned Trivy policy: any secret finding, HIGH/CRITICAL misconfiguration, and CRITICAL vulnerability blocks the security workflow unless an exact-match, unexpired exception names a reason, owner, ticket, and expiry date.
-- HIGH/MEDIUM/LOW vulnerabilities remain report-only under the initial policy pending triage; this policy result is not yet a mandatory domain in the central release-certification workflow.
+- [x] Record first-pass triage for the pinned training-image scan, including finding counts, exact workflow/run provenance, raw report hashes, and the report-only disposition in `docs/security/REFERENCE_IMAGE_TRIAGE_2026-10-21.md`.
+- The intentionally vulnerable image remains report-only and is not a mandatory release-certification domain. A human security maintainer still must verify the six embedded secret-pattern matches before treating them as confirmed placeholders or adding exceptions.
 - Keep active security tests restricted to isolated, explicitly authorized targets.
 
 ### P2 — Evidence trust and operations
@@ -66,7 +67,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Add release-report freshness checks: evidence must have timezone-aware timestamps and default to a 24-hour maximum age (configurable with `SAQA_MAX_EVIDENCE_AGE_HOURS`).
 - [x] Delete any prior native-mobile validation output or `CERTIFIED` release report before re-validating, so an invalid rerun cannot leave stale PASS evidence on disk.
 - [x] Document artifact retention periods, checksum verification, exact-SHA recovery, and the rule that missing/expired evidence leaves certification NOT_CERTIFIED (`docs/ARTIFACT_RETENTION_AND_RECOVERY.md`).
-- Automated API-level artifact-expiry discovery remains dependent on repository token permissions and is not represented as implemented.
+- [x] Add a daily API-level artifact retention audit that reads exact-workflow run and artifact metadata for current `main`, rejects missing/empty/expired/near-expiry artifacts and artifacts predating the selected attempt, and uploads its decision report. It requires the configured GitHub Actions `actions: read` permission.
 - Verify branch protection and required-check configuration in repository settings; this integration currently may not have permission to read branch-protection settings.
 
 ### P2 — Maintainability
