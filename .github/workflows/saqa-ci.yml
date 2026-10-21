@@ -92,9 +92,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . --exclude-dir=.git --exclude='*.zip'; then
-            echo "Secret-pattern match found in checked-out source; review without copying secret values into logs or issues."
+          set +e
+          grep -RIlE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . --exclude-dir=.git --exclude='*.zip' > "$RUNNER_TEMP/saqa-secret-pattern-paths.txt"
+          scan_status=$?
+          set -e
+          if [ "$scan_status" -eq 0 ]; then
+            echo "Secret-pattern match found in checked-out source files:"
+            sed 's#^#  - #' "$RUNNER_TEMP/saqa-secret-pattern-paths.txt"
+            echo "Review findings without copying secret values into logs or issues."
             exit 1
+          elif [ "$scan_status" -ne 1 ]; then
+            echo "Secret scanner failed with exit code $scan_status; cannot treat scan as clean."
+            exit 2
           fi
       - name: Generate CycloneDX SBOM
         run: cyclonedx-py environment --output-format JSON --output-file artifacts/security/sbom.cdx.json
