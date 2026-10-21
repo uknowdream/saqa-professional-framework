@@ -8,7 +8,7 @@ POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").re
 
 def summary(p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0):
     return {"schema": "saqa.k6-summary.v1", "metrics": {
-        "http_req_duration": {"values": {"p(95)": p95, "p(99)": p99}},
+        "http_req_duration": {"values": {"med": 250, "p(95)": p95, "p(99)": p99}},
         "http_req_failed": {"values": {"rate": error}}, "http_reqs": {"values": {"rate": throughput}},
         "checks": {"values": {"rate": checks}}}}
 
