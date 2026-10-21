@@ -54,3 +54,19 @@ For each test ID, record:
 - Screen-reader results are recorded for the platforms in the product's support policy.
 - Automated axe findings and manual findings are triaged separately.
 - Any untested WCAG criterion remains explicitly `UNVERIFIED`; this plan alone does not establish WCAG conformance.
+
+
+
+## Machine-validated manual evidence
+
+Manual execution is still required. When all 14 matrix cases (KBD-01…KBD-08 and SR-01…SR-06) have actual results, record them in JSON using schema `saqa.accessibility-manual-evidence.v1` and validate before publishing the report:
+
+~~~bash
+python scripts/validate_accessibility_manual_evidence.py \
+  --input artifacts/accessibility/manual-evidence.json \
+  --output artifacts/accessibility/validated-manual-evidence.json
+~~~
+
+The validator requires target build/commit, named tester, timezone-aware run/test timestamps, environment and assistive-technology versions, a unique result for every test ID, and evidence references for PASS/FAIL. Screen-reader rows must identify the technology and version. `N/A` requires a reason and reviewer. Missing cases, placeholders, stale output, unverified evidence, and blocked scenarios cannot be converted to PASS. Exit code 0 means the submitted matrix is complete and has only PASS/N/A statuses; 1 means a verified failure; 2 means invalid or incomplete/unverified evidence.
+
+This validator checks the submitted record, not the occurrence or truth of manual testing. Do not fill it with sample/example values or claim WCAG conformance from this report alone.
