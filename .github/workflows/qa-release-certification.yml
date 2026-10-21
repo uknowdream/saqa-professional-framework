@@ -76,7 +76,7 @@ jobs:
           NOW_EPOCH="$(date -u +%s)"
           mkdir -p artifacts
           while IFS='|' read -r workflow workflow_path workflow_id required_artifact; do
-            latest="$(jq --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" --argjson now "$NOW_EPOCH" --argjson max_age "$MAX_AGE_SECONDS" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch")) | . + {__saqa_started: ((.run_started_at // .created_at) | (try fromdateiso8601 catch 0))}] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then {} else .[-1] end)' <<< "$runs")"
+            latest="$(jq --arg n "$workflow" --arg path "$workflow_path" --argjson wid "$workflow_id" --arg sha "$SHA" '([.[] | select(.name == $n and .path == $path and .workflow_id == $wid and .head_sha == $sha and .head_branch == "main" and (.event == "push" or .event == "workflow_dispatch")) | . + {__saqa_started: (.run_started_at | (try fromdateiso8601 catch 0))}] | sort_by([(.id // 0), (.run_attempt // 0)]) | if length == 0 then {} else .[-1] end)' <<< "$runs")"
             run_ok="$(jq --argjson now "$NOW_EPOCH" --argjson max_age "$MAX_AGE_SECONDS" 'if ((.id | type) == "number" and .id > 0 and (.run_attempt | type) == "number" and .run_attempt > 0 and .status == "completed" and .conclusion == "success" and .__saqa_started > 0 and ($now - .__saqa_started) >= 0 and ($now - .__saqa_started) <= $max_age) then 1 else 0 end' <<< "$latest")"
             if [ "$run_ok" -lt 1 ]; then
               ready=false
@@ -84,13 +84,19 @@ jobs:
               continue
             fi
             run_id="$(jq -r '.id' <<< "$latest")"
-            artifacts="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '.')"
-            artifact_ok="$(jq --arg name "$required_artifact" '[.[] | select(.name == $name and .expired == false and (.size_in_bytes | type) == "number" and .size_in_bytes > 0)] | length' <<< "$artifacts")"
+            started_epoch="$(jq -r '.__saqa_started' <<< "$latest")"
+            if ! artifacts="$(gh api --paginate "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --jq '.artifacts[]' | jq -s '.' 2>/dev/null)"; then
+              ready=false
+              echo "$workflow: GitHub failed to return artifact metadata for run $run_id; refusing certification"
+              continue
+            fi
+            retention_floor_epoch=$((NOW_EPOCH + 72 * 3600))
+            artifact_ok="$(jq --arg name "$required_artifact" --argjson started "$started_epoch" --argjson retention_floor "$retention_floor_epoch" '[.[] | select(.name == $name and .expired == false and (.size_in_bytes | type) == "number" and .size_in_bytes > 0 and (.created_at | (try fromdateiso8601 catch 0)) >= $started and (.expires_at | (try fromdateiso8601 catch 0)) > $retention_floor)] | length' <<< "$artifacts")"
             if [ "$artifact_ok" -lt 1 ]; then
               ready=false
-              echo "$workflow: required artifact '$required_artifact' is missing, expired, or empty for run $run_id"
+              echo "$workflow: required artifact '$required_artifact' is missing, expired, empty, from an older attempt, or expires within 72 hours for run $run_id"
             else
-              echo "$workflow: fresh workflow evidence and artifact '$required_artifact' verified for main/$SHA"
+              echo "$workflow: exact-workflow run and attempt-bound artifact '$required_artifact' verified for main/$SHA"
             fi
           done <<'SAQA_MANDATORY_WORKFLOWS'
           SAQA CI|.github/workflows/saqa-ci.yml|345839221|saqa-canonical-evidence
