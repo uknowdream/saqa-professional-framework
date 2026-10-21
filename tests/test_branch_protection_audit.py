@@ -11,7 +11,7 @@ POLICY = json.loads((ROOT / "security/branch-protection-policy.json").read_text(
 
 
 def protection(**overrides):
-    contexts = POLICY["required_check_contexts"]
+    contexts = list(POLICY["required_check_contexts"])
     result = {
         "required_status_checks": {
             "strict": True,
