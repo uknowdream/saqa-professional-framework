@@ -215,3 +215,15 @@ def test_artifact_gaps_remain_visible_when_variation_has_status_precedence(tmp_p
     assert report["status"] == "SAME_COMMIT_OUTCOME_VARIATION"
     assert report["summary"]["artifact_gap_count"] > 0
     assert report["artifact_gaps"]
+
+
+def test_deeply_nested_run_metadata_becomes_explicit_evidence_gap(tmp_path):
+    root = tmp_path / "history"
+    run_dir = root / "901"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run-metadata.json").write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    report = build_history(root)
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+    assert report["summary"]["issues_count"] >= 1
+    assert report["summary"]["artifact_gap_count"] == 3
+    assert report["issues"]
