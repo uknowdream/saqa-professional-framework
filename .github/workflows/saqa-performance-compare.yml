@@ -99,6 +99,7 @@ jobs:
             --baseline-source-root artifacts/baseline/raw-runs \
             --candidate-source-root artifacts/candidate/raw-runs \
             --policy performance/baselines/juice-shop-local-v1.json \
+            --workload-script performance/k6/juice-shop.js \
             > artifacts/comparison/result.json
           result_code=$?
           set -e
