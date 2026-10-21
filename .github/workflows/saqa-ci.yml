@@ -78,7 +78,7 @@ jobs:
       - name: Install project and audit tooling
         run: |
           python -m pip install -e .
-          python -m pip install pip-audit==2.10.1 cyclonedx-bom==7.5.0
+          python -m pip install pip-audit==2.10.1 cyclonedx-bom==7.5.0 bandit==1.8.6
           mkdir -p artifacts/security
       - name: Generate CycloneDX SBOM
         run: cyclonedx-py environment --output-format JSON --output-file artifacts/security/sbom.cdx.json
@@ -111,6 +111,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh attestation verify artifacts/security/sbom.cdx.json --repo "$GITHUB_REPOSITORY"
+      - name: Static application security testing (Bandit)
+        run: |
+          bandit -r src scripts -lll -iii -f json -o artifacts/security/bandit-sast.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path("artifacts/security/bandit-sast.json").read_text(encoding="utf-8"))
+          if not isinstance(report, dict) or not isinstance(report.get("results"), list):
+              raise SystemExit("Bandit report schema invalid")
+          high = [item for item in report["results"] if isinstance(item, dict)
+                  and item.get("issue_severity") == "HIGH" and item.get("issue_confidence") == "HIGH"]
+          print(f"Bandit validated {len(report['results'])} finding(s); {len(high)} high-severity/high-confidence finding(s).")
+          PY
       - name: Secret pattern scan
         run: |
           ! grep -RInE '(BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16})' . \
