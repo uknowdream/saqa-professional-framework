@@ -69,14 +69,14 @@ jobs:
               print(f"{label} run {run_id}: verified {validated['head_branch']} / {validated['event']} / {validated['artifact_name']}")
           PY
       - name: Download baseline artifact from selected run
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.baseline_artifact_name }}
           run-id: ${{ inputs.baseline_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: artifacts/baseline
       - name: Download candidate artifact from selected run
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.candidate_artifact_name }}
           run-id: ${{ inputs.candidate_run_id }}
