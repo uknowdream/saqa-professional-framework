@@ -23,7 +23,7 @@ def validate_quarantine_policy(policy: Any, *, today: date | None = None) -> dic
     entries = policy.get("quarantines")
     if not isinstance(entries, list):
         raise ValueError("quarantines must be an array")
-    today = today or date.today()
+    today = today or datetime.now(timezone.utc).date()
     seen: set[str] = set()
     for i, item in enumerate(entries):
         required = {"test_id", "owner", "reason", "ticket", "expires_on"}
