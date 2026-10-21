@@ -124,3 +124,22 @@ def test_malformed_finding_type_is_rejected(bad_type):
     ]}
     with pytest.raises(ValueError, match="unsupported type or severity"):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
+
+
+def test_pinned_intentionally_vulnerable_image_is_report_only_not_certified():
+    summary = copy.deepcopy(SUMMARY)
+    summary["image"] = "bkimminich/juice-shop:v20.2.0"
+    result = evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
+                               report_only_expected_vulnerable_target=True)
+    assert result["status"] == "REPORT_ONLY"
+    assert result["release_gate_eligible"] is False
+    assert result["blocking_count"] == 2
+    assert "intentionally vulnerable" in result["note"]
+
+
+def test_report_only_mode_rejects_any_other_image():
+    summary = copy.deepcopy(SUMMARY)
+    summary["image"] = "example.com/production:latest"
+    with pytest.raises(ValueError, match="restricted to the exact pinned"):
+        evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
+                         report_only_expected_vulnerable_target=True)
