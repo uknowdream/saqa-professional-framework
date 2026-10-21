@@ -1,10 +1,14 @@
 """Validate generated SPDX JSON SBOMs and emit a digest-bound inventory record."""
 from __future__ import annotations
-import argparse, hashlib, json
+import argparse, hashlib, json, re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 SCHEMA = "saqa.sbom-validation.v1"
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+_SPDX_ID_RE = re.compile(r"^SPDXRef-[A-Za-z0-9.-]+$")
+_CREATOR_PREFIXES = {"Person", "Organization", "Tool"}
 
 
 def validate_spdx(payload: Any, *, source: str, digest: str) -> dict[str, Any]:
@@ -15,12 +19,29 @@ def validate_spdx(payload: Any, *, source: str, digest: str) -> dict[str, Any]:
         raise ValueError("spdxVersion must identify SPDX 2.x")
     if payload.get("SPDXID") != "SPDXRef-DOCUMENT":
         raise ValueError("SPDXID must be exactly SPDXRef-DOCUMENT")
+    if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+        raise ValueError("digest must be a lowercase SHA-256 digest")
+    if not isinstance(source, str) or not source.strip():
+        raise ValueError("source must be a non-empty string")
     for field in ("name", "documentNamespace"):
         if not isinstance(payload.get(field), str) or not payload[field].strip():
             raise ValueError(f"{field} must be a non-empty string")
+    try:
+        namespace = urlsplit(payload["documentNamespace"])
+    except ValueError as exc:
+        raise ValueError("documentNamespace must be an absolute URI") from exc
+    if not namespace.scheme or (namespace.scheme.lower() in {"http", "https"} and not namespace.netloc):
+        raise ValueError("documentNamespace must be an absolute URI")
     creation = payload.get("creationInfo")
-    if not isinstance(creation, dict) or not isinstance(creation.get("creators"), list) or not creation["creators"]:
+    creators = creation.get("creators") if isinstance(creation, dict) else None
+    if not isinstance(creators, list) or not creators:
         raise ValueError("creationInfo.creators must be a non-empty array")
+    for index, creator in enumerate(creators):
+        if not isinstance(creator, str) or ":" not in creator:
+            raise ValueError(f"creationInfo.creators[{index}] must be a typed creator string")
+        prefix, identity = creator.split(":", 1)
+        if prefix not in _CREATOR_PREFIXES or not identity.strip():
+            raise ValueError(f"creationInfo.creators[{index}] must use Person:, Organization:, or Tool: with a non-empty identity")
     packages = payload.get("packages")
     if not isinstance(packages, list):
         raise ValueError("packages must be an array")
@@ -31,9 +52,12 @@ def validate_spdx(payload: Any, *, source: str, digest: str) -> dict[str, Any]:
         for field in ("SPDXID", "name"):
             if not isinstance(package.get(field), str) or not package[field].strip():
                 raise ValueError(f"packages[{index}].{field} must be a non-empty string")
-        if package["SPDXID"] in seen:
-            raise ValueError(f"duplicate package SPDXID: {package['SPDXID']}")
-        seen.add(package["SPDXID"])
+        package_id = package["SPDXID"]
+        if not _SPDX_ID_RE.fullmatch(package_id) or package_id == "SPDXRef-DOCUMENT":
+            raise ValueError(f"packages[{index}].SPDXID must be a valid, non-document SPDXRef")
+        if package_id in seen:
+            raise ValueError(f"duplicate package SPDXID: {package_id}")
+        seen.add(package_id)
     return {
         "schema": SCHEMA,
         "status": "PASS",
