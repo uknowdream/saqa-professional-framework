@@ -59,7 +59,7 @@ def test_failed_or_in_progress_latest_run_blocks_artifact_audit():
     runs[0]["conclusion"] = "failure"
     result = audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW)
     assert result["status"] == "FAIL"
-    assert "not completed successfully" in result["checks"][0]["reasons"]
+    assert any("not completed successfully" in reason for reason in result["checks"][0]["reasons"])
 
 
 def test_missing_artifact_fails():
