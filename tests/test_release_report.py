@@ -165,3 +165,13 @@ def test_release_report_rejects_unrepresentable_freshness_window(tmp_path, monke
     with pytest.raises(SystemExit, match="exceeds the supported datetime range"):
         main()
     assert not out.exists()
+
+def test_release_report_refuses_to_overwrite_manifest(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    original = manifest.read_bytes()
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(manifest))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    with pytest.raises(SystemExit, match="output must differ from the source evidence manifest"):
+        main()
+    assert manifest.read_bytes() == original
