@@ -87,7 +87,9 @@ def load_run_set(path: Path) -> dict[str, Any]:
         row = {key: number(sample.get(key), f"samples[{i}].{key}") for key in METRICS}
         if any(row[key] < 0 for key in ("median_ms", "p95_ms", "p99_ms", "throughput_rps")):
             raise ValueError(f"{path}: samples[{i}] latency/throughput must be non-negative")
-        if row["median_ms"] > row["p95_ms"]:\n            raise ValueError(f"{path}: samples[{i}] median_ms must not exceed p95_ms")\n        if row["p95_ms"] > row["p99_ms"]:
+        if row["median_ms"] > row["p95_ms"]:
+            raise ValueError(f"{path}: samples[{i}] median_ms must not exceed p95_ms")
+        if row["p95_ms"] > row["p99_ms"]:
             raise ValueError(f"{path}: samples[{i}] p95_ms must not exceed p99_ms")
         if any(not 0 <= row[key] <= 1 for key in ("error_rate", "check_pass_rate")):
             raise ValueError(f"{path}: samples[{i}] rates must be between 0 and 1")
