@@ -31,3 +31,21 @@ def test_deeply_nested_history_line_is_invalid(tmp_path):
     path = tmp_path / "history.jsonl"
     path.write_text("[" * 2000 + "0" + "]" * 2000 + "\\n", encoding="utf-8")
     assert verify_history(path) is False
+
+def test_history_with_noncanonical_nan_payload_is_invalid(tmp_path):
+    from saqa.history import GENESIS
+    path = tmp_path / "history.jsonl"
+    entry = {
+        "commit_sha": "abc",
+        "records": [{"score": float("nan")}],
+        "previous_sha256": GENESIS,
+        "chain_sha256": "0" * 64,
+    }
+    path.write_text(json.dumps(entry) + "\\n", encoding="utf-8")
+    assert verify_history(path) is False
+
+
+def test_deeply_nested_history_line_is_invalid(tmp_path):
+    path = tmp_path / "history.jsonl"
+    path.write_text("[" * 2000 + "0" + "]" * 2000 + "\\n", encoding="utf-8")
+    assert verify_history(path) is False
