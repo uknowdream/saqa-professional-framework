@@ -54,9 +54,15 @@ def test_wrong_workflow_identity_cannot_substitute():
     assert result["checks"][0]["status"] == "FAIL"
 
 
-def test_failed_or_in_progress_latest_run_blocks_artifact_audit():
+@pytest.mark.parametrize(("status", "conclusion"), [
+    ("in_progress", None),
+    ("queued", None),
+    ("completed", "failure"),
+])
+def test_failed_or_in_progress_latest_run_blocks_artifact_audit(status, conclusion):
     runs, artifacts = payloads()
-    runs[0]["conclusion"] = "failure"
+    runs[0]["status"] = status
+    runs[0]["conclusion"] = conclusion
     result = audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW)
     assert result["status"] == "FAIL"
     assert any("not completed successfully" in reason for reason in result["checks"][0]["reasons"])
@@ -94,13 +100,16 @@ def test_artifact_from_different_workflow_run_cannot_substitute():
 def test_latest_attempt_wins_and_old_attempt_artifact_is_not_reused():
     runs, artifacts = payloads()
     retry = copy.deepcopy(runs[0])
-    retry.update({"run_attempt": 2, "status": "completed", "conclusion": "failure",
+    retry.update({"run_attempt": 2, "status": "completed", "conclusion": "success",
                   "created_at": (NOW - timedelta(minutes=2)).isoformat(),
                   "run_started_at": (NOW - timedelta(minutes=2)).isoformat()})
     runs.append(retry)
     result = audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW)
-    assert result["checks"][0]["run_attempt"] == 2
-    assert result["checks"][0]["status"] == "FAIL"
+    check = result["checks"][0]
+    assert check["run_attempt"] == 2
+    assert check["status"] == "FAIL"
+    assert any("predates" in reason for entry in check["artifact_rejections"] for reason in entry["reasons"])
+    assert "artifact_id" not in check
 
 
 @pytest.mark.parametrize("bad_sha", ["main", "A" * 40, "a" * 39])
@@ -133,3 +142,40 @@ def test_invalid_retention_window_is_rejected(hours):
     runs, artifacts = payloads()
     with pytest.raises(ValueError, match="min_retention_hours"):
         audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW, min_retention_hours=hours)
+
+
+def test_disallowed_event_cannot_supply_main_evidence():
+    runs, artifacts = payloads()
+    runs[0]["event"] = "pull_request"
+    result = audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW)
+    assert result["checks"][0]["status"] == "FAIL"
+    assert "no exact-workflow run found" in result["checks"][0]["reasons"][0]
+
+
+def test_future_started_run_fails_closed():
+    runs, artifacts = payloads()
+    runs[0]["run_started_at"] = (NOW + timedelta(minutes=10)).isoformat()
+    result = audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW)
+    check = result["checks"][0]
+    assert check["status"] == "FAIL"
+    assert any("unexpectedly in the future" in reason for reason in check["reasons"])
+
+
+def test_cli_invalid_json_emits_unverified_report(tmp_path):
+    runs_file, artifacts_file = tmp_path / "runs.json", tmp_path / "artifacts.json"
+    output = tmp_path / "report.json"
+    runs_file.write_text("{ invalid", encoding="utf-8")
+    artifacts_file.write_text("[]", encoding="utf-8")
+    code = main(["--runs-file", str(runs_file), "--artifacts-file", str(artifacts_file),
+                 "--main-sha", MAIN_SHA, "--output", str(output)])
+    assert code == 2
+    result = json.loads(output.read_text(encoding="utf-8"))
+    assert result["status"] == "UNVERIFIED"
+    assert result["ready"] is False
+
+
+def test_expiry_threshold_overflow_is_reported_as_value_error():
+    runs, artifacts = payloads()
+    with pytest.raises(ValueError, match="expiry threshold"):
+        audit_artifacts(runs, artifacts, main_sha=MAIN_SHA, now=NOW,
+                        min_retention_hours=24 * 999_999_000)
