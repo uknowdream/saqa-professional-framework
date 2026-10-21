@@ -12,8 +12,16 @@ SAQA creates an advisory trend report from retained `junit.xml` artifacts for re
 
 The workflow is scheduled weekly and can be run manually. It uploads the report together with the retained input JUnit files for 90 days. Test artifacts also use 90-day retention so recent history can be reconstructed when available. Missing historical artifacts are reported as gaps; the collector never fabricates outcomes.
 
+## Same-run retry telemetry
+
+The mandatory Python CI job now runs pytest with **one retry** using pinned `pytest-rerunfailures` and loads the SAQA per-attempt plugin. Per-worker evidence is written under `artifacts/test-attempts/`; `artifacts/test-attempt-telemetry.json` aggregates attempts by test ID, including attempt sequence, final status, retry count, and recovered failures. Failure text and stack traces are not copied into the telemetry JSON.
+
+A failed attempt followed by a passing retry is recorded as `RETRY_OUTCOME_VARIATION` and fails the CI quality job rather than being silently accepted as green. Repeated final failures remain failures. The record is a *candidate intermittent result*, not proof of intrinsic flakiness: infrastructure, test data, and product behavior still need investigation. The collector reports attempt counts; it does not estimate a statistical failure probability from a single test run.
+
+Use this same-run evidence alongside cross-run history. Neither signal changes a failure to PASS, and no automated suppression or quarantine is applied from telemetry alone.
+
 ## Important limits
 
-This is cross-run outcome telemetry, not retry-aware flake-rate measurement. Each observation is the final result recorded in JUnit. To estimate retry rate or determine whether a failure was recovered by a retry, the framework needs retry-aware runner events or explicit per-attempt records. A report status is informational and does not change CI, certification, or a failing test into PASS.
+This cross-run report remains separate from same-run retry telemetry. Cross-run observations are final results from JUnit; the per-attempt artifact captures within-run retries. Neither alone proves a test is intrinsically flaky, and neither changes a failure to PASS.
 
 After the workflow has run on `main`, inspect the artifact `saqa-test-stability-history-<run-id>`. The scheduled workflow begins collecting once the workflow definition is present on the repository default branch.
