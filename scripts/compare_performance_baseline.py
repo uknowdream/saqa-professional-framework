@@ -7,7 +7,7 @@ from typing import Any
 from scripts.build_performance_run_set import extract_sample, read_json
 
 SCHEMA = "saqa.performance-run-set.v1"
-METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "environment_fingerprint")
+METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")
 METRICS = ("median_ms", "p95_ms", "p99_ms", "error_rate", "throughput_rps", "check_pass_rate")
 MIN_SAMPLES = 5
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -84,6 +84,8 @@ def load_run_set(path: Path) -> dict[str, Any]:
             raise ValueError(f"{path}: {field} must be a non-empty string")
     if isinstance(data.get("policy_version"), bool) or not isinstance(data.get("policy_version"), int) or data["policy_version"] < 1:
         raise ValueError(f"{path}: policy_version must be a positive integer")
+    if not isinstance(data.get("policy_sha256"), str) or not SHA256_RE.fullmatch(data["policy_sha256"]):
+        raise ValueError(f"{path}: policy_sha256 must be a lowercase SHA-256 digest")
     samples = data.get("samples")
     if not isinstance(samples, list) or len(samples) < MIN_SAMPLES:
         raise ValueError(f"{path}: at least {MIN_SAMPLES} samples are required")
@@ -194,9 +196,13 @@ def main(argv: list[str] | None = None) -> int:
         policy = read_json(args.policy)
         if not isinstance(policy, dict) or policy.get("schema") != "saqa.performance-guardrails.v1":
             raise ValueError("unsupported performance policy schema")
+        policy_bytes = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        policy_digest = hashlib.sha256(policy_bytes).hexdigest()
         for label, run_set in (("baseline", baseline), ("candidate", candidate)):
             if run_set["policy_id"] != policy.get("policy_id") or run_set["policy_version"] != policy.get("version"):
                 raise ValueError(f"{label} run-set policy ID/version does not match the supplied policy")
+            if run_set["policy_sha256"] != policy_digest:
+                raise ValueError(f"{label} run-set policy SHA-256 does not match the supplied policy")
         verify_source_files(baseline, args.baseline_source_root, "baseline", policy)
         verify_source_files(candidate, args.candidate_source_root, "candidate", policy)
         result = compare_run_sets(baseline, candidate,
