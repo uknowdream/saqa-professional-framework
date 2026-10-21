@@ -182,6 +182,25 @@ def test_source_paths_cannot_escape_root(tmp_path):
         verify_source_files(data, tmp_path, "candidate")
 
 
+
+def test_baseline_and_candidate_must_not_reuse_raw_sample_digests():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["sample_sources"][0] = dict(baseline["sample_sources"][0])
+    with pytest.raises(ValueError, match="reuse raw sample SHA-256 digests"):
+        compare_run_sets(baseline, candidate)
+
+
+def test_baseline_and_candidate_allow_disjoint_raw_sample_digests():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["sample_sources"] = [
+        {"path": f"candidate-{i}.json", "sha256": hashlib.sha256(f"candidate-{i}".encode()).hexdigest()}
+        for i in range(5)
+    ]
+    assert compare_run_sets(baseline, candidate)["status"] == "PASS"
+
+
 def test_duplicate_sample_source_paths_are_rejected():
     baseline = run_set()
     candidate = run_set()
