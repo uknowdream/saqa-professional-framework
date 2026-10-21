@@ -9,6 +9,8 @@ from scripts.build_performance_run_set import build_run_set
 from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, verify_source_files, main
 from scripts.k6_gate import ROOT
 
+K6_SCRIPT = ROOT / "performance/k6/juice-shop.js"
+
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
 _RUN_SET_IDS = count()
 
@@ -17,7 +19,7 @@ def run_set(*, median=250, p95=400, p99=700, error=0.0, throughput=8.0, checks=1
     run_set_id = next(_RUN_SET_IDS)
     result = {
         "schema": SCHEMA, "target_profile": "juice-shop-v20.2.0-local-loopback",
-        "workload_profile": "products-search-v1", "policy_id": "juice-shop-local-performance",
+        "workload_profile": "products-search-v1", "workload_sha256": hashlib.sha256(K6_SCRIPT.read_bytes()).hexdigest(), "policy_id": "juice-shop-local-performance",
         "policy_version": 1, "policy_sha256": hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest(), "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
         "samples": [{"median_ms": median, "p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
@@ -51,7 +53,7 @@ def test_regressions_fail(kwargs, expected):
     assert expected in result["failed_checks"]
 
 
-@pytest.mark.parametrize("field", ["target_profile", "workload_profile", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint"])
+@pytest.mark.parametrize("field", ["target_profile", "workload_profile", "workload_sha256", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint"])
 def test_metadata_mismatch_blocks_comparison(field):
     value = "different" if field != "policy_version" else 2
     with pytest.raises(ValueError, match="metadata mismatch"):
@@ -317,6 +319,7 @@ def test_main_blocks_run_set_with_wrong_policy_digest(tmp_path, capsys):
             target_profile="juice-shop-v20.2.0-local-loopback",
             workload_profile="products-search-v1",
             environment_fingerprint="ubuntu-24.04-k6-1.2.0",
+            workload_script=K6_SCRIPT,
             source_root=raw_root,
         )
         run_set_path = tmp_path / side / "run-set.json"
@@ -329,7 +332,7 @@ def test_main_blocks_run_set_with_wrong_policy_digest(tmp_path, capsys):
     code = main([
         "--baseline", str(runsets[0]), "--candidate", str(runsets[1]),
         "--baseline-source-root", str(roots[0]), "--candidate-source-root", str(roots[1]),
-        "--policy", str(policy_path),
+        "--policy", str(policy_path), "--workload-script", str(K6_SCRIPT),
     ])
     assert code == 2
     assert "policy SHA-256 does not match" in capsys.readouterr().out
@@ -357,3 +360,21 @@ def test_oversized_json_integer_is_blocked_instead_of_overflowing(tmp_path, caps
         load_run_set(path)
     with pytest.raises(ValueError, match="finite number"):
         compare_run_sets(run_set(), {**run_set(), "samples": [{**run_set()["samples"][0], "p95_ms": 10 ** 400}, *run_set()["samples"][1:]]})
+
+
+def test_load_run_set_rejects_invalid_workload_script_digest(tmp_path):
+    data = run_set(workload_sha256="not-a-digest")
+    path = tmp_path / "bad-workload-digest.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="workload_sha256 must be a lowercase SHA-256 digest"):
+        load_run_set(path)
+
+
+def test_direct_comparison_rejects_invalid_workload_script_digest():
+    with pytest.raises(ValueError, match="workload_sha256 must be a lowercase SHA-256 digest"):
+        compare_run_sets(run_set(workload_sha256="bogus"), run_set(workload_sha256="bogus"))
+
+
+def test_direct_comparison_rejects_different_workload_script_hashes():
+    with pytest.raises(ValueError, match="metadata mismatch: workload_sha256"):
+        compare_run_sets(run_set(), run_set(workload_sha256="f" * 64))
