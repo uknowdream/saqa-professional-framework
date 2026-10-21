@@ -151,13 +151,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", required=True, type=Path)
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--report-only-expected-vulnerable-target", action="store_true", help="record findings without release blocking; allowed only for the exact reviewed SHA-256-pinned OWASP Juice Shop v20.2.0 training image")
+    parser.add_argument("--report-only-expected-vulnerable-target", action="store_true",
+                        help="record findings without release blocking; allowed only for the exact reviewed SHA-256-pinned OWASP Juice Shop v20.2.0 training image")
     args = parser.parse_args(argv)
+    if args.output.resolve() in {args.summary.resolve(), args.policy.resolve()}:
+        print(json.dumps({
+            "schema": "saqa.container-security-policy-result.v1",
+            "status": "BLOCKED", "release_gate_eligible": False,
+            "error": "policy output must differ from summary and policy inputs",
+        }, indent=2))
+        return 2
     try:
         summary = json.loads(args.summary.read_text(encoding="utf-8"))
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
         result = evaluate_summary(summary, policy, report_only_expected_vulnerable_target=args.report_only_expected_vulnerable_target)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         result = {
             "schema": "saqa.container-security-policy-result.v1",
             "status": "BLOCKED",
@@ -167,13 +175,21 @@ def main(argv: list[str] | None = None) -> int:
         }
         try:
             args.output.parent.mkdir(parents=True, exist_ok=True)
-            args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
         except OSError as write_exc:
             result["output_write_error"] = str(write_exc)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 2
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\\n", encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(json.dumps({
+            "schema": "saqa.container-security-policy-result.v1",
+            "status": "BLOCKED", "release_gate_eligible": False,
+            "error": f"could not persist policy decision: {exc}",
+        }, indent=2))
+        return 2
     print(json.dumps({key: result[key] for key in ("status", "finding_count", "blocking_count", "suppressed_count")}, indent=2))
     return 0 if result["status"] in {"PASS", "REPORT_ONLY"} else 1
 

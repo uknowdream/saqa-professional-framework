@@ -92,3 +92,29 @@ def test_default_quarantine_expiry_uses_utc_calendar_date(monkeypatch):
     monkeypatch.setattr(report_module, "datetime", FixedUtcDateTime)
     with pytest.raises(ValueError, match="expired or expires today"):
         report_module.validate_quarantine_policy(policy([entry(expiry="2026-10-21")]))
+
+
+def test_cli_persists_blocked_report_for_deeply_nested_policy(tmp_path):
+    import json
+    from scripts.test_quality_report import main
+
+    junit_path = junit(tmp_path)
+    policy_path = tmp_path / "deep-policy.json"
+    output = tmp_path / "out" / "quality-report.json"
+    policy_path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    assert main(["--junit", str(junit_path), "--policy", str(policy_path), "--output", str(output)]) == 2
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["schema"] == "saqa.test-quality-report.v1"
+    assert report["status"] == "BLOCKED"
+
+
+def test_cli_refuses_to_overwrite_junit_or_policy_inputs(tmp_path):
+    import json
+    from scripts.test_quality_report import main
+
+    junit_path = junit(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    policy_path.write_text(json.dumps(policy()), encoding="utf-8")
+    original = policy_path.read_bytes()
+    assert main(["--junit", str(junit_path), "--policy", str(policy_path), "--output", str(policy_path)]) == 2
+    assert policy_path.read_bytes() == original

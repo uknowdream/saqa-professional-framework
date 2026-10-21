@@ -125,14 +125,37 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
+    if args.output.resolve() in {args.junit.resolve(), args.policy.resolve()}:
+        print(json.dumps({
+            "schema": REPORT_SCHEMA, "status": "BLOCKED",
+            "error": "quality report output must differ from JUnit and policy inputs",
+        }, indent=2))
+        return 2
     try:
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
         report = summarize_junit(args.junit, policy)
-    except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
-        print(json.dumps({"schema": REPORT_SCHEMA, "status": "BLOCKED", "error": str(exc)}, indent=2))
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
+        report = {
+            "schema": REPORT_SCHEMA, "status": "BLOCKED",
+            "error": str(exc),
+            "note": "Malformed or unavailable input is not a PASS; inspect and regenerate evidence.",
+        }
+        try:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        except OSError:
+            pass
+        print(json.dumps(report, indent=2, sort_keys=True))
         return 2
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(json.dumps({
+            "schema": REPORT_SCHEMA, "status": "BLOCKED",
+            "error": f"could not write quality report: {exc}",
+        }, indent=2))
+        return 2
     print(json.dumps({key: report[key] for key in ("status", "test_count", "failure_count", "skipped_count", "failure_rate", "total_test_duration_seconds", "quarantine_count")}, indent=2))
     return 0 if report["status"] == "PASS" else 1
 

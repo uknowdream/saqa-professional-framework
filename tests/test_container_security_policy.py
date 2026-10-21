@@ -276,3 +276,31 @@ def test_raw_trivy_report_digest_is_required_and_format_checked():
     summary["source_report_sha256"] = "not-a-digest"
     with pytest.raises(ValueError, match="source_report_sha256"):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21))
+
+
+def test_policy_cli_rejects_input_output_collision_without_destroying_summary(tmp_path):
+    import json
+    from scripts.evaluate_container_security_policy import main
+
+    summary_path = tmp_path / "summary.json"
+    policy_path = tmp_path / "policy.json"
+    summary_path.write_text(json.dumps(SUMMARY), encoding="utf-8")
+    policy_path.write_text(json.dumps(POLICY), encoding="utf-8")
+    original = summary_path.read_bytes()
+    assert main(["--summary", str(summary_path), "--policy", str(policy_path), "--output", str(summary_path)]) == 2
+    assert summary_path.read_bytes() == original
+
+
+def test_policy_cli_deeply_nested_json_writes_blocked_decision(tmp_path):
+    import json
+    from scripts.evaluate_container_security_policy import main
+
+    summary_path = tmp_path / "summary.json"
+    policy_path = tmp_path / "policy.json"
+    output = tmp_path / "out" / "policy-result.json"
+    summary_path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    policy_path.write_text(json.dumps(POLICY), encoding="utf-8")
+    assert main(["--summary", str(summary_path), "--policy", str(policy_path), "--output", str(output)]) == 2
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["status"] == "BLOCKED"
+    assert report["release_gate_eligible"] is False

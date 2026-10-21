@@ -161,6 +161,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workflow-ref", required=True)
     parser.add_argument("--workflow-sha", required=True)
     args = parser.parse_args(argv)
+    protected_inputs = {(args.artifact_dir / name).resolve() for name in REQUIRED_FILES}
+    if args.output.resolve() in protected_inputs:
+        print(json.dumps({
+            "schema": SCHEMA, "status": "UNVERIFIED",
+            "error": "manifest output must not overwrite a required source artifact",
+        }, indent=2))
+        return 2
     try:
         manifest = build_manifest(
             args.artifact_dir,
@@ -176,10 +183,27 @@ def main(argv: list[str] | None = None) -> int:
             workflow_sha=args.workflow_sha,
         )
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError, RecursionError, TypeError, KeyError) as exc:
-        print(json.dumps({"schema": SCHEMA, "status": "UNVERIFIED", "error": str(exc)}, indent=2))
+        fallback = {
+            "schema": SCHEMA, "status": "UNVERIFIED", "release_gate_eligible": False,
+            "error": str(exc),
+            "note": "Security artifact identity or integrity could not be verified; this is not a PASS result.",
+        }
+        try:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(json.dumps(fallback, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        except OSError as write_exc:
+            fallback["output_write_error"] = str(write_exc)
+        print(json.dumps(fallback, indent=2, sort_keys=True))
         return 2
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
+    try:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(json.dumps(manifest, indent=2, sort_keys=True, allow_nan=False) + "\\n", encoding="utf-8")
+    except (OSError, ValueError) as exc:
+        print(json.dumps({
+            "schema": SCHEMA, "status": "UNVERIFIED", "release_gate_eligible": False,
+            "error": f"could not persist security manifest: {exc}",
+        }, indent=2))
+        return 2
     print(json.dumps({"status": manifest["status"], "file_count": len(manifest["files"]),
                       "raw_trivy_report_sha256": manifest["raw_trivy_report_sha256"]}, indent=2))
     return 0

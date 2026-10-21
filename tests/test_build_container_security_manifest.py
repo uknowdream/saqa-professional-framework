@@ -185,3 +185,38 @@ def test_manifest_cli_can_write_manifest_inside_uploaded_artifact_directory(tmp_
     assert result["status"] == "PASS"
     assert len(result["files"]) == len(REQUIRED_FILES)
     assert output.name not in {item["name"] for item in result["files"]}
+
+
+def cli_args(artifact_dir, output):
+    return [
+        "--artifact-dir", str(artifact_dir),
+        "--output", str(output),
+        "--image", IMAGE,
+        "--scanner-version", SCANNER,
+        "--source-sha", SHA,
+        "--execution-sha", SHA,
+        "--event", "pull_request",
+        "--ref", "refs/pull/16/merge",
+        "--run-id", RUN,
+        "--run-attempt", "1",
+        "--workflow-ref", "owner/repo/.github/workflows/saqa-container-security.yml@refs/pull/16/merge",
+        "--workflow-sha", SHA,
+    ]
+
+
+def test_cli_persists_unverified_manifest_when_required_artifacts_are_missing(tmp_path):
+    output = tmp_path / "out" / "manifest.json"
+    assert main(cli_args(tmp_path / "missing-security", output)) == 2
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["schema"] == SCHEMA
+    assert report["status"] == "UNVERIFIED"
+    assert report["release_gate_eligible"] is False
+
+
+def test_cli_refuses_to_overwrite_security_input_artifact(tmp_path):
+    root = tmp_path / "security"
+    make_artifacts(root)
+    protected = root / "juice-shop-trivy.json"
+    original = protected.read_bytes()
+    assert main(cli_args(root, protected)) == 2
+    assert protected.read_bytes() == original
