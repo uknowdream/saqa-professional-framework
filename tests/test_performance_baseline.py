@@ -7,12 +7,12 @@ from scripts.k6_gate import ROOT
 POLICY = json.loads((ROOT / "performance/baselines/juice-shop-local-v1.json").read_text(encoding="utf-8"))
 
 
-def run_set(*, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metadata):
+def run_set(*, median=250, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metadata):
     result = {
         "schema": SCHEMA, "target_profile": "juice-shop-v20.2.0-local-loopback",
         "workload_profile": "products-search-v1", "policy_id": "juice-shop-local-performance",
         "policy_version": 1, "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
-        "samples": [{"p95_ms": p95, "p99_ms": p99, "error_rate": error,
+        "samples": [{"median_ms": median, "p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
         "sample_sources": [{"path": f"run-{i}.json", "sha256": "a" * 64} for i in range(5)],
     }
@@ -72,7 +72,7 @@ def test_percentile_order_rejected(tmp_path):
         write_run_set(tmp_path, run_set(p95=800, p99=700))
 
 
-def test_zero_baseline_denominator_rejected():
+def test_median_above_p95_is_rejected():\n    with pytest.raises(ValueError, match="median_ms must not exceed p95_ms"):\n        compare_run_sets(run_set(median=500), run_set(median=500))\n\n\ndef test_zero_baseline_denominator_rejected():
     with pytest.raises(ValueError, match="greater than zero"):
         compare_run_sets(run_set(p95=0), run_set(p95=0))
 
@@ -99,7 +99,7 @@ def test_malformed_json_rejected(tmp_path):
 @pytest.mark.parametrize(("field", "value", "message"), [
     ("error_rate", 1.5, "rates must be between 0 and 1"),
     ("check_pass_rate", -0.1, "rates must be between 0 and 1"),
-    ("p95_ms", -1, "latency/throughput must be non-negative"),
+    ("p95_ms", -1, "latency/throughput must be non-negative"),\n    ("median_ms", -1, "latency/throughput must be non-negative"),
     ("throughput_rps", -1, "latency/throughput must be non-negative"),
     ("p95_ms", float("nan"), "finite number"),
 ])
@@ -184,7 +184,7 @@ def test_source_metrics_are_bound_to_raw_k6_summary(tmp_path):
         return {
             "schema": "saqa.k6-summary.v1",
             "metrics": {
-                "http_req_duration": {"values": {"p(95)": p95, "p(99)": p99}},
+                "http_req_duration": {"values": {"med": 250, "p(95)": p95, "p(99)": p99}},
                 "http_req_failed": {"values": {"rate": error}},
                 "http_reqs": {"values": {"rate": throughput}},
                 "checks": {"values": {"rate": checks}},
