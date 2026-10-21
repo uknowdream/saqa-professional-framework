@@ -109,3 +109,25 @@ def test_extract_sample_rejects_median_range_and_rate_errors(tmp_path, bad_field
         paths.append(write_summary(tmp_path, f"bad-{i}.json", item))
     with pytest.raises(ValueError, match=message):
         build(paths)
+
+
+@pytest.mark.parametrize(("mapping_key", "value"), [
+    ("latency", []), ("latency", {}), ("latency", None),
+    ("error_rate", []), ("throughput", {}),
+    ("functional_checks", " "),
+])
+def test_rejects_non_string_or_blank_policy_metric_name(tmp_path, mapping_key, value):
+    policy = json.loads(json.dumps(POLICY))
+    policy["metrics"][mapping_key] = value
+    paths = [write_summary(tmp_path, f"metric-{i}.json", summary()) for i in range(5)]
+    with pytest.raises(ValueError, match="policy metric mapping"):
+        build_run_set(paths, policy, target_profile="target", workload_profile="workload",
+                      environment_fingerprint="runner")
+
+
+def test_rejects_deeply_nested_summary_without_traceback(tmp_path):
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 2000 + "0" + "]" * 2000, encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot read"):
+        from scripts.build_performance_run_set import read_json
+        read_json(path)
