@@ -47,3 +47,8 @@ def test_rejects_missing_metrics(tmp_path):
     data = summary(); del data["metrics"]["checks"]
     paths = [write_summary(tmp_path, f"run-{i}.json", data) for i in range(5)]
     with pytest.raises(ValueError, match="missing metric"): build(paths)
+
+def test_rejects_duplicate_raw_summary_path(tmp_path):
+    path = write_summary(tmp_path, "same.json", summary())
+    with pytest.raises(ValueError, match="duplicate raw summary path"):
+        build([path, path, path, path, path])
