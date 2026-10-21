@@ -13,6 +13,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
+    # Remove any previous PASS artifact before validating new input; stale evidence must not survive a failed run.
+    args.output.unlink(missing_ok=True)
     try:
         payload = json.loads(args.input.read_text(encoding="utf-8"))
         result = validate_native_mobile_evidence(payload)
