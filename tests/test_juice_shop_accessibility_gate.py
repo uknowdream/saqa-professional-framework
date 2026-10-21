@@ -145,3 +145,8 @@ def test_mobile_viewport_keyboard_traversal_is_recorded_and_gated():
     assert '"keyboard_navigation_mobile_viewport"' in SOURCE
     assert '"mobile viewport keyboard Tab sequence did not reach a focusable target"' in SOURCE
     assert "diagnostic smoke evidence, not a claim of native mobile or WCAG certification" in SOURCE
+
+
+def test_gated_axe_scan_occurs_before_mobile_viewport_reload():
+    assert SOURCE.index("page.add_script_tag(content=axe_source)") < SOURCE.index('page.set_viewport_size({"width": 390, "height": 844})')
+    assert SOURCE.index('evidence["details"]["independent_oracle"]') < SOURCE.index('page.set_viewport_size({"width": 390, "height": 844})')
