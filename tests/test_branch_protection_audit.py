@@ -113,3 +113,27 @@ def test_non_object_protection_fails_closed():
     result = audit([], POLICY)
     assert result["status"] == "FAIL"
     assert result["ready"] is False
+
+
+def test_duplicate_configured_contexts_fail_closed():
+    value = protection()
+    value["required_status_checks"]["contexts"].append(POLICY["required_check_contexts"][0])
+    result = audit(value, POLICY)
+    assert result["status"] == "FAIL"
+    assert any("contexts must not contain duplicates" in failure for failure in result["failures"])
+
+
+def test_duplicate_bound_check_contexts_fail_closed():
+    value = protection()
+    value["required_status_checks"]["checks"].append(value["required_status_checks"]["checks"][0].copy())
+    result = audit(value, POLICY)
+    assert result["status"] == "FAIL"
+    assert any("checks contains duplicate context" in failure for failure in result["failures"])
+
+
+def test_blank_contexts_fail_closed():
+    value = protection()
+    value["required_status_checks"]["contexts"].append("   ")
+    result = audit(value, POLICY)
+    assert result["status"] == "FAIL"
+    assert any("contexts must be an array of non-empty strings" in failure for failure in result["failures"])
