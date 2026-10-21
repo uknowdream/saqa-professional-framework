@@ -1,4 +1,5 @@
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -85,3 +86,13 @@ def test_invalid_requested_run_id_is_rejected(bad_id):
 def test_unexpected_root_payload_is_rejected():
     with pytest.raises(ValueError, match="JSON object"):
         validate([])
+
+
+
+def test_compare_workflow_enforces_provenance_helper_and_exact_artifact_names():
+    workflow = (Path(__file__).parents[1] / ".github" / "workflows" / "saqa-performance-compare.yml").read_text(encoding="utf-8")
+    assert "from scripts.performance_run_provenance import validate_sample_run" in workflow
+    assert "BASELINE_ARTIFACT_NAME: ${{ inputs.baseline_artifact_name }}" in workflow
+    assert "CANDIDATE_ARTIFACT_NAME: ${{ inputs.candidate_artifact_name }}" in workflow
+    assert "expected_repo=repo" in workflow
+    assert "artifact_name=os.environ[artifact_key]" in workflow
