@@ -49,17 +49,21 @@ def validate_spdx(payload: Any, *, source: str, digest: str) -> dict[str, Any]:
 
 
 def validate_file(path: Path, output: Path) -> dict[str, Any]:
+    # Never delete or overwrite the input when callers alias both paths.
+    if path.resolve() == output.resolve():
+        raise ValueError("SBOM input and output must be different files")
+    # Remove stale PASS evidence before validating a new input.
+    output.unlink(missing_ok=True)
     try:
         raw = path.read_bytes()
         payload = json.loads(raw)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError(f"cannot read SBOM JSON: {exc}") from exc
     digest = hashlib.sha256(raw).hexdigest()
     result = validate_spdx(payload, source=path.name, digest=digest)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output.write_text(json.dumps(result, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
     return result
-
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
