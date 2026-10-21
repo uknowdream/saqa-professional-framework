@@ -109,6 +109,7 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
             "tests_with_cross_commit_variation": 0,
             "tests_with_same_commit_variation": 0,
             "issues_count": 0,
+            "artifact_gap_count": 0,
         },
         "notes": [
             "Outcome variation across different commits can indicate a code regression or a changed test, not necessarily flakiness.",
@@ -146,6 +147,8 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
     if not junit_paths:
         report["issues"].append("no retained JUnit artifacts were found")
         report["summary"]["artifact_gap_count"] = len(report["artifact_gaps"])
+        if report["artifact_gaps"]:
+            report["status"] = "INCOMPLETE_ARTIFACT_COVERAGE"
         return report
 
     grouped: dict[tuple[str, str], list[Path]] = defaultdict(list)
