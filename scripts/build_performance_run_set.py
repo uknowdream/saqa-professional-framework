@@ -28,14 +28,14 @@ def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str
         record = metrics.get(name); values = record.get("values") if isinstance(record, dict) else None
         if not isinstance(name, str) or not isinstance(values, dict): raise ValueError(f"{label}: missing metric {name}.{key}")
         return finite(values.get(key), f"{label}: {name}.{key}")
-    sample = {"p95_ms": metric(metric_map.get("latency"), "p(95)"),
+    sample = {"median_ms": metric(metric_map.get("latency"), "med"),\n              "p95_ms": metric(metric_map.get("latency"), "p(95)"),
               "p99_ms": metric(metric_map.get("latency"), "p(99)"),
               "error_rate": metric(metric_map.get("error_rate"), "rate"),
               "throughput_rps": metric(metric_map.get("throughput"), "rate"),
               "check_pass_rate": metric(metric_map.get("functional_checks"), "rate")}
-    if any(sample[k] < 0 for k in ("p95_ms", "p99_ms", "throughput_rps")):
+    if any(sample[k] < 0 for k in ("median_ms", "p95_ms", "p99_ms", "throughput_rps")):
         raise ValueError(f"{label}: latency and throughput must be non-negative")
-    if sample["p95_ms"] > sample["p99_ms"]: raise ValueError(f"{label}: p95 must not exceed p99")
+    if sample["median_ms"] > sample["p95_ms"]: raise ValueError(f"{label}: median must not exceed p95")\n    if sample["p95_ms"] > sample["p99_ms"]: raise ValueError(f"{label}: p95 must not exceed p99")
     if any(not 0 <= sample[k] <= 1 for k in ("error_rate", "check_pass_rate")):
         raise ValueError(f"{label}: rates must be between 0 and 1")
     return sample
