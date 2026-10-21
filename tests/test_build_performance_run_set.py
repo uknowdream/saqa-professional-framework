@@ -58,7 +58,7 @@ def test_rejects_duplicate_raw_summary_path(tmp_path):
 
 
 def test_builder_records_source_paths_relative_to_explicit_root(tmp_path):
-    paths = [write_summary(tmp_path, f"run-{i}.json", summary()) for i in range(5)]
+    paths = [write_summary(tmp_path, f"run-{i}.json", summary(p95=400 + i, p99=700 + i)) for i in range(5)]
     result = build_run_set(paths, POLICY, target_profile="juice-shop-v20.2.0-local-loopback",
                            workload_profile="products-search-v1", environment_fingerprint="runner-x-k6-1.2.0",
                            source_root=tmp_path)
