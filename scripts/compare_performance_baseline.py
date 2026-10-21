@@ -23,9 +23,14 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
     samples = value.get("samples")
     if not isinstance(sources, list) or not isinstance(samples, list) or len(sources) != len(samples):
         raise ValueError(f"{label} sample_sources must match the sample count")
+    seen_paths = set()
     for index, source in enumerate(sources):
         if not isinstance(source, dict) or not isinstance(source.get("path"), str) or not source["path"].strip():
             raise ValueError(f"{label} sample_sources[{index}].path must be a non-empty string")
+        normalized_path = str(Path(source["path"]))
+        if normalized_path in seen_paths:
+            raise ValueError(f"{label} sample_sources contains duplicate path: {normalized_path}")
+        seen_paths.add(normalized_path)
         digest = source.get("sha256")
         if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise ValueError(f"{label} sample_sources[{index}].sha256 must be a lowercase SHA-256 digest")
