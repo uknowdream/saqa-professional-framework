@@ -70,13 +70,15 @@ def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str
         raise ValueError(f"{label}: rates must be between 0 and 1")
     return sample
 
-def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str, workload_profile: str, environment_fingerprint: str, workload_script: Path, source_root: Path | None = None) -> dict[str, Any]:
+def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str, workload_profile: str, environment_fingerprint: str, workload_script: Path, source_root: Path | None = None, runner_image_version: str | None = None) -> dict[str, Any]:
     if not isinstance(policy, dict) or policy.get("schema") != POLICY_SCHEMA: raise ValueError("unsupported performance policy schema")
     if not isinstance(policy.get("policy_id"), str) or not policy["policy_id"].strip(): raise ValueError("policy_id must be a non-empty string")
     version = policy.get("version")
     if isinstance(version, bool) or not isinstance(version, int) or version < 1: raise ValueError("policy version must be a positive integer")
     for name, value in (("target_profile", target_profile), ("workload_profile", workload_profile), ("environment_fingerprint", environment_fingerprint)):
         if not isinstance(value, str) or not value.strip(): raise ValueError(f"{name} must be a non-empty string")
+    if runner_image_version is not None and (not isinstance(runner_image_version, str) or not runner_image_version.strip()):
+        raise ValueError("runner_image_version must be a non-empty string when provided")
     if len(summary_paths) < MIN_SAMPLES: raise ValueError(f"at least {MIN_SAMPLES} raw summary files are required")
     samples, sources = [], []
     seen_paths = set()
@@ -105,10 +107,13 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
     if not workload_path.is_file(): raise ValueError(f"workload script does not exist: {workload_script}")
     try: workload_digest = hashlib.sha256(workload_path.read_bytes()).hexdigest()
     except OSError as exc: raise ValueError(f"cannot read workload script {workload_script}: {exc}") from exc
-    return {"schema": RUNSET_SCHEMA, "target_profile": target_profile.strip(), "workload_profile": workload_profile.strip(),
-            "workload_sha256": workload_digest, "policy_id": policy["policy_id"].strip(), "policy_version": version, "policy_sha256": policy_digest, "environment_fingerprint": environment_fingerprint.strip(),
-            "samples": samples, "sample_sources": sources,
-            "provenance_note": "SHA-256 identifies input bytes but does not authenticate origin; preserve trusted artifact attestations separately."}
+    result = {"schema": RUNSET_SCHEMA, "target_profile": target_profile.strip(), "workload_profile": workload_profile.strip(),
+              "workload_sha256": workload_digest, "policy_id": policy["policy_id"].strip(), "policy_version": version, "policy_sha256": policy_digest, "environment_fingerprint": environment_fingerprint.strip(),
+              "samples": samples, "sample_sources": sources,
+              "provenance_note": "SHA-256 identifies input bytes but does not authenticate origin; preserve trusted artifact attestations separately."}
+    if runner_image_version is not None:
+        result["runner_image_version"] = runner_image_version.strip()
+    return result
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -118,11 +123,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workload-script", type=Path, required=True, help="exact k6 script whose SHA-256 will be bound into the run set")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-root", type=Path, help="store source paths relative to this root and reject files outside it")
+    parser.add_argument("--runner-image-version", help="exact runner image version for reporting; compatibility checks use environment fingerprint")
     args = parser.parse_args(argv)
     try:
         result = build_run_set(args.summary, read_json(args.policy), target_profile=args.target_profile,
                                workload_profile=args.workload_profile, environment_fingerprint=args.environment_fingerprint,
-                               workload_script=args.workload_script, source_root=args.source_root)
+                               workload_script=args.workload_script, source_root=args.source_root,
+                               runner_image_version=args.runner_image_version)
     except (OSError, ValueError) as exc:
         print(json.dumps({"schema": RUNSET_SCHEMA, "status": "BLOCKED", "error": str(exc)}, indent=2)); return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)

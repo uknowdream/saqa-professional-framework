@@ -13,9 +13,26 @@ from scripts.build_performance_run_set import canonical_policy_sha256, extract_s
 
 SCHEMA = "saqa.performance-run-set.v1"
 METADATA = ("target_profile", "workload_profile", "workload_sha256", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")
+LEGACY_RUNNER_FINGERPRINT = re.compile(r"^runner-ubuntu24-(?P<image>.+)-k6-(?P<k6>\d+\.\d+\.\d+)$")
 METRICS = ("median_ms", "p95_ms", "p99_ms", "error_rate", "throughput_rps", "check_pass_rate")
 MIN_SAMPLES = 5
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
+def environment_details(run_set: dict[str, Any]) -> tuple[str, str]:
+    """Normalize compatible Ubuntu host-image revisions while retaining exact image provenance."""
+    raw = run_set.get("environment_fingerprint")
+    if not isinstance(raw, str) or not raw.strip():
+        raise ValueError("environment_fingerprint must be a non-empty string")
+    runner_image = run_set.get("runner_image_version")
+    if runner_image is not None and (not isinstance(runner_image, str) or not runner_image.strip()):
+        raise ValueError("runner_image_version must be a non-empty string when provided")
+    match = LEGACY_RUNNER_FINGERPRINT.fullmatch(raw)
+    if match:
+        profile = f"github-hosted-ubuntu-24.04-x64-k6-{match.group('k6')}"
+        exact_runner = runner_image or f"ubuntu24-{match.group('image')}"
+        return profile, exact_runner
+    return raw, runner_image or "unreported"
+
 
 
 def number(value: Any, name: str) -> float:
@@ -103,6 +120,7 @@ def load_run_set(path: Path) -> dict[str, Any]:
         raise ValueError(f"{path}: policy_sha256 must be a lowercase SHA-256 digest")
     if not isinstance(data.get("workload_sha256"), str) or not SHA256_RE.fullmatch(data["workload_sha256"]):
         raise ValueError(f"{path}: workload_sha256 must be a lowercase SHA-256 digest")
+    environment_details(data)
     samples = data.get("samples")
     if not isinstance(samples, list) or len(samples) < MIN_SAMPLES:
         raise ValueError(f"{path}: at least {MIN_SAMPLES} samples are required")
@@ -135,7 +153,12 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         if isinstance(threshold, bool) or not isinstance(threshold, (int, float)) or not math.isfinite(float(threshold)) or threshold < 0:
             raise ValueError(f"{name} must be a finite non-negative number")
     for field in METADATA:
-        if baseline.get(field) != candidate.get(field):
+        if field == "environment_fingerprint":
+            baseline_profile, _ = environment_details(baseline)
+            candidate_profile, _ = environment_details(candidate)
+            if baseline_profile != candidate_profile:
+                raise ValueError(f"baseline/candidate metadata mismatch: {field}")
+        elif baseline.get(field) != candidate.get(field):
             raise ValueError(f"baseline/candidate metadata mismatch: {field}")
     for label, value in (("baseline", baseline), ("candidate", candidate)):
         if not isinstance(value.get("policy_sha256"), str) or not SHA256_RE.fullmatch(value["policy_sha256"]):
@@ -150,6 +173,7 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
                     raise ValueError(f"{label} policy_version must be a positive integer")
             elif not isinstance(value.get(field), str) or not value[field].strip():
                 raise ValueError(f"{label} {field} must be a non-empty string")
+        environment_details(value)
         if not isinstance(value.get("samples"), list) or len(value["samples"]) < MIN_SAMPLES:
             raise ValueError(f"{label} requires at least {MIN_SAMPLES} samples")
         validate_sources(value, label)
@@ -213,11 +237,21 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         "passed": not candidate_check_failures,
     })
     failed = [item["id"] for item in checks if not item["passed"]]
+    environment_profile, baseline_runner = environment_details(baseline)
+    _, candidate_runner = environment_details(candidate)
+    warnings = []
+    if baseline_runner != candidate_runner and "unreported" not in {baseline_runner, candidate_runner}:
+        warnings.append("Runner image revisions differ; comparison is advisory and needs human review before baseline promotion.")
+    if "unreported" in {baseline_runner, candidate_runner}:
+        warnings.append("Exact runner image provenance is unavailable for at least one run set.")
     return {"schema": "saqa.performance-baseline-comparison.v1", "status": "FAIL" if failed else "PASS",
             "baseline_sample_count": len(baseline["samples"]), "candidate_sample_count": len(candidate["samples"]),
-            "metadata": {field: baseline[field] for field in METADATA}, "baseline_medians": before,
-            "candidate_medians": after, "checks": checks, "failed_checks": failed,
-            "note": "Median-based regression screen only; not statistical significance or production SLO certification."}
+            "metadata": {**{field: baseline[field] for field in METADATA if field != "environment_fingerprint"},
+                         "environment_fingerprint": environment_profile},
+            "runner_image_versions": {"baseline": baseline_runner, "candidate": candidate_runner},
+            "warnings": warnings, "baseline_promotion_eligible": False,
+            "baseline_medians": before, "candidate_medians": after, "checks": checks, "failed_checks": failed,
+            "note": "Median-based regression screen only; not statistical significance or production SLO certification. Baselines are never promoted automatically."}
 
 
 def main(argv: list[str] | None = None) -> int:

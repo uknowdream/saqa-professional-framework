@@ -20,7 +20,7 @@ def run_set(*, median=250, p95=400, p99=700, error=0.0, throughput=8.0, checks=1
     result = {
         "schema": SCHEMA, "target_profile": "juice-shop-v20.2.0-local-loopback",
         "workload_profile": "products-search-v1", "workload_sha256": hashlib.sha256(K6_SCRIPT.read_bytes()).hexdigest(), "policy_id": "juice-shop-local-performance",
-        "policy_version": 1, "policy_sha256": hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest(), "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
+        "policy_version": 1, "policy_sha256": hashlib.sha256(json.dumps(POLICY, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")).hexdigest(), "environment_fingerprint": "github-hosted-ubuntu-24.04-x64-k6-1.2.0",
         "samples": [{"median_ms": median, "p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
         "sample_sources": [{"path": f"run-{i}.json", "sha256": hashlib.sha256(f"raw-run-set-{run_set_id}-{i}".encode()).hexdigest()} for i in range(5)],
@@ -378,3 +378,33 @@ def test_direct_comparison_rejects_invalid_workload_script_digest():
 def test_direct_comparison_rejects_different_workload_script_hashes():
     with pytest.raises(ValueError, match="metadata mismatch: workload_sha256"):
         compare_run_sets(run_set(), run_set(workload_sha256="f" * 64))
+
+
+
+def test_historical_runner_image_revisions_are_comparable_but_warned():
+    baseline = run_set(environment_fingerprint="runner-ubuntu24-20261018.339.1-k6-1.2.0")
+    candidate = run_set(environment_fingerprint="runner-ubuntu24-20261012.334.1-k6-1.2.0")
+    result = compare_run_sets(baseline, candidate)
+    assert result["status"] == "PASS"
+    assert result["metadata"]["environment_fingerprint"] == "github-hosted-ubuntu-24.04-x64-k6-1.2.0"
+    assert result["runner_image_versions"]["baseline"] == "ubuntu24-20261018.339.1"
+    assert result["runner_image_versions"]["candidate"] == "ubuntu24-20261012.334.1"
+    assert result["warnings"]
+    assert result["baseline_promotion_eligible"] is False
+
+
+def test_stable_environment_keeps_exact_runner_image_as_advisory_metadata():
+    baseline = run_set(runner_image_version="ubuntu24-20261018.339.1")
+    candidate = run_set(runner_image_version="ubuntu24-20261012.334.1")
+    result = compare_run_sets(baseline, candidate)
+    assert result["status"] == "PASS"
+    assert len(result["warnings"]) == 1
+    assert result["runner_image_versions"]["baseline"] != result["runner_image_versions"]["candidate"]
+
+
+def test_different_runtime_or_platform_profile_still_blocks():
+    with pytest.raises(ValueError, match="metadata mismatch: environment_fingerprint"):
+        compare_run_sets(
+            run_set(environment_fingerprint="github-hosted-ubuntu-24.04-x64-k6-1.2.0"),
+            run_set(environment_fingerprint="macos-15-arm64-k6-1.2.0"),
+        )
