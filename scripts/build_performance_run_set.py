@@ -29,11 +29,14 @@ def canonical_policy_sha256(policy: dict[str, Any]) -> str:
         raise ValueError(f"cannot canonically encode performance policy: {exc}") from exc
     return hashlib.sha256(raw).hexdigest()
 
-def read_json(path: Path) -> Any:
+def read_json(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
-        raise ValueError(f"cannot read {path}: {exc}") from exc
+        raise ValueError(f"cannot read JSON object {path}: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"cannot read JSON object {path}: root must be an object")
+    return value
 
 def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str, float]:
     if not isinstance(summary, dict) or summary.get("schema") != SUMMARY_SCHEMA:
