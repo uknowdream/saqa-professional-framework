@@ -74,6 +74,12 @@ def audit_artifacts(
         raise ValueError("min_retention_hours must be a finite positive number")
     if min_retention_hours <= 0 or not math.isfinite(float(min_retention_hours)):
         raise ValueError("min_retention_hours must be a finite positive number")
+    try:
+        retention_window = timedelta(hours=float(min_retention_hours))
+    except OverflowError as exc:
+        raise ValueError("min_retention_hours must fit within a representable timedelta") from exc
+    if retention_window.total_seconds() < 1:
+        raise ValueError("min_retention_hours must represent at least one second")
     current = now or datetime.now(timezone.utc)
     if current.tzinfo is None or current.utcoffset() is None:
         raise ValueError("now must include a timezone")
@@ -140,7 +146,7 @@ def audit_artifacts(
                 reasons.append("artifact predates the selected workflow run attempt")
             if expires is None:
                 reasons.append("artifact expires_at is missing or invalid")
-            elif expires <= current + timedelta(hours=float(min_retention_hours)):
+            elif expires <= current + retention_window:
                 reasons.append("artifact expires within the required retention safety window")
             if not reasons:
                 valid_artifact = artifact
