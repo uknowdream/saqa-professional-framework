@@ -42,6 +42,7 @@ def test_no_history_returns_advisory_insufficient_status(tmp_path):
     assert report["schema"] == SCHEMA
     assert report["status"] == "INSUFFICIENT_HISTORY"
     assert report["summary"]["run_count"] == 0
+    assert report["summary"]["issues_count"] == len(report["issues"])
 
 
 def test_outcomes_across_commits_are_reported_not_called_flaky(tmp_path):
@@ -167,3 +168,9 @@ def test_entire_missing_matrix_is_reported_even_without_any_junit(tmp_path):
     assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
     assert report["summary"]["artifact_gap_count"] == 3
     assert len(report["artifact_gaps"]) == 3
+
+
+def test_missing_input_directory_updates_issue_counter(tmp_path):
+    report = build_history(tmp_path / "does-not-exist")
+    assert report["status"] == "INSUFFICIENT_HISTORY"
+    assert report["summary"]["issues_count"] == len(report["issues"]) == 1
