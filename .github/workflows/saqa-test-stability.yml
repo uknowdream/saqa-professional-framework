@@ -65,6 +65,13 @@ jobs:
             --input-root artifacts/test-stability/input \
             --min-runs 3 \
             --output artifacts/test-stability/report.json
+      - name: Remove unneeded files from copied CI artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          find artifacts/test-stability/input -type f \\
+            ! -name 'junit.xml' ! -name 'run-metadata.json' -delete || true
+          find artifacts/test-stability/input -depth -type d -empty -delete || true
       - name: Upload cross-run stability report and retained source JUnit
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
