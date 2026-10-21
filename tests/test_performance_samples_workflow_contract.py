@@ -18,8 +18,8 @@ def test_each_performance_sample_uses_a_fresh_digest_pinned_target():
 def test_performance_samples_never_auto_promote_a_candidate_to_baseline():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "never auto-promoted to a baseline" in workflow
-    assert "--output artifacts/performance/baseline-run-set.json" in workflow
-    assert "--output artifacts/performance/candidate-run-set.json" in workflow
+    assert "build_set artifacts/performance/baseline-run-set.json 1 2 3 4 5" in workflow
+    assert "build_set artifacts/performance/candidate-run-set.json 6 7 8 9 10" in workflow
     assert "scripts/compare_performance_baseline.py" in workflow
     assert "Enforce same-runner repeatability comparison" in workflow
     assert "performance/baselines/juice-shop-local-v1.json" in workflow
