@@ -50,6 +50,8 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
                 raise ValueError(f"exceptions[{i}].{field} must be a non-empty string")
         if not isinstance(exception["finding_type"], str) or exception["finding_type"] not in ALLOWED_TYPES:
             raise ValueError(f"exceptions[{i}].finding_type is invalid")
+        if exception["severity"] not in ALLOWED_SEVERITIES:
+            raise ValueError(f"exceptions[{i}].severity is invalid")
         if exception["finding_id"] in {"*", "ALL", "all"} or exception["target"] in {"*", "ALL", "all"}:
             raise ValueError("wildcard exceptions are prohibited")
         try:
