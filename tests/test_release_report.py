@@ -153,3 +153,15 @@ def test_failed_regeneration_removes_stale_certified_report(tmp_path, monkeypatc
     with pytest.raises(SystemExit, match="evidence manifest integrity verification failed"):
         main()
     assert not out.exists()
+
+
+def test_release_report_rejects_unrepresentable_freshness_window(tmp_path, monkeypatch):
+    manifest = _write_manifest(tmp_path, {"tested_sha": "abc"})
+    out = tmp_path / "release.json"
+    monkeypatch.setenv("SAQA_MANIFEST", str(manifest))
+    monkeypatch.setenv("SAQA_RELEASE_REPORT", str(out))
+    monkeypatch.setenv("SAQA_TESTED_SHA", "abc")
+    monkeypatch.setenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "24000000000")
+    with pytest.raises(SystemExit, match="exceeds the supported datetime range"):
+        main()
+    assert not out.exists()
