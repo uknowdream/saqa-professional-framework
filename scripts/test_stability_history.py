@@ -128,11 +128,20 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
         path for path in root.iterdir()
         if path.is_dir() and path.name.isdigit() and (path / "run-metadata.json").is_file()
     )
+    rejected_run_ids: set[str] = set()
     for run_dir in run_dirs:
         try:
             _read_run_metadata(run_dir, run_dir.name, None)
         except ValueError as exc:
+            rejected_run_ids.add(run_dir.name)
             report["issues"].append(str(exc))
+            for python_version in EXPECTED_PYTHON_VERSIONS:
+                report["artifact_gaps"].append({
+                    "run_id": run_dir.name,
+                    "python_version": python_version,
+                    "expected_artifact": f"saqa-python-{python_version}",
+                    "reason": "run metadata invalid; this run/version cannot be included in history",
+                })
             continue
         for python_version in EXPECTED_PYTHON_VERSIONS:
             expected_junit = run_dir / f"python-{python_version}" / "junit.xml"
@@ -170,18 +179,37 @@ def build_history(input_root: Path, *, min_runs: int = 3, generated_at: datetime
     distinct_runs: dict[str, set[str]] = defaultdict(set)
     seen_run_versions: set[tuple[str, str]] = set()
     for (run_id, python_version), paths in sorted(grouped.items()):
+        if run_id in rejected_run_ids:
+            continue
         if len(paths) != 1:
-            report["issues"].append(f"run {run_id} Python {python_version}: expected one JUnit report, found {len(paths)}")
+            message = f"run {run_id} Python {python_version}: expected one JUnit report, found {len(paths)}"
+            report["issues"].append(message)
+            report["artifact_gaps"].append({
+                "run_id": run_id, "python_version": python_version,
+                "expected_artifact": f"saqa-python-{python_version}", "reason": message,
+            })
             continue
         try:
             metadata = _read_run_metadata(root / run_id, run_id, python_version)
             outcomes = parse_junit(paths[0])
         except ValueError as exc:
-            report["issues"].append(str(exc))
+            message = str(exc)
+            if message not in report["issues"]:
+                report["issues"].append(message)
+            report["artifact_gaps"].append({
+                "run_id": run_id, "python_version": python_version,
+                "expected_artifact": f"saqa-python-{python_version}",
+                "reason": "run metadata or JUnit content invalid; this observation was excluded",
+            })
             continue
         key = (run_id, python_version)
         if key in seen_run_versions:
-            report["issues"].append(f"duplicate run/version observation: {run_id}/{python_version}")
+            message = f"duplicate run/version observation: {run_id}/{python_version}"
+            report["issues"].append(message)
+            report["artifact_gaps"].append({
+                "run_id": run_id, "python_version": python_version,
+                "expected_artifact": f"saqa-python-{python_version}", "reason": message,
+            })
             continue
         seen_run_versions.add(key)
         distinct_runs[python_version].add(run_id)
