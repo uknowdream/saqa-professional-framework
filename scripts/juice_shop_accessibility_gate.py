@@ -176,6 +176,15 @@ def main() -> int:
                 evidence["details"] = {"status_code": response.status if response else None, **metrics}
                 keyboard = _keyboard_focus_sequence(page)
                 evidence["details"]["keyboard_navigation"] = keyboard
+                if not response or response.status < 200 or response.status >= 400:
+                    raise AssertionError(f"expected successful page response, got {response.status if response else None}")
+                page.add_script_tag(content=axe_source)
+                oracle = page.evaluate("""async rules => {
+                  const r = await axe.run(document, {runOnly: {type: 'rule', values: rules}});
+                  return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));
+                }""", AXE_RULES)
+                diagnostic_oracle = page.evaluate("""async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""", AXE_DIAGNOSTIC_RULES)
+                evidence["details"]["independent_oracle"] = {"engine":"axe-core","gated_rules":AXE_RULES,"diagnostic_rules":AXE_DIAGNOSTIC_RULES,"violation_count":len(oracle),"violations":oracle,"diagnostic_violation_count":len(diagnostic_oracle),"diagnostic_violations":diagnostic_oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
                 # Repeat keyboard-only traversal after a fresh load at a narrow mobile viewport.
                 # This remains diagnostic smoke evidence, not a claim of native mobile or WCAG certification.
                 page.set_viewport_size({"width": 390, "height": 844})
@@ -189,15 +198,6 @@ def main() -> int:
                     "status_code": mobile_response.status if mobile_response else None,
                     **mobile_keyboard,
                 }
-                if not response or response.status < 200 or response.status >= 400:
-                    raise AssertionError(f"expected successful page response, got {response.status if response else None}")
-                page.add_script_tag(content=axe_source)
-                oracle = page.evaluate("""async rules => {
-                  const r = await axe.run(document, {runOnly: {type: 'rule', values: rules}});
-                  return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));
-                }""", AXE_RULES)
-                diagnostic_oracle = page.evaluate("""async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""", AXE_DIAGNOSTIC_RULES)
-                evidence["details"]["independent_oracle"] = {"engine":"axe-core","gated_rules":AXE_RULES,"diagnostic_rules":AXE_DIAGNOSTIC_RULES,"violation_count":len(oracle),"violations":oracle,"diagnostic_violation_count":len(diagnostic_oracle),"diagnostic_violations":diagnostic_oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
                 disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
