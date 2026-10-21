@@ -45,7 +45,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 ### P1 — Performance confidence
 - [x] Add local-only smoke/load/stress/spike/soak workload profiles for the authorized Juice Shop target.
-- Add repeatability checks and preserve p50/p95/p99, error rate, throughput, and environment metadata for exploratory profiles.
+- [x] Collect ten independent guarded k6 runs as two five-run groups on one runner and compare median/p95/p99, error rate, throughput, and functional check rate using raw-summary, policy, and exact workload-script SHA-256 provenance.
 - [x] Add a builder that converts at least five distinct raw k6 summaries into a run set with per-file SHA-256 records and source-root confinement.
 - [x] Add a manual/weekly workflow to collect ten independently executed guarded samples as two five-run groups on one runner, retain raw evidence, and run a same-environment repeatability comparison; failed absolute guardrails or a blocked/failed comparison fail the workflow.
 - [x] Add a deterministic repeated-run comparator that verifies raw sample hashes and metric binding, binds run sets to the exact canonical policy SHA-256 and exact k6 workload-script SHA-256, blocks fewer than five samples or mismatched target/workload/policy/environment metadata, and compares median/p95/p99 latency, error rate, throughput, and functional check rate.
