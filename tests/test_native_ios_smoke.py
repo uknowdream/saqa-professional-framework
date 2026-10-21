@@ -51,3 +51,11 @@ def test_bundle_mismatch_fails_without_install(tmp_path, monkeypatch):
     result = run_smoke(archive, "com.example.app", hashlib.sha256(archive.read_bytes()).hexdigest(), "test-run", tmp_path / "work")
     assert result["tests"][1]["status"] == "FAIL"
     assert result["tests"][2]["status"] == "BLOCKED"
+
+
+def test_ios_runtime_version_parser_uses_numeric_runtime_components():
+    import re
+    runtime = "com.apple.CoreSimulator.SimRuntime.iOS-18-5"
+    match = re.search(r"iOS-(\\d+(?:-\\d+)*)", runtime)
+    assert match
+    assert match.group(1).replace("-", ".") == "18.5"
