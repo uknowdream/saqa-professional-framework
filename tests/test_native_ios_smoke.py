@@ -59,3 +59,30 @@ def test_ios_runtime_version_parser_uses_numeric_runtime_components():
     match = re.search(r"iOS-(\d+(?:-\d+)*)", runtime)
     assert match
     assert match.group(1).replace("-", ".") == "18.5"
+
+
+def test_unknown_simulator_metadata_blocks_install_and_launch(tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+    archive = make_archive(tmp_path)
+    commands = []
+
+    def fake_run(command, timeout=120):
+        commands.append(command)
+        return subprocess.CompletedProcess(
+            command, 0,
+            stdout='{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-18-5":[{"state":"Booted"}]}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr("scripts.run_native_ios_smoke.run", fake_run)
+    result = run_smoke(
+        archive, "com.example.app", hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "test-run", tmp_path / "work",
+    )
+    statuses = {item["test_id"]: item["status"] for item in result["tests"]}
+    assert statuses["simulator-metadata"] == "BLOCKED"
+    assert statuses["simulator-install"] == "BLOCKED"
+    assert statuses["app-launch"] == "BLOCKED"
+    assert len(commands) == 1
+    assert commands[0][:4] == ["xcrun", "simctl", "list", "devices"]
