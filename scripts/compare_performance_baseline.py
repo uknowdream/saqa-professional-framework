@@ -1,10 +1,15 @@
 """Compare repeated, metadata-matched k6 run sets against a measured baseline."""
 from __future__ import annotations
-import argparse, hashlib, json, math, statistics, re
+import argparse, hashlib, json, math, statistics, re, sys
 from pathlib import Path
 from typing import Any
 
-from scripts.build_performance_run_set import extract_sample, read_json
+# Running this file by path sets sys.path[0] to scripts/, not the repository root.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.build_performance_run_set import canonical_policy_sha256, extract_sample, read_json
 
 SCHEMA = "saqa.performance-run-set.v1"
 METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")
@@ -26,6 +31,7 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
     if not isinstance(sources, list) or not isinstance(samples, list) or len(sources) != len(samples):
         raise ValueError(f"{label} sample_sources must match the sample count")
     seen_paths = set()
+    seen_digests = set()
     for index, source in enumerate(sources):
         if not isinstance(source, dict) or not isinstance(source.get("path"), str) or not source["path"].strip():
             raise ValueError(f"{label} sample_sources[{index}].path must be a non-empty string")
@@ -36,6 +42,9 @@ def validate_sources(value: dict[str, Any], label: str) -> None:
         digest = source.get("sha256")
         if not isinstance(digest, str) or not SHA256_RE.fullmatch(digest):
             raise ValueError(f"{label} sample_sources[{index}].sha256 must be a lowercase SHA-256 digest")
+        if digest in seen_digests:
+            raise ValueError(f"{label} sample_sources contains duplicate SHA-256 digest; repeated raw summaries are not independent samples")
+        seen_digests.add(digest)
 
 
 
@@ -121,6 +130,8 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         if baseline.get(field) != candidate.get(field):
             raise ValueError(f"baseline/candidate metadata mismatch: {field}")
     for label, value in (("baseline", baseline), ("candidate", candidate)):
+        if not isinstance(value.get("policy_sha256"), str) or not SHA256_RE.fullmatch(value["policy_sha256"]):
+            raise ValueError(f"{label} policy_sha256 must be a lowercase SHA-256 digest")
         if not isinstance(value.get("schema"), str) or value["schema"] != SCHEMA:
             raise ValueError(f"{label} has unsupported run-set schema")
         for field in METADATA:
@@ -152,11 +163,11 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
         return {key: statistics.median(items) for key, items in values.items()}
 
     before, after = medians(baseline), medians(candidate)
-    for key in ("p95_ms", "p99_ms", "throughput_rps"):
+    for key in ("median_ms", "p95_ms", "p99_ms", "throughput_rps"):
         if before[key] <= 0:
             raise ValueError(f"baseline median {key} must be greater than zero")
     checks = []
-    for key in ("p95_ms", "p99_ms"):
+    for key in ("median_ms", "p95_ms", "p99_ms"):
         delta = (after[key] - before[key]) / before[key] * 100
         checks.append({"id": key + "_regression", "baseline_median": before[key], "candidate_median": after[key],
                        "change_pct": round(delta, 4), "limit_pct": max_latency_regression_pct,
@@ -196,8 +207,7 @@ def main(argv: list[str] | None = None) -> int:
         policy = read_json(args.policy)
         if not isinstance(policy, dict) or policy.get("schema") != "saqa.performance-guardrails.v1":
             raise ValueError("unsupported performance policy schema")
-        policy_bytes = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
-        policy_digest = hashlib.sha256(policy_bytes).hexdigest()
+        policy_digest = canonical_policy_sha256(policy)
         for label, run_set in (("baseline", baseline), ("candidate", candidate)):
             if run_set["policy_id"] != policy.get("policy_id") or run_set["policy_version"] != policy.get("version"):
                 raise ValueError(f"{label} run-set policy ID/version does not match the supplied policy")
