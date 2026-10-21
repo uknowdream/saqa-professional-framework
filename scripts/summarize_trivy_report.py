@@ -1,6 +1,7 @@
 """Validate and normalize Trivy image-scan JSON into explicit security evidence."""
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -80,13 +81,18 @@ def summarize_report(report: Any, *, image: str, scanner: str) -> dict[str, Any]
 
 
 def summarize_file(input_path: Path, output_path: Path, *, image: str, scanner: str) -> dict[str, Any]:
+    if input_path.resolve() == output_path.resolve():
+        raise ValueError("raw Trivy report and normalized summary must be different files")
+    output_path.unlink(missing_ok=True)
     try:
-        report = json.loads(input_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raw = input_path.read_bytes()
+        report = json.loads(raw)
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError(f"cannot read Trivy report: {exc}") from exc
     summary = summarize_report(report, image=image, scanner=scanner)
+    summary["source_report_sha256"] = hashlib.sha256(raw).hexdigest()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    output_path.write_text(json.dumps(summary, indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8")
     return summary
 
 
