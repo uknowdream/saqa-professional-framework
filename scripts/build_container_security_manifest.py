@@ -20,6 +20,7 @@ REQUIRED_FILES = (
     "juice-shop-trivy.json",
     "juice-shop-trivy-summary.json",
     "juice-shop-security-policy-result.json",
+    "training-image-ref.txt",
 )
 
 
@@ -81,6 +82,9 @@ def build_manifest(
         records.append({"name": name, "size_bytes": size, "sha256": raw_sha})
 
     by_name = {item["name"]: item for item in records}
+    recorded_image = (root / "training-image-ref.txt").read_text(encoding="utf-8").strip()
+    if recorded_image != image or "@sha256:" not in recorded_image:
+        raise ValueError("training-image-ref.txt must record the exact immutable image digest")
     summary = json.loads((root / "juice-shop-trivy-summary.json").read_text(encoding="utf-8"))
     raw_report_sha = by_name["juice-shop-trivy.json"]["sha256"]
     if not isinstance(summary, dict) or summary.get("schema") != "saqa.container-security-summary.v1":
