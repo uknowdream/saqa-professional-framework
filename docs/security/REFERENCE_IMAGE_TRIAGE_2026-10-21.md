@@ -38,6 +38,8 @@ The versioned policy currently marks 58 findings as blocking *signals* before ex
 
 ## Open manual action
 
+Tracking: [issue #17 — verify embedded secret-pattern findings](https://github.com/uknowdream/saqa-professional-framework/issues/17).
+
 **Human review remains required:** assign a security owner to inspect and confirm the six embedded secret-pattern matches are placeholders/test fixtures. Until that review is recorded, they are *expected-location findings awaiting confirmation*, not declared false positives and not silently suppressed. The current automated CI scans the repository independently for configured secret patterns.
 
 This snapshot documents the observed report and its current disposition. It is not automatically updated when Trivy, the image, or its contents change; review the artifact from the latest successful container-security workflow before making a new decision.
