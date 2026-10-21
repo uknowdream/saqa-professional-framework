@@ -96,3 +96,16 @@ def test_compare_workflow_enforces_provenance_helper_and_exact_artifact_names():
     assert "CANDIDATE_ARTIFACT_NAME: ${{ inputs.candidate_artifact_name }}" in workflow
     assert "expected_repo=repo" in workflow
     assert "artifact_name=os.environ[artifact_key]" in workflow
+
+
+def test_different_head_sha_is_rejected():
+    record = run()
+    record["head_sha"] = "b" * 40
+    with pytest.raises(ValueError, match="exact commit SHA and run ID"):
+        validate(record)
+
+
+def test_schedule_event_is_allowed_for_measured_sample_run():
+    record = run()
+    record["event"] = "schedule"
+    assert validate(record)["event"] == "schedule"
