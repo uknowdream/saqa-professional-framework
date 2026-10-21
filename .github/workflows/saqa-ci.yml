@@ -43,7 +43,7 @@ jobs:
         run: |
           mkdir -p artifacts/test-attempts
           set +e
-          python -m pytest -p scripts.pytest_attempt_telemetry --reruns=1 --reruns-delay=1 -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+          python -m pytest -p scripts.pytest_attempt_telemetry --reruns=1 --reruns-delay=1 -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --cov-fail-under=85 --junitxml=artifacts/junit.xml
           pytest_status=$?
           python scripts/summarize_test_attempts.py --input-dir artifacts/test-attempts --output artifacts/test-attempt-telemetry.json
           telemetry_status=$?
