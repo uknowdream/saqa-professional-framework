@@ -39,7 +39,8 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 - [x] Repeat keyboard-only traversal at a narrow 390×844 viewport after a fresh page load; this is browser-based mobile viewport coverage, not native-device evidence.
 - Manual focus-order, keyboard-trap, and visible-indicator verification remains required; the diagnostic is not treated as conformance proof.
 - [x] Add a manual keyboard-only and screen-reader test matrix mapped to WCAG 2.2 criteria (`docs/ACCESSIBILITY_MANUAL_TEST_PLAN.md`).
-- Manual execution and results remain UNVERIFIED until a tester records environment-specific evidence.
+- [x] Add a fail-closed validator for the complete 14-case manual result matrix, including named tester, exact target commit, environment/assistive-technology versions, evidence references, and strict PASS/FAIL/BLOCKED/UNVERIFIED/N/A semantics (`scripts/validate_accessibility_manual_evidence.py`).
+- Manual execution and results remain UNVERIFIED until a tester records environment-specific evidence; the validator checks the submitted record, not the underlying physical testing.
 - Keep unsupported criteria labelled `UNVERIFIED`; do not infer full conformance from an automated scan.
 
 ### P1 — Performance confidence
