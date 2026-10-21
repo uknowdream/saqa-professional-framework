@@ -3,7 +3,7 @@
 ## Retention policy
 
 Workflows upload evidence artifacts with explicit retention periods:
-- Core CI, browser, API, accessibility, mobile, and performance evidence: typically 14 days.
+- Core Python CI `saqa-python-*` artifacts and cross-run JUnit-history inputs: 90 days. Browser, API, accessibility, mobile, and performance target-specific evidence commonly remains available for 14 days unless a workflow states otherwise.
 - Security scan, SBOM, dependency audit, and release readiness/certification reports: 30 days.
 
 Retention is a GitHub Actions artifact policy, not a long-term archive guarantee. If a release needs evidence beyond the configured retention, copy the exact run's artifacts into the organization's approved immutable evidence store and record the repository, workflow run ID, attempt, commit SHA, artifact name, download time, and checksum. Do not store credentials or unredacted sensitive data in the archive.
@@ -28,7 +28,7 @@ Retention is a GitHub Actions artifact policy, not a long-term archive guarantee
 
 ## SBOM provenance attestation
 
-On trusted non-pull-request runs, the dependency/security job publishes a GitHub artifact provenance attestation for `artifacts/security/sbom.cdx.json`. Pull-request runs intentionally skip attestation publication. An attestation establishes provenance claims for the artifact; it does not mean the SBOM has no vulnerabilities or that the application is secure.
+After the dependency/security job completes all gates successfully, a separate `attest-security-sbom` job publishes a GitHub artifact provenance attestation for `artifacts/security/sbom.cdx.json` only on trusted pushes to `main`. The privileged `id-token: write` and `attestations: write` permissions are isolated to that attestation job; pull requests and non-main branches cannot request this attestation. An attestation establishes provenance claims for the artifact; it does not mean the SBOM has no vulnerabilities or that the application is secure.
 
 After downloading the SBOM from a trusted run, verify it with GitHub CLI:
 
