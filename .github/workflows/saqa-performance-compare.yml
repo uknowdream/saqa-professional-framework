@@ -39,30 +39,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASELINE_RUN_ID: ${{ inputs.baseline_run_id }}
           CANDIDATE_RUN_ID: ${{ inputs.candidate_run_id }}
+          BASELINE_ARTIFACT_NAME: ${{ inputs.baseline_artifact_name }}
+          CANDIDATE_ARTIFACT_NAME: ${{ inputs.candidate_artifact_name }}
         run: |
           set -euo pipefail
           [[ "$BASELINE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Baseline run ID must be numeric" >&2; exit 2; }
           [[ "$CANDIDATE_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Candidate run ID must be numeric" >&2; exit 2; }
           python - <<'PY'
-          import json, os, subprocess, sys
+          import json, os, subprocess
+          from scripts.performance_run_provenance import validate_sample_run
+
           repo = os.environ["GITHUB_REPOSITORY"]
-          expected_path = ".github/workflows/saqa-performance-samples.yml"
-          for label, key in (("baseline", "BASELINE_RUN_ID"), ("candidate", "CANDIDATE_RUN_ID")):
-              run_id = os.environ[key]
+          for label, run_key, artifact_key in (
+              ("baseline", "BASELINE_RUN_ID", "BASELINE_ARTIFACT_NAME"),
+              ("candidate", "CANDIDATE_RUN_ID", "CANDIDATE_ARTIFACT_NAME"),
+          ):
+              run_id = os.environ[run_key]
               raw = subprocess.check_output(
                   ["gh", "api", f"repos/{repo}/actions/runs/{run_id}"],
                   text=True,
               )
               run = json.loads(raw)
-              if run.get("status") != "completed" or run.get("conclusion") != "success":
-                  raise SystemExit(f"{label} run must be completed successfully")
-              if run.get("path") != expected_path:
-                  raise SystemExit(f"{label} run did not originate from {expected_path}")
-              if (run.get("head_repository") or {}).get("full_name") != repo:
-                  raise SystemExit(f"{label} run originated from a different repository")
-              if run.get("event") not in {"workflow_dispatch", "schedule"}:
-                  raise SystemExit(f"{label} run has unsupported event {run.get('event')!r}")
-              print(f"{label} run {run_id}: verified successful sample-collection workflow")
+              validated = validate_sample_run(
+                  run,
+                  expected_repo=repo,
+                  requested_run_id=run_id,
+                  artifact_name=os.environ[artifact_key],
+              )
+              print(f"{label} run {run_id}: verified {validated['head_branch']} / {validated['event']} / {validated['artifact_name']}")
           PY
       - name: Download baseline artifact from selected run
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
