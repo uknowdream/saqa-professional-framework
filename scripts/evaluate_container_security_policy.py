@@ -65,12 +65,14 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
     return {"rules": normalized_rules, "exceptions": exceptions, "policy_id": policy["policy_id"], "policy_version": version}
 
 
-def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None) -> dict[str, Any]:
+def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None, report_only_expected_vulnerable_target: bool = False) -> dict[str, Any]:
     if not isinstance(summary, dict) or summary.get("schema") != SUMMARY_SCHEMA:
         raise ValueError("unsupported container security summary schema")
     findings = summary.get("findings")
     if not isinstance(findings, list):
         raise ValueError("summary findings must be an array")
+    if report_only_expected_vulnerable_target and summary.get("image") != "bkimminich/juice-shop:v20.2.0":
+        raise ValueError("report-only mode is restricted to the exact pinned intentionally vulnerable Juice Shop image")
     validated = validate_policy(policy, today=today)
     blocking = []
     suppressed = []
@@ -106,18 +108,21 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None) ->
             }})
         else:
             blocking.append({**record, "reason": "matches a blocking rule and has no active exact-match exception"})
+    status = "REPORT_ONLY" if report_only_expected_vulnerable_target else ("FAIL" if blocking else "PASS")
     return {
         "schema": "saqa.container-security-policy-result.v1",
         "policy_id": validated["policy_id"],
         "policy_version": validated["policy_version"],
-        "status": "FAIL" if blocking else "PASS",
+        "status": status,
+        "release_gate_eligible": not report_only_expected_vulnerable_target,
         "finding_count": len(findings),
         "blocking_count": len(blocking),
         "suppressed_count": len(suppressed),
         "blocking_findings": blocking,
         "suppressed_findings": suppressed,
         "non_blocking_findings": observed,
-        "note": "PASS means this policy found no unsuppressed blocking findings; it is not proof of overall security.",
+        "enforcement_mode": "report-only intentionally vulnerable training target" if report_only_expected_vulnerable_target else "blocking",
+        "note": ("This pinned OWASP Juice Shop image is intentionally vulnerable. Findings are preserved for scanner validation and are not a security certification." if report_only_expected_vulnerable_target else "PASS means this policy found no unsuppressed blocking findings; it is not proof of overall security."),
     }
 
 
@@ -126,18 +131,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--summary", required=True, type=Path)
     parser.add_argument("--policy", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--report-only-expected-vulnerable-target", action="store_true", help="record findings without release blocking; allowed only for the exact pinned OWASP Juice Shop training image")
     args = parser.parse_args(argv)
     try:
         summary = json.loads(args.summary.read_text(encoding="utf-8"))
         policy = json.loads(args.policy.read_text(encoding="utf-8"))
-        result = evaluate_summary(summary, policy)
+        result = evaluate_summary(summary, policy, report_only_expected_vulnerable_target=args.report_only_expected_vulnerable_target)
     except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
         print(json.dumps({"schema": "saqa.container-security-policy-result.v1", "status": "BLOCKED", "error": str(exc)}, indent=2))
         return 2
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({key: result[key] for key in ("status", "finding_count", "blocking_count", "suppressed_count")}, indent=2))
-    return 0 if result["status"] == "PASS" else 1
+    return 0 if result["status"] in {"PASS", "REPORT_ONLY"} else 1
 
 
 if __name__ == "__main__":
