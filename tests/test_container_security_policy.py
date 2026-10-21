@@ -143,3 +143,13 @@ def test_report_only_mode_rejects_any_other_image():
     with pytest.raises(ValueError, match="restricted to the exact pinned"):
         evaluate_summary(summary, POLICY, today=date(2026, 10, 21),
                          report_only_expected_vulnerable_target=True)
+
+
+def test_exception_expiring_today_is_rejected():
+    policy = copy.deepcopy(POLICY)
+    policy["exceptions"] = [{
+        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "target": "pkg/a",
+        "reason": "temporary", "owner": "team", "ticket": "SEC-1", "expires_on": "2026-10-21",
+    }]
+    with pytest.raises(ValueError, match="expires today"):
+        validate_policy(policy, today=date(2026, 10, 21))
