@@ -60,7 +60,7 @@ jobs:
           name: saqa-python-${{ matrix.python }}
           path: artifacts/
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 90
 
   dependency-and-security:
     name: Dependency, SBOM, and secret hygiene
