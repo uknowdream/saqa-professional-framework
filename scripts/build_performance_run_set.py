@@ -30,8 +30,10 @@ def canonical_policy_sha256(policy: dict[str, Any]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 def read_json(path: Path) -> Any:
-    try: return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc: raise ValueError(f"cannot read {path}: {exc}") from exc
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
 
 def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str, float]:
     if not isinstance(summary, dict) or summary.get("schema") != SUMMARY_SCHEMA:
@@ -39,9 +41,17 @@ def extract_sample(summary: Any, policy: dict[str, Any], label: str) -> dict[str
     metric_map, metrics = policy.get("metrics"), summary.get("metrics")
     if not isinstance(metric_map, dict) or not isinstance(metrics, dict):
         raise ValueError(f"{label}: policy mappings and summary metrics must be objects")
-    def metric(name: str, key: str) -> float:
-        record = metrics.get(name); values = record.get("values") if isinstance(record, dict) else None
-        if not isinstance(name, str) or not isinstance(values, dict): raise ValueError(f"{label}: missing metric {name}.{key}")
+    for field in ("latency", "error_rate", "throughput", "functional_checks"):
+        metric_name = metric_map.get(field)
+        if not isinstance(metric_name, str) or not metric_name.strip():
+            raise ValueError(f"{label}: policy metric mapping for {field} must be a non-empty string")
+    def metric(name: Any, key: str) -> float:
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{label}: policy metric name for field {key} must be a non-empty string")
+        record = metrics.get(name)
+        values = record.get("values") if isinstance(record, dict) else None
+        if not isinstance(values, dict):
+            raise ValueError(f"{label}: missing metric {name}.{key}")
         return finite(values.get(key), f"{label}: {name}.{key}")
     sample = {"median_ms": metric(metric_map.get("latency"), "med"),
               "p95_ms": metric(metric_map.get("latency"), "p(95)"),
