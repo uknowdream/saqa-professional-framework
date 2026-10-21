@@ -12,6 +12,15 @@ LOCAL_PROJECT_SKIP_PREFIX = (
     + LOCAL_PROJECT_NAME
     + " ("
 )
+LOCAL_PROJECT_SKIP_REASONS = {"distribution marked as editable"}
+
+
+def _is_known_local_project_skip(name: Any, reason: Any) -> bool:
+    if name != LOCAL_PROJECT_NAME or not isinstance(reason, str) or not reason.strip():
+        return False
+    if reason in LOCAL_PROJECT_SKIP_REASONS:
+        return True
+    return reason.startswith(LOCAL_PROJECT_SKIP_PREFIX) and reason.endswith(")")
 
 
 def validate_report(value: Any) -> dict[str, Any]:
@@ -44,12 +53,7 @@ def validate_report(value: Any) -> dict[str, Any]:
         # that documented record, and surface it instead of hiding it in the summary.
         if "skip_reason" in dependency:
             reason = dependency.get("skip_reason")
-            if (
-                name != LOCAL_PROJECT_NAME
-                or not isinstance(reason, str)
-                or not reason.startswith(LOCAL_PROJECT_SKIP_PREFIX)
-                or not reason.endswith(")")
-            ):
+            if not _is_known_local_project_skip(name, reason):
                 raise ValueError(
                     f"pip-audit dependency[{index}] contains an unreviewed skip reason; "
                     "only the checked-in local project may be skipped"
