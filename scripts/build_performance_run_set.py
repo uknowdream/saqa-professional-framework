@@ -67,8 +67,10 @@ def build_run_set(summary_paths: list[Path], policy: Any, *, target_profile: str
         samples.append(extract_sample(summary, policy, str(path)))
         stored_path = resolved_path.relative_to(root).as_posix() if root is not None else str(path)
         sources.append({"path": stored_path, "sha256": hashlib.sha256(raw).hexdigest()})
+    policy_bytes = json.dumps(policy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    policy_digest = hashlib.sha256(policy_bytes).hexdigest()
     return {"schema": RUNSET_SCHEMA, "target_profile": target_profile.strip(), "workload_profile": workload_profile.strip(),
-            "policy_id": policy["policy_id"].strip(), "policy_version": version, "environment_fingerprint": environment_fingerprint.strip(),
+            "policy_id": policy["policy_id"].strip(), "policy_version": version, "policy_sha256": policy_digest, "environment_fingerprint": environment_fingerprint.strip(),
             "samples": samples, "sample_sources": sources,
             "provenance_note": "SHA-256 identifies input bytes but does not authenticate origin; preserve trusted artifact attestations separately."}
 
