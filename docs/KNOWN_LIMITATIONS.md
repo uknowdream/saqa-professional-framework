@@ -1,11 +1,11 @@
 # SAQA Professional Framework — Known Limitations and Next Priorities
 
-Last reviewed: 2026-10-21  
-Main-branch certified commit at review: `872bf0d182f3287d7e519947a259cc3313e51ed0`
+Last reviewed: 2026-10-22  
+Main-branch certified commit at review: `9ffeb5c6206d5c1786e8cb0d1b3652f6a37bc6e1` (PR #16 merged on 2026-10-21).
 
 ## Current verified baseline
 
-The post-merge release certification workflow reported `CERTIFIED` for the commit above. The five mandatory domains were all `PASS` with fresh evidence bound to that exact commit:
+The post-merge release certification workflow [run 39658922347](https://github.com/uknowdream/saqa-professional-framework/actions/runs/39658922347) completed successfully for exact main commit `9ffeb5c6206d5c1786e8cb0d1b3652f6a37bc6e1`. The five mandatory domains were all `PASS` with fresh evidence bound to that exact commit. The push-triggered CI, contract, accessibility, mobile-readiness, k6, advanced-QE, contract-mock, framework-integrity, and container-security workflows also completed successfully for that commit. The training-image security scan is report-only and does not constitute production security certification.
 
 - SAQA CI
 - SAQA Contract Testing
