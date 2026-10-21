@@ -11,6 +11,7 @@ def run_set(*, p95=400, p99=700, error=0.0, throughput=8.0, checks=1.0, **metada
         "policy_version": 1, "environment_fingerprint": "ubuntu-24.04-k6-1.2.0",
         "samples": [{"p95_ms": p95, "p99_ms": p99, "error_rate": error,
                      "throughput_rps": throughput, "check_pass_rate": checks} for _ in range(5)],
+        "sample_sources": [{"path": f"run-{i}.json", "sha256": "a" * 64} for i in range(5)],
     }
     result.update(metadata)
     return result
@@ -121,4 +122,21 @@ def test_comparison_api_rejects_boolean_policy_version():
     candidate["policy_version"] = True
     baseline["policy_version"] = True
     with pytest.raises(ValueError, match="positive integer"):
+        compare_run_sets(baseline, candidate)
+
+
+def test_missing_source_hashes_are_rejected(tmp_path):
+    data = run_set()
+    data["sample_sources"][0]["sha256"] = "not-a-hash"
+    path = tmp_path / "bad-sources.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="lowercase SHA-256 digest"):
+        load_run_set(path)
+
+
+def test_source_count_must_match_sample_count():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["sample_sources"] = candidate["sample_sources"][:4]
+    with pytest.raises(ValueError, match="sample_sources must match"):
         compare_run_sets(baseline, candidate)
