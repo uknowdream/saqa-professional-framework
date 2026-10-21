@@ -132,6 +132,8 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
             row = {key: number(sample.get(key), f"samples[{i}].{key}") for key in METRICS}
             if any(row[key] < 0 for key in ("median_ms", "p95_ms", "p99_ms", "throughput_rps")):
                 raise ValueError(f"samples[{i}] latency/throughput must be non-negative")
+            if row["median_ms"] > row["p95_ms"]:
+                raise ValueError(f"samples[{i}] median_ms must not exceed p95_ms")
             if row["p95_ms"] > row["p99_ms"]:
                 raise ValueError(f"samples[{i}] p95_ms must not exceed p99_ms")
             if any(not 0 <= row[key] <= 1 for key in ("error_rate", "check_pass_rate")):
