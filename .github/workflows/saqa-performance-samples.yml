@@ -83,6 +83,7 @@ jobs:
             --policy performance/baselines/juice-shop-local-v1.json \
             --target-profile juice-shop-v20.2.0-local-loopback \
             --workload-profile products-search-v1 \
+            --workload-script performance/k6/juice-shop.js \
             --environment-fingerprint "$fingerprint" \
             --source-root artifacts/performance/raw-runs \
             --output artifacts/performance/measured-run-set.json
