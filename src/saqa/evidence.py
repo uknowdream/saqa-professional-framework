@@ -23,8 +23,16 @@ class EvidenceRecord:
     details: dict
 
     def __post_init__(self) -> None:
-        if self.status not in STATUSES:
+        if not isinstance(self.test_id, str) or not self.test_id.strip():
+            raise ValueError("test_id must be a non-empty string")
+        if not isinstance(self.status, str) or self.status not in STATUSES:
             raise ValueError(f"invalid status: {self.status}")
+        if not isinstance(self.observed_at, str) or not self.observed_at.strip():
+            raise ValueError("observed_at must be a non-empty string")
+        if not isinstance(self.target, str) or not self.target.strip():
+            raise ValueError("target must be a non-empty string")
+        if not isinstance(self.details, dict):
+            raise ValueError("details must be an object")
 
 
 def utc_now() -> str:
@@ -44,6 +52,8 @@ def sha256_file(path: Path) -> str:
 
 
 def write_manifest(records: list[EvidenceRecord], output: Path) -> str:
+    if not records:
+        raise ValueError("evidence manifest requires at least one record")
     payload = [asdict(record) for record in records]
     digest = hashlib.sha256(canonical_json(payload)).hexdigest()
     output.write_text(json.dumps({"records": payload, "sha256": digest}, indent=2, allow_nan=False), encoding="utf-8")
