@@ -148,8 +148,12 @@ def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
           const restoredStyle = snapshot(e);
           const visibleColor = value => {
             if (!value || value === "transparent") return false;
-            const match = value.match(/rgba?\\([^)]*[,/]\\s*([0-9.]+)\\s*\\)$/i);
-            if (match && value.toLowerCase().startsWith("rgba")) return Number(match[1]) > 0;
+            const rgba = value.match(/^rgba\\((.*)\\)$/i);
+            if (rgba) {
+              const components = rgba[1].split(",");
+              return components.length < 4 || Number(components[3]) > 0;
+            }
+            if (/\\/\\s*0(?:\\.0+)?%?\\s*\\)/i.test(value)) return false;
             return true;
           };
           const changed = property => focusStyle[property] !== restingStyle[property];
