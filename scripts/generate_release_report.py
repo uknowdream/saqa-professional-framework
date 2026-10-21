@@ -29,8 +29,12 @@ def main() -> int:
         max_age_hours = float(os.getenv("SAQA_MAX_EVIDENCE_AGE_HOURS", "24"))
     except ValueError as exc:
         raise SystemExit("SAQA_MAX_EVIDENCE_AGE_HOURS must be a non-negative number") from exc
-    if max_age_hours < 0 or max_age_hours != max_age_hours or max_age_hours == float("inf"):
+    if max_age_hours < 0 or max_age_hours != max_age_hours or max_age_hours in {float("inf"), float("-inf")}:
         raise SystemExit("SAQA_MAX_EVIDENCE_AGE_HOURS must be a finite non-negative number")
+    try:
+        max_age = timedelta(hours=max_age_hours)
+    except OverflowError as exc:
+        raise SystemExit("SAQA_MAX_EVIDENCE_AGE_HOURS exceeds the supported datetime range") from exc
     now = datetime.now(timezone.utc)
     for record in raw_records:
         if not isinstance(record, dict):
@@ -48,7 +52,7 @@ def main() -> int:
             if observed is None or observed.tzinfo is None:
                 raise ValueError("timestamp must include a timezone")
             age = now - observed.astimezone(timezone.utc)
-            if age < timedelta(minutes=-5) or age > timedelta(hours=max_age_hours):
+            if age < timedelta(minutes=-5) or age > max_age:
                 stale.append(record.get("test_id", "unknown"))
         except (ValueError, OverflowError):
             stale.append(record.get("test_id", "unknown"))
