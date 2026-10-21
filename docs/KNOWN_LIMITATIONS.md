@@ -35,6 +35,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 ### P1 — Accessibility depth
 - [x] Record keyboard Tab traversal, focus-visible state, CSS focus-indicator clues, repeated consecutive focus targets, and a conservative suspected-trap diagnostic in accessibility evidence.
+- [x] Repeat keyboard-only traversal at a narrow 390×844 viewport after a fresh page load; this is browser-based mobile viewport coverage, not native-device evidence.
 - Manual focus-order, keyboard-trap, and visible-indicator verification remains required; the diagnostic is not treated as conformance proof.
 - [x] Add a manual keyboard-only and screen-reader test matrix mapped to WCAG 2.2 criteria (`docs/ACCESSIBILITY_MANUAL_TEST_PLAN.md`).
 - Manual execution and results remain UNVERIFIED until a tester records environment-specific evidence.
@@ -58,7 +59,7 @@ This is a commit-scoped CI certification, not a claim that every possible applic
 
 ### P2 — Evidence trust and operations
 - [x] Configure GitHub artifact provenance attestation for the CycloneDX SBOM on non-PR trusted runs; pull-request runs skip publishing attestations.
-- Verify a trusted push run actually publishes the attestation before relying on it operationally; keep SHA-256 manifest verification as a separate integrity check.
+- [x] Verify SBOM provenance attestation on non-PR trusted runs with GitHub CLI; pull-request runs skip attestation publication and verification. Keep SHA-256 manifest verification as a separate integrity check.
 - [x] Add release-report freshness checks: evidence must have timezone-aware timestamps and default to a 24-hour maximum age (configurable with `SAQA_MAX_EVIDENCE_AGE_HOURS`).
 - [x] Document artifact retention periods, checksum verification, exact-SHA recovery, and the rule that missing/expired evidence leaves certification NOT_CERTIFIED (`docs/ARTIFACT_RETENTION_AND_RECOVERY.md`).
 - Automated API-level artifact-expiry discovery remains dependent on repository token permissions and is not represented as implemented.
