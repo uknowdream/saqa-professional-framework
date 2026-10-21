@@ -311,3 +311,27 @@ def test_main_blocks_run_set_with_wrong_policy_digest(tmp_path, capsys):
     ])
     assert code == 2
     assert "policy SHA-256 does not match" in capsys.readouterr().out
+
+
+def test_any_candidate_sample_with_failed_functional_check_blocks():
+    baseline = run_set()
+    candidate = run_set()
+    candidate["samples"][0]["check_pass_rate"] = 0.0
+    result = compare_run_sets(baseline, candidate)
+    check = next(item for item in result["checks"] if item["id"] == "functional_check_pass_rate")
+    assert result["status"] == "FAIL"
+    assert check["candidate_median"] == 1.0
+    assert check["candidate_failed_sample_count"] == 1
+    assert check["candidate_failed_samples"] == [{"sample_index": 0, "check_pass_rate": 0.0}]
+    assert "functional_check_pass_rate" in result["failed_checks"]
+
+
+def test_oversized_json_integer_is_blocked_instead_of_overflowing(tmp_path, capsys):
+    data = run_set()
+    data["samples"][0]["p95_ms"] = 10 ** 400
+    path = tmp_path / "oversized.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="finite number"):
+        load_run_set(path)
+    with pytest.raises(ValueError, match="finite number"):
+        compare_run_sets(run_set(), {**run_set(), "samples": [{**run_set()["samples"][0], "p95_ms": 10 ** 400}, *run_set()["samples"][1:]]})
