@@ -44,6 +44,30 @@ jobs:
       - name: Record expected findings for intentionally vulnerable training image
         run: |
           python scripts/evaluate_container_security_policy.py --summary artifacts/security/juice-shop-trivy-summary.json --policy security/container-security-policy.json --output artifacts/security/juice-shop-security-policy-result.json --report-only-expected-vulnerable-target
+      - name: Build source-bound container security artifact manifest
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXECUTION_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          SOURCE_REF: ${{ github.ref }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          python scripts/build_container_security_manifest.py \\
+            --artifact-dir artifacts/security \\
+            --output artifacts/security/juice-shop-security-artifact-manifest.json \\
+            --image bkimminich/juice-shop:v20.2.0 \\
+            --scanner-version "${TRIVY_VERSION}" \\
+            --source-sha "$SOURCE_SHA" \\
+            --execution-sha "$EXECUTION_SHA" \\
+            --event "$EVENT_NAME" \\
+            --ref "$SOURCE_REF" \\
+            --run-id "$RUN_ID" \\
+            --run-attempt "$RUN_ATTEMPT" \\
+            --workflow-ref "$WORKFLOW_REF" \\
+            --workflow-sha "$WORKFLOW_SHA"
       - name: Upload container security evidence
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
