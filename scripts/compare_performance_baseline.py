@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 from scripts.build_performance_run_set import canonical_policy_sha256, extract_sample, read_json
 
 SCHEMA = "saqa.performance-run-set.v1"
-METADATA = ("target_profile", "workload_profile", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")
+METADATA = ("target_profile", "workload_profile", "workload_sha256", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")
 METRICS = ("median_ms", "p95_ms", "p99_ms", "error_rate", "throughput_rps", "check_pass_rate")
 MIN_SAMPLES = 5
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -101,6 +101,8 @@ def load_run_set(path: Path) -> dict[str, Any]:
         raise ValueError(f"{path}: policy_version must be a positive integer")
     if not isinstance(data.get("policy_sha256"), str) or not SHA256_RE.fullmatch(data["policy_sha256"]):
         raise ValueError(f"{path}: policy_sha256 must be a lowercase SHA-256 digest")
+    if not isinstance(data.get("workload_sha256"), str) or not SHA256_RE.fullmatch(data["workload_sha256"]):
+        raise ValueError(f"{path}: workload_sha256 must be a lowercase SHA-256 digest")
     samples = data.get("samples")
     if not isinstance(samples, list) or len(samples) < MIN_SAMPLES:
         raise ValueError(f"{path}: at least {MIN_SAMPLES} samples are required")
@@ -138,6 +140,8 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
     for label, value in (("baseline", baseline), ("candidate", candidate)):
         if not isinstance(value.get("policy_sha256"), str) or not SHA256_RE.fullmatch(value["policy_sha256"]):
             raise ValueError(f"{label} policy_sha256 must be a lowercase SHA-256 digest")
+        if not isinstance(value.get("workload_sha256"), str) or not SHA256_RE.fullmatch(value["workload_sha256"]):
+            raise ValueError(f"{label} workload_sha256 must be a lowercase SHA-256 digest")
         if not isinstance(value.get("schema"), str) or value["schema"] != SCHEMA:
             raise ValueError(f"{label} has unsupported run-set schema")
         for field in METADATA:
@@ -223,6 +227,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--baseline-source-root", required=True, type=Path, help="root directory containing raw samples referenced by the baseline run set")
     parser.add_argument("--candidate-source-root", required=True, type=Path, help="root directory containing raw samples referenced by the candidate run set")
     parser.add_argument("--policy", required=True, type=Path, help="versioned policy used to derive samples from raw k6 summaries")
+    parser.add_argument("--workload-script", required=True, type=Path, help="exact k6 script used by the measured workload")
     parser.add_argument("--max-latency-regression-pct", type=float, default=10.0)
     parser.add_argument("--max-throughput-drop-pct", type=float, default=10.0)
     parser.add_argument("--max-error-rate-increase", type=float, default=0.005,
@@ -235,7 +240,13 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(policy, dict) or policy.get("schema") != "saqa.performance-guardrails.v1":
             raise ValueError("unsupported performance policy schema")
         policy_digest = canonical_policy_sha256(policy)
+        try:
+            workload_digest = hashlib.sha256(args.workload_script.read_bytes()).hexdigest()
+        except OSError as exc:
+            raise ValueError(f"cannot read supplied workload script: {exc}") from exc
         for label, run_set in (("baseline", baseline), ("candidate", candidate)):
+            if run_set["workload_sha256"] != workload_digest:
+                raise ValueError(f"{label} workload SHA-256 does not match the supplied workload script")
             if run_set["policy_id"] != policy.get("policy_id") or run_set["policy_version"] != policy.get("version"):
                 raise ValueError(f"{label} run-set policy ID/version does not match the supplied policy")
             if run_set["policy_sha256"] != policy_digest:
