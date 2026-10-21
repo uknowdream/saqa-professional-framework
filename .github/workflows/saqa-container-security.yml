@@ -4,6 +4,8 @@ on:
     branches: [main, 'saqa/**']
   pull_request:
     branches: [main]
+  schedule:
+    - cron: '43 4 * * 1' # Weekly pinned reference-image security scan
   workflow_dispatch:
 permissions:
   contents: read
