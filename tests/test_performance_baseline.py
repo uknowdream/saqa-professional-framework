@@ -226,3 +226,12 @@ def test_resolved_aliases_cannot_reuse_one_raw_sample(tmp_path):
     ]
     with pytest.raises(ValueError, match="duplicate resolved file"):
         verify_source_files(data, tmp_path, "candidate")
+
+
+def test_policy_digest_must_be_valid_sha256(tmp_path):
+    data = run_set()
+    data["policy_sha256"] = "not-a-digest"
+    path = tmp_path / "bad-policy-digest.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    with pytest.raises(ValueError, match="policy_sha256 must be a lowercase SHA-256 digest"):
+        load_run_set(path)
