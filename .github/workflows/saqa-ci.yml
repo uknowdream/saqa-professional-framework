@@ -115,6 +115,19 @@ jobs:
       - name: Validate audit output
         if: always()
         run: python scripts/validate_pip_audit_report.py --input artifacts/security/pip-audit.json
+      - name: Evaluate dependency vulnerability policy
+        id: vulnerability-policy
+        if: always()
+        run: |
+          if [ ! -s artifacts/security/pip-audit.json ]; then
+            echo '{"status":"FAIL","reason":"pip-audit did not produce a report"}' > artifacts/security/vulnerability-policy-result.json
+            cat artifacts/security/vulnerability-policy-result.json
+            exit 2
+          fi
+          python scripts/evaluate_vulnerability_policy.py \
+            --audit-json artifacts/security/pip-audit.json \
+            --policy-json security/vulnerability-policy.json \
+            --output artifacts/security/vulnerability-policy-result.json
       - name: Static application security testing (Bandit)
         shell: bash
         run: |
@@ -142,10 +155,10 @@ jobs:
           path: artifacts/security/
           if-no-files-found: error
           retention-days: 30
-      - name: Enforce dependency audit
-        if: steps.dependency-audit.outcome != 'success'
+      - name: Enforce dependency vulnerability policy
+        if: always() && steps.vulnerability-policy.outcome != 'success'
         run: |
-          echo 'Dependency vulnerability audit failed; inspect the JSON artifact and remediate or review a documented exception.'
+          echo 'Dependency vulnerability policy did not pass. Inspect the raw audit report and policy decision artifact.'
           exit 1
 
   attest-security-sbom:
