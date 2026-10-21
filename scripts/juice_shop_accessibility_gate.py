@@ -176,6 +176,19 @@ def main() -> int:
                 evidence["details"] = {"status_code": response.status if response else None, **metrics}
                 keyboard = _keyboard_focus_sequence(page)
                 evidence["details"]["keyboard_navigation"] = keyboard
+                # Repeat keyboard-only traversal after a fresh load at a narrow mobile viewport.
+                # This remains diagnostic smoke evidence, not a claim of native mobile or WCAG certification.
+                page.set_viewport_size({"width": 390, "height": 844})
+                mobile_response = page.goto(BASE_URL + "/", wait_until="domcontentloaded", timeout=15000)
+                _assert_loopback_http(page.url)
+                page.locator("app-root").wait_for(state="attached", timeout=15000)
+                page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
+                mobile_keyboard = _keyboard_focus_sequence(page)
+                evidence["details"]["keyboard_navigation_mobile_viewport"] = {
+                    "viewport": {"width": 390, "height": 844},
+                    "status_code": mobile_response.status if mobile_response else None,
+                    **mobile_keyboard,
+                }
                 if not response or response.status < 200 or response.status >= 400:
                     raise AssertionError(f"expected successful page response, got {response.status if response else None}")
                 page.add_script_tag(content=axe_source)
@@ -189,6 +202,8 @@ def main() -> int:
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
                 if keyboard["unique_focus_targets"] == 0: failures.append("keyboard Tab sequence did not reach a focusable target")
+                if not mobile_response or mobile_response.status < 200 or mobile_response.status >= 400: failures.append("mobile viewport page reload did not return a successful response")
+                if mobile_keyboard["unique_focus_targets"] == 0: failures.append("mobile viewport keyboard Tab sequence did not reach a focusable target")
                 if not metrics["lang_present"]: failures.append("document language is missing")
                 if not metrics["title_present"]: failures.append("document title is missing")
                 if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
