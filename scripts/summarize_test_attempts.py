@@ -14,7 +14,7 @@ REPORT_SCHEMA = "saqa.test-attempt-report.v1"
 PHASES = {"setup", "call", "teardown"}
 PHASE_STATUSES = {"PASS", "FAIL", "SKIP"}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-PYTHON_VERSION_RE = re.compile(r"^\\d+\\.\\d+$")
+PYTHON_VERSION_RE = re.compile(r"^\d+\.\d+$")
 STATUSES = {"PASS", "FAIL", "SKIP"}
 
 
