@@ -93,10 +93,13 @@ def test_invalid_branch_metadata_is_rejected_and_reported(tmp_path):
 
 def test_insufficient_history_is_not_falsely_certified(tmp_path):
     root = tmp_path / "history"
-    _write_run(root, "501", "a" * 40)
+    for version in ("3.11", "3.12", "3.13"):
+        _write_run(root, "501", "a" * 40, version=version)
     report = build_history(root, min_runs=3)
     assert report["status"] == "INSUFFICIENT_HISTORY"
-    assert report["cohorts"][0]["sufficient_history"] is False
+    assert report["cohorts"]
+    assert all(cohort["sufficient_history"] is False for cohort in report["cohorts"])
+    assert report["artifact_gaps"] == []
 
 
 def test_junit_parser_rejects_ambiguous_duplicate_test_ids(tmp_path):
