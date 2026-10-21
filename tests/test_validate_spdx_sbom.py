@@ -73,3 +73,33 @@ def test_main_reports_deeply_nested_json_as_unverified(tmp_path, capsys):
     assert main(["--input", str(source), "--output", str(output)]) == 2
     assert "UNVERIFIED" in capsys.readouterr().out
     assert not output.exists()
+
+
+@pytest.mark.parametrize("namespace", ["relative/path", "https:///missing-host", ""])
+def test_document_namespace_must_be_an_absolute_uri(namespace):
+    data = valid_spdx()
+    data["documentNamespace"] = namespace
+    with pytest.raises(ValueError, match="documentNamespace must be an absolute URI|documentNamespace must be a non-empty string"):
+        validate_spdx(data, source="sbom.json", digest="a" * 64)
+
+
+@pytest.mark.parametrize("creators", [[""], [None], [{}], ["Unknown: scanner"], ["Tool: "]])
+def test_creation_info_requires_typed_nonempty_creator_identity(creators):
+    data = valid_spdx()
+    data["creationInfo"]["creators"] = creators
+    with pytest.raises(ValueError, match="creationInfo.creators"):
+        validate_spdx(data, source="sbom.json", digest="a" * 64)
+
+
+@pytest.mark.parametrize("package_id", ["bad-id", "SPDXRef-DOCUMENT", "SPDXRef-contains_underscore"])
+def test_package_spdx_id_must_be_a_valid_non_document_reference(package_id):
+    data = valid_spdx()
+    data["packages"][0]["SPDXID"] = package_id
+    with pytest.raises(ValueError, match=r"packages\[0\]\.SPDXID"):
+        validate_spdx(data, source="sbom.json", digest="a" * 64)
+
+
+@pytest.mark.parametrize("digest", ["bad", "A" * 64, "g" * 64, ""])
+def test_sbom_digest_must_be_lowercase_sha256(digest):
+    with pytest.raises(ValueError, match="digest must be a lowercase SHA-256 digest"):
+        validate_spdx(valid_spdx(), source="sbom.json", digest=digest)
