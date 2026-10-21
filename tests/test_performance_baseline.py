@@ -74,7 +74,7 @@ def test_percentile_order_rejected(tmp_path):
 
 def test_median_above_p95_is_rejected():\n    with pytest.raises(ValueError, match="median_ms must not exceed p95_ms"):\n        compare_run_sets(run_set(median=500), run_set(median=500))\n\n\ndef test_zero_baseline_denominator_rejected():
     with pytest.raises(ValueError, match="greater than zero"):
-        compare_run_sets(run_set(p95=0), run_set(p95=0))
+        compare_run_sets(run_set(median=0, p95=0), run_set(median=0, p95=0))
 
 
 def test_negative_threshold_rejected():
