@@ -150,6 +150,15 @@ def compare_run_sets(baseline: dict[str, Any], candidate: dict[str, Any], *,
             raise ValueError(f"{label} requires at least {MIN_SAMPLES} samples")
         validate_sources(value, label)
 
+    baseline_digests = {source["sha256"] for source in baseline["sample_sources"]}
+    candidate_digests = {source["sha256"] for source in candidate["sample_sources"]}
+    reused_digests = sorted(baseline_digests & candidate_digests)
+    if reused_digests:
+        raise ValueError(
+            "baseline/candidate reuse raw sample SHA-256 digests; "
+            "run sets must be derived from independent raw summaries"
+        )
+
     def medians(run_set):
         values = {key: [] for key in METRICS}
         for i, sample in enumerate(run_set["samples"]):
