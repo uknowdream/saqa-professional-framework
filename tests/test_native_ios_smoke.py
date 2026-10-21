@@ -86,3 +86,45 @@ def test_unknown_simulator_metadata_blocks_install_and_launch(tmp_path, monkeypa
     assert statuses["app-launch"] == "BLOCKED"
     assert len(commands) == 1
     assert commands[0][:4] == ["xcrun", "simctl", "list", "devices"]
+
+
+
+def test_ios_smoke_installs_launches_and_records_actual_simulator_metadata(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    archive = make_archive(tmp_path)
+    commands = []
+
+    def fake_run(command, timeout=120):
+        commands.append(command)
+        if command[:4] == ["xcrun", "simctl", "list", "devices"]:
+            return subprocess.CompletedProcess(
+                command, 0,
+                stdout=json.dumps({"devices": {
+                    "com.apple.CoreSimulator.SimRuntime.iOS-18-5": [
+                        {"udid": "SIM-123", "state": "Booted", "name": "iPhone 16"}
+                    ]
+                }}),
+                stderr="",
+            )
+        if command[:4] == ["xcrun", "simctl", "install", "booted"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command[:4] == ["xcrun", "simctl", "launch", "booted"]:
+            return subprocess.CompletedProcess(command, 0, stdout="com.example.app: 1234\\n", stderr="")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="unexpected command")
+
+    monkeypatch.setattr("scripts.run_native_ios_smoke.run", fake_run)
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    result = run_smoke(archive, "com.example.app", digest, "test-run", tmp_path / "work")
+    statuses = {item["test_id"]: item["status"] for item in result["tests"]}
+    assert result["device"]["os_version"] == "18.5"
+    assert result["device"]["model"] == "iPhone 16"
+    assert statuses == {
+        "simulator-app-archive-sha256-matches-release": "PASS",
+        "bundle-id-matches-input": "PASS",
+        "simulator-metadata": "PASS",
+        "simulator-install": "PASS",
+        "app-launch": "PASS",
+    }
+    assert any(command[:4] == ["xcrun", "simctl", "install", "booted"] for command in commands)
+    assert any(command[:4] == ["xcrun", "simctl", "launch", "booted"] for command in commands)
