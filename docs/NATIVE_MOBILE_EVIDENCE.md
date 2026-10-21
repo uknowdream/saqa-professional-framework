@@ -58,3 +58,10 @@ The repository includes a manual workflow at `.github/workflows/saqa-native-andr
 To run it, first publish an authorized APK as a release asset, then use **Actions → SAQA Native Android Smoke → Run workflow** and provide the release tag, exact APK filename, package ID, and independently obtained expected SHA-256. Do not use an APK from an untrusted source. The workflow is manual-dispatch only and does not run against a production service.
 
 Coverage is intentionally limited to artifact hash, install, and launch smoke checks. It is **not** an Appium functional suite, lifecycle/permission suite, physical-device matrix, or iOS test. A workflow file existing is not a passing run: native Android remains UNVERIFIED until a real release APK is supplied and the workflow produces fresh passing evidence. iOS still requires a separate macOS/Xcode simulator or device runner.
+
+
+## Executable iOS Simulator smoke workflow
+
+The repository also includes `.github/workflows/saqa-native-ios.yml`, a manual-dispatch workflow for a trusted iOS Simulator build. It downloads a ZIP containing exactly one simulator-compatible `.app` bundle from a GitHub Release in this repository, checks the independently obtained ZIP SHA-256, verifies `CFBundleIdentifier`, installs and launches the app on an available iPhone simulator, and uploads normalized evidence.
+
+To run it, publish a simulator-built `.app` bundle as a ZIP release asset, then use **Actions → SAQA Native iOS Simulator Smoke → Run workflow** with the release tag, exact asset filename, bundle ID, and independently verified SHA-256. A device-targeted IPA is generally not a substitute for a simulator-compatible `.app` bundle. The workflow does not run on every pull request and does not claim physical-device coverage, Appium functional coverage, permissions/lifecycle coverage, or App Store signing validation. iOS remains UNVERIFIED until a real authorized simulator artifact is supplied and the workflow passes.
