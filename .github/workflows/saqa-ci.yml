@@ -37,8 +37,18 @@ jobs:
         run: python -m pip install -e '.[test,ci]'
       - name: Compile
         run: python -m compileall -q src tests
-      - name: Tests
-        run: python -m pytest -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+      - name: Tests with retry-aware per-attempt telemetry
+        shell: bash
+        run: |
+          mkdir -p artifacts/test-attempts
+          set +e
+          python -m pytest -p scripts.pytest_attempt_telemetry --reruns=1 --reruns-delay=1 -n auto --dist loadfile --timeout=120 --cov=saqa --cov-report=term-missing --junitxml=artifacts/junit.xml
+          pytest_status=$?
+          python scripts/summarize_test_attempts.py --input-dir artifacts/test-attempts --output artifacts/test-attempt-telemetry.json
+          telemetry_status=$?
+          set -e
+          if [ "$pytest_status" -ne 0 ]; then exit "$pytest_status"; fi
+          exit "$telemetry_status"
       - name: Summarize test quality and quarantine policy
         if: always()
         run: |
