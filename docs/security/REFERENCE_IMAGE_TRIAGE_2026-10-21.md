@@ -43,3 +43,12 @@ Tracking: [issue #17 — verify embedded secret-pattern findings](https://github
 **Human review remains required:** assign a security owner to confirm the two private-key fixtures are never reused in a deployed environment and the JWT-like strings are inert test data. Their upstream source locations have now been checked, but they remain *likely demonstration/test fixtures awaiting owner confirmation*, not approved false positives and not silently suppressed. The current automated CI scans the repository independently for configured secret patterns.
 
 This snapshot documents the observed report and its current disposition. It is not automatically updated when Trivy, the image, or its contents change; review the artifact from the latest successful container-security workflow before making a new decision.
+
+
+## Subsequent immutable-image re-scan — 2026-10-21
+
+The current `main` revision `1e8b076c25645f2594e7ebee40132b0c31bfd22a` re-scanned the same immutable training image digest with Trivy 0.76.0 in [workflow run 39674297942](https://github.com/uknowdream/saqa-professional-framework/actions/runs/39674297942). The scan and source-bound security manifest completed successfully.
+
+The human-readable report emitted by that run recorded **268 normalized findings**: 32 CRITICAL, 78 HIGH, 95 MEDIUM, 63 LOW, and 0 UNKNOWN. The versioned policy result remained `REPORT_ONLY`, with **58 blocking signals before exceptions**, **zero suppressed findings**, and `release_gate_eligible: false`. These are report-only results for the deliberately vulnerable training image; they do not imply a production security failure in SAQA or another application.
+
+The run log does not print the type-level count for secrets, so this snapshot does not claim that the latest scan independently reconfirmed exactly six secret matches. The prior preserved report and source-context triage recorded six matches. The normalizer has now been updated to emit counts by finding type as well as severity on future runs, making the next summary easier to audit. The raw source report remains preserved in the workflow artifact. Do not make or close an exception based only on the aggregated total; a named security maintainer must review the individual current raw findings.
