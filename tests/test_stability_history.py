@@ -89,7 +89,8 @@ def test_invalid_branch_metadata_is_rejected_and_reported(tmp_path):
     report = build_history(root)
     assert report["runs"] == []
     assert report["issues"]
-    assert report["status"] == "INSUFFICIENT_HISTORY"
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+    assert report["summary"]["artifact_gap_count"] == 3
 
 
 def test_insufficient_history_is_not_falsely_certified(tmp_path):
@@ -174,3 +175,43 @@ def test_missing_input_directory_updates_issue_counter(tmp_path):
     report = build_history(tmp_path / "does-not-exist")
     assert report["status"] == "INSUFFICIENT_HISTORY"
     assert report["summary"]["issues_count"] == len(report["issues"]) == 1
+
+
+def test_invalid_metadata_is_reported_once_and_marks_cohort_gaps(tmp_path):
+    root = tmp_path / "history"
+    _write_run(root, "801", "a" * 40, outcomes={"tests.test_api::test_item": "PASS"})
+    metadata = root / "801" / "run-metadata.json"
+    payload = json.loads(metadata.read_text(encoding="utf-8"))
+    payload["head_branch"] = "feature"
+    metadata.write_text(json.dumps(payload), encoding="utf-8")
+    report = build_history(root)
+    matching = [issue for issue in report["issues"] if "history is restricted to push/schedule runs on main" in issue]
+    assert len(matching) == 1
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+    assert {(gap["run_id"], gap["python_version"]) for gap in report["artifact_gaps"]} == {
+        ("801", "3.11"), ("801", "3.12"), ("801", "3.13")
+    }
+
+
+def test_invalid_junit_creates_explicit_gap_not_clean_history(tmp_path):
+    root = tmp_path / "history"
+    _write_run(root, "802", "a" * 40)
+    (root / "802" / "python-3.12" / "junit.xml").write_text("<broken", encoding="utf-8")
+    report = build_history(root)
+    assert report["status"] == "INCOMPLETE_ARTIFACT_COVERAGE"
+    gaps = [item for item in report["artifact_gaps"]
+            if item["run_id"] == "802" and item["python_version"] == "3.12"]
+    assert len(gaps) == 1
+    assert "invalid" in gaps[0]["reason"]
+    assert report["summary"]["artifact_gap_count"] >= 3
+
+
+def test_artifact_gaps_remain_visible_when_variation_has_status_precedence(tmp_path):
+    root = tmp_path / "history"
+    sha = "a" * 40
+    _write_run(root, "803", sha, version="3.12", outcomes={"tests.test_api::test_item": "PASS"})
+    _write_run(root, "804", sha, version="3.12", outcomes={"tests.test_api::test_item": "FAIL"})
+    report = build_history(root, min_runs=2)
+    assert report["status"] == "SAME_COMMIT_OUTCOME_VARIATION"
+    assert report["summary"]["artifact_gap_count"] > 0
+    assert report["artifact_gaps"]
