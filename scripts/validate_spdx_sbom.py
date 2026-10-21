@@ -13,7 +13,9 @@ def validate_spdx(payload: Any, *, source: str, digest: str) -> dict[str, Any]:
     version = payload.get("spdxVersion")
     if not isinstance(version, str) or not version.startswith("SPDX-2."):
         raise ValueError("spdxVersion must identify SPDX 2.x")
-    for field in ("SPDXID", "name", "documentNamespace"):
+    if payload.get("SPDXID") != "SPDXRef-DOCUMENT":
+        raise ValueError("SPDXID must be exactly SPDXRef-DOCUMENT")
+    for field in ("name", "documentNamespace"):
         if not isinstance(payload.get(field), str) or not payload[field].strip():
             raise ValueError(f"{field} must be a non-empty string")
     creation = payload.get("creationInfo")
@@ -64,10 +66,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
-    args.output.unlink(missing_ok=True)
     try:
         result = validate_file(args.input, args.output)
-    except ValueError as exc:
+    except (OSError, ValueError) as exc:
         print(json.dumps({"schema": SCHEMA, "status": "UNVERIFIED", "error": str(exc)}, indent=2))
         return 2
     print(json.dumps({"status": result["status"], "package_count": result["package_count"], "sha256": result["sha256"]}, indent=2))
