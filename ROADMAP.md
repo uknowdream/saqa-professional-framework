@@ -78,7 +78,7 @@ The project must not claim “complete” or “certified” solely from source 
 - [x] Add a manually dispatched comparator workflow that downloads two explicitly selected run artifacts, re-verifies raw-source hashes and metric binding, checks metadata compatibility, and uploads the decision report. It never auto-promotes a baseline.
 - [ ] Triage current Trivy findings and introduce a reviewed severity/exception policy with owner and expiry before making image findings release-blocking.
 - [x] Add signed GitHub artifact provenance attestation for the release-certification report; verify it in the trusted release workflow. This attests provenance, not correctness or production security.
-- [ ] Implement and test automated artifact expiry/missing-artifact detection against GitHub Actions metadata.
+- [x] Implement and test automated artifact expiry/missing-artifact detection against exact-run GitHub Actions metadata; the daily audit preserves a report and fails closed on missing, empty, expired, near-expiry, or previous-attempt artifacts.
 - [ ] Add native Android/iOS E2E only when an actual native app target and emulator/device build are supplied; browser viewport tests are not native mobile evidence.
 
 ## Definition of done for Phase 6
