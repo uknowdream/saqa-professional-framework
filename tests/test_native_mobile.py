@@ -91,3 +91,10 @@ def test_unknown_status_rejected():
     value["tests"][0]["status"] = "CERTIFIED"
     with pytest.raises(ValueError, match="status is invalid"):
         validate_native_mobile_evidence(value)
+
+@pytest.mark.parametrize("platform", [None, [], {}, "windows"])
+def test_invalid_platform_is_rejected(platform):
+    value = payload()
+    value["platform"] = platform
+    with pytest.raises(ValueError, match="platform must be android or ios"):
+        validate_native_mobile_evidence(value)
