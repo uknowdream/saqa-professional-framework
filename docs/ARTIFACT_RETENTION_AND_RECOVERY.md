@@ -37,3 +37,10 @@ gh attestation verify artifacts/security/sbom.cdx.json --repo uknowdream/saqa-pr
 ~~~
 
 Verify that the reported source repository, workflow identity, and commit correspond to the expected trusted run before relying on the file. If no attestation is available, verification fails, or the source identity/commit differs, treat provenance as unverified and recover the artifact from the exact trusted run. Continue to validate the SBOM contents and dependency-audit result separately.
+
+
+## Release certification provenance attestation
+
+The trusted release-certification workflow now attests `artifacts/release-certification.json` only after the certification evaluator exits successfully, which requires a `CERTIFIED` decision. The same workflow verifies the resulting GitHub artifact attestation before uploading the report. A failed, blocked, stale, or unverified decision is not attested as a successful release certification.
+
+The attestation establishes artifact provenance from the trusted workflow; it does not establish application security, completeness of test coverage, or production readiness. Keep the report's commit SHA, mandatory-domain results, and evidence freshness checks as separate release controls.
