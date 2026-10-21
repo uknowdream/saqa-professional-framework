@@ -21,6 +21,8 @@ on:
 permissions:
   actions: read
   contents: read
+  id-token: write
+  attestations: write
 
 concurrency:
   group: saqa-certification-${{ github.event.workflow_run.head_sha || github.event.inputs.head_sha }}
@@ -125,6 +127,19 @@ jobs:
         env:
           SAQA_RUNS_JSON: ${{ runner.temp }}/saqa-runs.json
         run: python scripts/qa_release_gate.py
+      - name: Attest certified release decision provenance
+        if: success()
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: artifacts/release-certification.json
+      - name: Independently verify release decision attestation
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(jq -r '.status' artifacts/release-certification.json)" = "CERTIFIED"
+          gh attestation verify artifacts/release-certification.json --repo "$GITHUB_REPOSITORY"
       - name: Upload certification decision
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
