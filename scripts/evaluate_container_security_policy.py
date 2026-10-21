@@ -27,10 +27,10 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
         raise ValueError("blocking_rules must be a non-empty array")
     normalized_rules = set()
     for i, rule in enumerate(rules):
-        if not isinstance(rule, dict) or rule.get("type") not in ALLOWED_TYPES:
+        if not isinstance(rule, dict) or not isinstance(rule.get("type"), str) or rule.get("type") not in ALLOWED_TYPES:
             raise ValueError(f"blocking_rules[{i}] has invalid type")
         severities = rule.get("severities")
-        if not isinstance(severities, list) or not severities or any(s not in ALLOWED_SEVERITIES for s in severities):
+        if not isinstance(severities, list) or not severities or any(not isinstance(s, str) or s not in ALLOWED_SEVERITIES for s in severities):
             raise ValueError(f"blocking_rules[{i}] has invalid severities")
         for severity in severities:
             key = (rule["type"], severity)
@@ -48,7 +48,7 @@ def validate_policy(policy: Any, *, today: date | None = None) -> dict[str, Any]
         for field in REQUIRED_EXCEPTION_FIELDS:
             if not isinstance(exception[field], str) or not exception[field].strip():
                 raise ValueError(f"exceptions[{i}].{field} must be a non-empty string")
-        if exception["finding_type"] not in ALLOWED_TYPES:
+        if not isinstance(exception["finding_type"], str) or exception["finding_type"] not in ALLOWED_TYPES:
             raise ValueError(f"exceptions[{i}].finding_type is invalid")
         if exception["finding_id"] in {"*", "ALL", "all"} or exception["target"] in {"*", "ALL", "all"}:
             raise ValueError("wildcard exceptions are prohibited")
@@ -85,7 +85,7 @@ def evaluate_summary(summary: Any, policy: Any, *, today: date | None = None) ->
         kind, severity, finding_id, target = (
             finding.get("type"), finding.get("severity"), finding.get("id"), finding.get("target")
         )
-        if kind not in ALLOWED_TYPES or severity not in ALLOWED_SEVERITIES:
+        if not isinstance(kind, str) or kind not in ALLOWED_TYPES or not isinstance(severity, str) or severity not in ALLOWED_SEVERITIES:
             raise ValueError(f"findings[{i}] has unsupported type or severity")
         if finding_id is not None and (not isinstance(finding_id, str) or not finding_id.strip()):
             raise ValueError(f"findings[{i}].id must be a non-empty string when present")
