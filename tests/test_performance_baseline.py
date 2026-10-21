@@ -72,7 +72,12 @@ def test_percentile_order_rejected(tmp_path):
         write_run_set(tmp_path, run_set(p95=800, p99=700))
 
 
-def test_median_above_p95_is_rejected():\n    with pytest.raises(ValueError, match="median_ms must not exceed p95_ms"):\n        compare_run_sets(run_set(median=500), run_set(median=500))\n\n\ndef test_zero_baseline_denominator_rejected():
+def test_median_above_p95_is_rejected():
+    with pytest.raises(ValueError, match="median_ms must not exceed p95_ms"):
+        compare_run_sets(run_set(median=500), run_set(median=500))
+
+
+def test_zero_baseline_denominator_rejected():
     with pytest.raises(ValueError, match="greater than zero"):
         compare_run_sets(run_set(median=0, p95=0), run_set(median=0, p95=0))
 
@@ -99,7 +104,8 @@ def test_malformed_json_rejected(tmp_path):
 @pytest.mark.parametrize(("field", "value", "message"), [
     ("error_rate", 1.5, "rates must be between 0 and 1"),
     ("check_pass_rate", -0.1, "rates must be between 0 and 1"),
-    ("p95_ms", -1, "latency/throughput must be non-negative"),\n    ("median_ms", -1, "latency/throughput must be non-negative"),
+    ("p95_ms", -1, "latency/throughput must be non-negative"),
+    ("median_ms", -1, "latency/throughput must be non-negative"),
     ("throughput_rps", -1, "latency/throughput must be non-negative"),
     ("p95_ms", float("nan"), "finite number"),
 ])
