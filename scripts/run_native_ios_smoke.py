@@ -85,18 +85,27 @@ def run_smoke(archive: Path, bundle_id: str, expected_sha256: str, run_id: str, 
                                   {"test_id": "simulator-install", "status": "BLOCKED"},
                                   {"test_id": "app-launch", "status": "BLOCKED"}])
                 else:
-                    device["model"] = str(selected.get("name") or "unknown")
-                    runtime_match = re.search(r"iOS-(\d+(?:-\d+)*)", runtime_name)
-                    device["os_version"] = runtime_match.group(1).replace("-", ".") if runtime_match else "unknown"
-                    tests.append({"test_id": "simulator-metadata", "status": "PASS" if device["model"] else "BLOCKED"})
-                    install = run(["xcrun", "simctl", "install", "booted", str(app)], timeout=180)
-                    installed = install.returncode == 0
-                    tests.append({"test_id": "simulator-install", "status": "PASS" if installed else "FAIL"})
-                    if installed:
-                        launch = run(["xcrun", "simctl", "launch", "booted", bundle_id], timeout=60)
-                        tests.append({"test_id": "app-launch", "status": "PASS" if launch.returncode == 0 and bundle_id in launch.stdout else "FAIL"})
+                    model = selected.get("name")
+                    runtime_match = re.search(r"iOS-(\\d+(?:-\\d+)*)", runtime_name)
+                    os_version = runtime_match.group(1).replace("-", ".") if runtime_match else None
+                    if not isinstance(model, str) or not model.strip() or not os_version:
+                        tests.extend([
+                            {"test_id": "simulator-metadata", "status": "BLOCKED"},
+                            {"test_id": "simulator-install", "status": "BLOCKED"},
+                            {"test_id": "app-launch", "status": "BLOCKED"},
+                        ])
                     else:
-                        tests.append({"test_id": "app-launch", "status": "BLOCKED"})
+                        device["model"] = model.strip()
+                        device["os_version"] = os_version
+                        tests.append({"test_id": "simulator-metadata", "status": "PASS"})
+                        install = run(["xcrun", "simctl", "install", "booted", str(app)], timeout=180)
+                        installed = install.returncode == 0
+                        tests.append({"test_id": "simulator-install", "status": "PASS" if installed else "FAIL"})
+                        if installed:
+                            launch = run(["xcrun", "simctl", "launch", "booted", bundle_id], timeout=60)
+                            tests.append({"test_id": "app-launch", "status": "PASS" if launch.returncode == 0 and bundle_id in launch.stdout else "FAIL"})
+                        else:
+                            tests.append({"test_id": "app-launch", "status": "BLOCKED"})
     else:
         tests.extend([{"test_id": "bundle-id-matches-input", "status": "BLOCKED"},
                       {"test_id": "simulator-metadata", "status": "BLOCKED"},
