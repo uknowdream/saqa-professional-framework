@@ -33,7 +33,7 @@ def test_invalid_report_root_or_missing_results_is_rejected(bad):
 
 @pytest.mark.parametrize("field", ["Vulnerabilities", "Secrets", "Misconfigurations"])
 def test_malformed_finding_collection_is_rejected(field):
-    bad = {"Results": [{"Target": "image", field: {"unexpected": "object"}}]}
+    bad = {"ArtifactName": "example:1", "Results": [{"Target": "image", field: {"unexpected": "object"}}]}
     with pytest.raises(ValueError, match="must be an array"):
         summarize_report(bad, image="example:1", scanner="trivy-0.76.0")
 
