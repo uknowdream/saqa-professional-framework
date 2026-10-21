@@ -36,7 +36,7 @@ def test_unsuppressed_critical_and_secret_findings_fail():
 def test_exact_active_exception_suppresses_only_matching_finding():
     policy = copy.deepcopy(POLICY)
     policy["exceptions"] = [{
-        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "target": "pkg/a",
+        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "severity": "CRITICAL", "target": "pkg/a",
         "reason": "Fix is scheduled in next patch release", "owner": "platform-team",
         "ticket": "SEC-123", "expires_on": "2026-12-01",
     }]
@@ -56,7 +56,7 @@ def test_no_blocking_findings_pass():
 def test_expired_exception_is_rejected():
     policy = copy.deepcopy(POLICY)
     policy["exceptions"] = [{
-        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "target": "pkg/a",
+        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "severity": "CRITICAL", "target": "pkg/a",
         "reason": "temporary", "owner": "team", "ticket": "SEC-1", "expires_on": "2026-10-20",
     }]
     with pytest.raises(ValueError, match="expired"):
@@ -66,7 +66,7 @@ def test_expired_exception_is_rejected():
 def test_wildcard_exception_is_rejected():
     policy = copy.deepcopy(POLICY)
     policy["exceptions"] = [{
-        "finding_type": "vulnerability", "finding_id": "*", "target": "pkg/a",
+        "finding_type": "vulnerability", "finding_id": "*", "severity": "CRITICAL", "target": "pkg/a",
         "reason": "temporary", "owner": "team", "ticket": "SEC-1", "expires_on": "2026-12-01",
     }]
     with pytest.raises(ValueError, match="wildcard"):
@@ -148,8 +148,35 @@ def test_report_only_mode_rejects_any_other_image():
 def test_exception_expiring_today_is_rejected():
     policy = copy.deepcopy(POLICY)
     policy["exceptions"] = [{
-        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "target": "pkg/a",
+        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "severity": "CRITICAL", "target": "pkg/a",
         "reason": "temporary", "owner": "team", "ticket": "SEC-1", "expires_on": "2026-10-21",
     }]
     with pytest.raises(ValueError, match="expires today"):
+        validate_policy(policy, today=date(2026, 10, 21))
+
+
+def test_exception_does_not_suppress_same_finding_at_different_severity():
+    policy = copy.deepcopy(POLICY)
+    policy["exceptions"] = [{
+        "finding_type": "secret", "finding_id": "private-key-rule", "severity": "LOW",
+        "target": "config.env", "reason": "reviewed low-severity occurrence",
+        "owner": "security-team", "ticket": "SEC-222", "expires_on": "2026-12-01",
+    }]
+    summary = {"schema": "saqa.container-security-summary.v1", "findings": [
+        {"type": "secret", "severity": "CRITICAL", "id": "private-key-rule", "target": "config.env"}
+    ]}
+    result = evaluate_summary(summary, policy, today=date(2026, 10, 21))
+    assert result["suppressed_count"] == 0
+    assert result["blocking_count"] == 1
+    assert result["status"] == "FAIL"
+
+
+def test_exception_severity_must_be_supported():
+    policy = copy.deepcopy(POLICY)
+    policy["exceptions"] = [{
+        "finding_type": "vulnerability", "finding_id": "CVE-TEST-1", "severity": "SEVERE",
+        "target": "pkg/a", "reason": "temporary", "owner": "team",
+        "ticket": "SEC-1", "expires_on": "2026-12-01",
+    }]
+    with pytest.raises(ValueError, match="severity is invalid"):
         validate_policy(policy, today=date(2026, 10, 21))
