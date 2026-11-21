@@ -122,9 +122,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     gen_parser.add_argument("--seed", type=int, default=20260927, help="Deterministic random seed.")
     gen_parser.add_argument("--count", type=int, default=5, help="Number of users/invoices to generate.")
-    gen_parser.add_argument("--min", type=float, default=0, dest="min_val", help="Lower bound for BVA.")
-    gen_parser.add_argument("--max", type=float, default=100, dest="max_val", help="Upper bound for BVA.")
-    gen_parser.add_argument("--step", type=float, default=1, help="Step size for numeric BVA.")
+    gen_parser.add_argument("--min", type=float, default=0.0, dest="min_val", help="Lower bound for BVA.")
+    gen_parser.add_argument("--max", type=float, default=100.0, dest="max_val", help="Upper bound for BVA.")
+    gen_parser.add_argument("--step", type=float, default=1.0, help="Step size for numeric BVA.")
     gen_parser.add_argument("--spec", type=Path, default=None, help="JSON file mapping parameter names to value lists (for pairwise).")
     gen_parser.add_argument("--category", default="all", help="Category for edge-cases (all, strings, numbers, dates, security_probes, json_types).")
     gen_parser.add_argument("--output", type=Path, default=None, help="Optional file path to write JSON output.")
@@ -158,12 +158,17 @@ def _cmd_doctor(as_json: bool) -> int:
     return 0 if report["ready"] else 1
 
 
+def _coerce_numeric(value: int | float) -> int | float:
+    as_float = float(value)
+    return int(as_float) if as_float.is_integer() else as_float
+
+
 def _cmd_generate_data(args: argparse.Namespace) -> int:
     payload: Any
     if args.kind == "bva":
-        min_v: int | float = int(args.min_val) if args.min_val.is_integer() else args.min_val
-        max_v: int | float = int(args.max_val) if args.max_val.is_integer() else args.max_val
-        step_v: int | float = int(args.step) if args.step.is_integer() else args.step
+        min_v = _coerce_numeric(args.min_val)
+        max_v = _coerce_numeric(args.max_val)
+        step_v = _coerce_numeric(args.step)
         payload = [case.to_dict() for case in boundary_value_numeric(min_v, max_v, step=step_v)]
     elif args.kind == "bva-str":
         payload = [
