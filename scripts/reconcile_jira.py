@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from urllib.parse import urlparse
 import zipfile
+
+from saqa.jira import JiraClient, JiraConfig, JiraServiceUnavailableError
 
 try:
     from scripts.sync_jira_ci import classify_run, job_result
@@ -173,6 +177,33 @@ def performance_evidence(selected: dict[str, dict[str, object]], repo: str) -> d
 
 def main() -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
+    fail_on_unavailable = os.environ.get("SAQA_JIRA_FAIL_ON_UNAVAILABLE", "true").strip().lower() not in {"0", "false", "no"}
+    try:
+        with JiraClient(JiraConfig.from_env()) as client:
+            client.verify_access()
+    except JiraServiceUnavailableError as exc:
+        diagnostic = {
+            "status": "BLOCKED",
+            "reason": str(exc),
+            "http_status": exc.status_code,
+            "jira_url": exc.url,
+            "action_required": "Reactivate the Atlassian Cloud Jira site or update repository variable JIRA_BASE_URL.",
+        }
+        print(json.dumps(diagnostic, indent=2))
+        print(f"::warning title=Jira Cloud Unavailable (BLOCKED)::{exc}")
+        summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_file:
+            with Path(summary_file).open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "### Jira Nightly Reconciliation: `BLOCKED`\n\n"
+                    f"- **Reason:** `{exc}`\n"
+                    "- **Action Required:** Reactivate the Atlassian Cloud site or set repository variable `JIRA_BASE_URL`.\n"
+                    "- **Certification Note:** Reconciliation did not succeed and is recorded as `BLOCKED`, never `PASS`.\n"
+                )
+        if fail_on_unavailable:
+            raise SystemExit(1) from exc
+        return
+
     selected = select_common_run()
     if not selected:
         raise SystemExit("No common completed main commit has all mandatory SAQA workflow evidence")
@@ -217,7 +248,7 @@ def main() -> None:
             if evidence_path:
                 env["JIRA_CONTRACT_EVIDENCE_JSON"] = evidence_path
 
-            subprocess.run(["python3", "scripts/sync_jira_ci.py"], env=env, check=True)
+            subprocess.run([sys.executable, "scripts/sync_jira_ci.py"], env=env, check=True)
             print(f"{workflow_name}: reconciled run {run_id} on {common_sha}")
 
 

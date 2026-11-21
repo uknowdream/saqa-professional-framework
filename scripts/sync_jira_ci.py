@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from saqa.jira import JiraClient, JiraConfig, JiraIssueResult
+from saqa.jira import JiraClient, JiraConfig, JiraIssueResult, JiraServiceUnavailableError
 
 ISSUE_SUMMARIES = {
     "QA-1": "SAQA | Test Management Foundation",
@@ -286,7 +286,24 @@ def main() -> None:
         "SAQA k6 Performance": str(performance_records.get("SAQA k6 Performance", "UNVERIFIED")),
     })
     if run.name == "SAQA CI":
-        domain_results = {"QA-1": "PASS", "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")), "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")), "QA-4": api_overall, "QA-5": job_result(jobs, ("Dependency and secret hygiene", "Target authorization policy", "Docker authorized target smoke")), "QA-7": performance_result, "QA-8": job_result(jobs, ("Canonical evidence aggregation",)), "QA-9": overall}
+        domain_results = {
+            "QA-1": "PASS",
+            "QA-2": job_result(jobs, ("Juice Shop E2E", "WebGoat E2E")),
+            "QA-3": job_result(jobs, ("Browser readiness", "Juice Shop E2E", "WebGoat E2E")),
+            "QA-4": api_overall,
+            "QA-5": job_result(
+                jobs,
+                (
+                    "Dependency, SBOM, and secret hygiene",
+                    "Dependency and secret hygiene",
+                    "Target authorization policy",
+                    "Docker authorized target smoke",
+                ),
+            ),
+            "QA-7": performance_result,
+            "QA-8": job_result(jobs, ("Canonical evidence aggregation",)),
+            "QA-9": overall,
+        }
     elif run.name == "SAQA Contract Testing":
         domain_results = {"QA-1": "PASS", "QA-4": api_overall, "QA-9": overall}
     elif run.name == "SAQA Accessibility":
@@ -297,14 +314,40 @@ def main() -> None:
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
 
     workflow_body = (f"SAQA automated CI synchronization\nWorkflow: {run.name}\nRun: #{run.run_number} ({run.run_id})\nResult: {run.result}\nCommit: {run.head_sha}\nBranch: {run.branch}\nURL: {run.url}\nCertification aggregate for {run.head_sha}: {overall}\nNo PASS is inferred when evidence is missing.")
-    with JiraClient(JiraConfig.from_env()) as client:
-        project = client.verify_access()
-        print(f"JIRA project verified: {project.key} / {project.name}")
-        managed = ensure_managed_issues(client)
-        for key, result_value in domain_results.items():
-            issue = managed[key]
-            marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
-            sync_issue(client, key, issue, result_value, f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}", marker, run)
+    fail_on_unavailable = os.environ.get("SAQA_JIRA_FAIL_ON_UNAVAILABLE", "true").strip().lower() not in {"0", "false", "no"}
+    try:
+        with JiraClient(JiraConfig.from_env()) as client:
+            project = client.verify_access()
+            print(f"JIRA project verified: {project.key} / {project.name}")
+            managed = ensure_managed_issues(client)
+            for key, result_value in domain_results.items():
+                issue = managed[key]
+                marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
+                sync_issue(client, key, issue, result_value, f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}", marker, run)
+    except JiraServiceUnavailableError as exc:
+        diagnostic = {
+            "status": "BLOCKED",
+            "reason": str(exc),
+            "http_status": exc.status_code,
+            "jira_url": exc.url,
+            "workflow": run.name,
+            "commit_sha": run.head_sha,
+            "action_required": "Reactivate the Atlassian Cloud Jira site or update repository variable JIRA_BASE_URL.",
+        }
+        print(json.dumps(diagnostic, indent=2))
+        print(f"::warning title=Jira Cloud Unavailable (BLOCKED)::{exc}")
+        summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_file:
+            with Path(summary_file).open("a", encoding="utf-8") as handle:
+                handle.write(
+                    "### Jira QA Synchronization: `BLOCKED`\n\n"
+                    f"- **Reason:** `{exc}`\n"
+                    f"- **Workflow / Commit:** `{run.name}` (`{run.head_sha[:12]}`)\n"
+                    "- **Action Required:** Reactivate the Atlassian Cloud site or set repository variable `JIRA_BASE_URL`.\n"
+                    "- **Certification Note:** Jira sync did not succeed and is recorded as `BLOCKED`, never `PASS`.\n"
+                )
+        if fail_on_unavailable:
+            raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

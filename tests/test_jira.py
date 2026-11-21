@@ -260,3 +260,40 @@ def test_jira_client_uses_basic_auth_header():
         client.close()
     expected = "Basic " + base64.b64encode(b"qa@example.com:secret-token").decode()
     assert seen["authorization"] == expected
+
+
+def test_jira_retries_transient_503_and_recovers() -> None:
+    attempts = {"count": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            return httpx.Response(503, text="Temporary Service Unavailable")
+        return httpx.Response(200, json={"key": "QA", "name": "Quality", "projectTypeKey": "software"})
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0, max_retries=3, retry_backoff_s=0.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        project = client.verify_access()
+    finally:
+        client.close()
+    assert project.key == "QA"
+    assert attempts["count"] == 3
+
+
+def test_jira_raises_service_unavailable_on_persistent_503() -> None:
+    from saqa.jira import JiraServiceUnavailableError
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="<title>Atlassian Cloud Notifications - Product Unavailable</title>")
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0, max_retries=2, retry_backoff_s=0.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+    try:
+        with pytest.raises(JiraServiceUnavailableError, match="Product/Page Unavailable") as exc_info:
+            client.verify_access()
+    finally:
+        client.close()
+    assert exc_info.value.status_code == 503

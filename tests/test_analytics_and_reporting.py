@@ -125,3 +125,24 @@ def test_analyze_history_file_and_render_reports_with_xss_escaping(tmp_path):
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_doc
     assert "&lt;QA Report&gt;" in html_doc
     assert "data-filter=\"FAIL\"" in html_doc
+
+
+def test_render_reports_include_baseline_diff_sections(tmp_path):
+    base_path = tmp_path / "base.json"
+    curr_path = tmp_path / "curr.json"
+    base_recs = [_rec("a", "PASS", 40.0), _rec("b", "FAIL", 50.0), _rec("c", "PASS", 30.0)]
+    curr_recs = [_rec("a", "FAIL", 45.0, reasons=["boom"]), _rec("b", "PASS", 45.0), _rec("c", "PASS", 100.0)]
+    write_manifest(base_recs, base_path)
+    write_manifest(curr_recs, curr_path)
+    diff = compare_manifests(base_path, curr_path)
+    stats = analyze_manifest(curr_path)
+
+    md = render_markdown_report(stats, diff=diff)
+    assert "Baseline Comparison (`REGRESSED`)" in md
+    assert "Regression `a`" in md
+    assert "Latency regression `c`" in md
+
+    html_doc = render_html_report(stats, curr_recs, diff=diff)
+    assert "NEW FAIL" in html_doc
+    assert "FIXED" in html_doc
+    assert "SLOWER" in html_doc

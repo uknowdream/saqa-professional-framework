@@ -203,3 +203,76 @@ def test_contract_evidence_rejects_missing_provenance(tmp_path) -> None:
     path = tmp_path / "contract.json"
     path.write_text(__import__("json").dumps(evidence), encoding="utf-8")
     assert contract_evidence_result(str(path), "expected") == "UNVERIFIED"
+
+
+def test_qa5_security_job_pattern_matches_sbom_job_name() -> None:
+    jobs = [
+        {"name": "Dependency, SBOM, and secret hygiene", "status": "completed", "conclusion": "failure"},
+        {"name": "Target authorization policy", "status": "completed", "conclusion": "success"},
+        {"name": "Docker authorized target smoke", "status": "completed", "conclusion": "success"},
+    ]
+    assert job_result(
+        jobs,
+        (
+            "Dependency, SBOM, and secret hygiene",
+            "Dependency and secret hygiene",
+            "Target authorization policy",
+            "Docker authorized target smoke",
+        ),
+    ) == "FAIL"
+
+
+def test_sync_jira_handles_service_unavailable_with_structured_blocked_diagnostic(tmp_path, monkeypatch, capsys) -> None:
+    import json
+    import scripts.sync_jira_ci as sync_mod
+    from saqa.jira import JiraServiceUnavailableError
+
+    summary_file = tmp_path / "step-summary.md"
+    jobs_file = tmp_path / "jobs.json"
+    runs_file = tmp_path / "runs.json"
+    perf_file = tmp_path / "perf.json"
+    jobs_file.write_text("[]", encoding="utf-8")
+    runs_file.write_text("[]", encoding="utf-8")
+    perf_file.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setenv("JIRA_WORKFLOW_NAME", "SAQA CI")
+    monkeypatch.setenv("JIRA_RUN_ID", "999")
+    monkeypatch.setenv("JIRA_RUN_NUMBER", "1")
+    monkeypatch.setenv("JIRA_RUN_CONCLUSION", "success")
+    monkeypatch.setenv("JIRA_RUN_STATUS", "completed")
+    monkeypatch.setenv("JIRA_HEAD_SHA", "a" * 40)
+    monkeypatch.setenv("JIRA_HEAD_BRANCH", "main")
+    monkeypatch.setenv("JIRA_RUN_URL", "https://github.com/example/run/999")
+    monkeypatch.setenv("JIRA_JOBS_JSON", str(jobs_file))
+    monkeypatch.setenv("JIRA_ALL_RUNS_JSON", str(runs_file))
+    monkeypatch.setenv("JIRA_PERFORMANCE_JSON", str(perf_file))
+    monkeypatch.setenv("JIRA_BASE_URL", "https://jira.example")
+    monkeypatch.setenv("JIRA_EMAIL", "qa@example.com")
+    monkeypatch.setenv("JIRA_API_TOKEN", "runtime-only-token")
+    monkeypatch.setenv("JIRA_PROJECT_KEY", "QA")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary_file))
+
+    class UnavailableClient:
+        def __init__(self, *args, **kwargs):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            return False
+        def verify_access(self):
+            raise JiraServiceUnavailableError("Jira unavailable", status_code=503, url="https://jira.example/rest/api/3/project/QA")
+
+    monkeypatch.setattr(sync_mod, "JiraClient", UnavailableClient)
+
+    # Non-strict mode reports BLOCKED cleanly without raising
+    monkeypatch.setenv("SAQA_JIRA_FAIL_ON_UNAVAILABLE", "false")
+    sync_mod.main()
+    out = capsys.readouterr().out
+    assert '"status": "BLOCKED"' in out
+    assert "BLOCKED" in summary_file.read_text(encoding="utf-8")
+
+    # Strict mode still fails closed
+    monkeypatch.setenv("SAQA_JIRA_FAIL_ON_UNAVAILABLE", "true")
+    with pytest.raises(SystemExit) as exc_info:
+        sync_mod.main()
+    assert exc_info.value.code == 1

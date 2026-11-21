@@ -2,10 +2,22 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, Iterable
 
 import httpx
+
+_RETRYABLE_STATUS_CODES = frozenset({429, 502, 503, 504})
+
+
+class JiraServiceUnavailableError(RuntimeError):
+    """Raised when Jira Cloud is unreachable, hibernated, or returning 5xx/503."""
+
+    def __init__(self, message: str, *, status_code: int | None = None, url: str = "") -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.url = url
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,10 +65,21 @@ class JiraIssueState:
 
 
 class JiraClient:
-    """Jira Cloud client with read-only verification and controlled write-back."""
+    """Jira Cloud client with read-only verification, retry resilience, and controlled write-back."""
 
-    def __init__(self, config: JiraConfig, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        config: JiraConfig,
+        timeout: float = 15.0,
+        *,
+        max_retries: int = 3,
+        retry_backoff_s: float | None = None,
+    ) -> None:
+        if max_retries < 1:
+            raise ValueError("max_retries must be at least 1")
         self.config = config
+        self.max_retries = max_retries
+        self.retry_backoff_s = (0.0 if timeout <= 1.0 else 0.5) if retry_backoff_s is None else max(0.0, retry_backoff_s)
         self._client = httpx.Client(
             base_url=config.base_url,
             auth=(config.email, config.api_token),
@@ -78,10 +101,54 @@ class JiraClient:
         if response.status_code in {401, 403}:
             raise RuntimeError(f"Jira {action} authorization failed (HTTP {response.status_code})")
 
+    def _raise_unavailable(self, response: httpx.Response | None, path: str, exc: Exception | None = None) -> None:
+        target = f"{self.config.base_url}{path}"
+        if response is not None:
+            body_preview = response.text[:500] if response.text else ""
+            hint = ""
+            if "Product Unavailable" in body_preview or "Page Unavailable" in body_preview:
+                hint = " (Atlassian Cloud reports Product/Page Unavailable — verify the Jira site is active)"
+            raise JiraServiceUnavailableError(
+                f"Jira service unavailable at {target} (HTTP {response.status_code}){hint}",
+                status_code=response.status_code,
+                url=target,
+            )
+        raise JiraServiceUnavailableError(
+            f"Jira service unreachable at {target}: {exc}",
+            status_code=None,
+            url=target,
+        ) from exc
+
+    def _get_with_retry(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        action: str = "authentication",
+    ) -> httpx.Response:
+        last_response: httpx.Response | None = None
+        last_exc: Exception | None = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = self._client.get(path, params=params)
+            except httpx.TransportError as exc:
+                last_exc = exc
+                if attempt < self.max_retries and self.retry_backoff_s > 0:
+                    time.sleep(self.retry_backoff_s * attempt)
+                continue
+            self._raise_for_auth(response, action)
+            if response.status_code in _RETRYABLE_STATUS_CODES:
+                last_response = response
+                if attempt < self.max_retries and self.retry_backoff_s > 0:
+                    time.sleep(self.retry_backoff_s * attempt)
+                continue
+            response.raise_for_status()
+            return response
+        self._raise_unavailable(last_response, path, last_exc)
+        raise AssertionError("unreachable")  # pragma: no cover
+
     def verify_access(self) -> JiraProjectResult:
-        response = self._client.get(f"/rest/api/3/project/{self.config.project_key}")
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
+        response = self._get_with_retry(f"/rest/api/3/project/{self.config.project_key}")
         payload = response.json()
         return JiraProjectResult(
             str(payload.get("key", "")),
@@ -95,7 +162,7 @@ class JiraClient:
         start_at = 0
         page_size = min(max_results, 100)
         while len(result) < max_results:
-            response = self._client.get(
+            response = self._get_with_retry(
                 "/rest/api/3/search/jql",
                 params={
                     "jql": f"project = {self.config.project_key}",
@@ -104,8 +171,6 @@ class JiraClient:
                     "fields": "summary,labels",
                 },
             )
-            self._raise_for_auth(response, "authentication")
-            response.raise_for_status()
             payload = response.json()
             issues = payload.get("issues", [])
             if not isinstance(issues, list):
@@ -127,12 +192,10 @@ class JiraClient:
 
     def search_issues(self, jql: str, max_results: int = 100) -> list[JiraIssueResult]:
         """Search Jira issues using an explicit JQL query."""
-        response = self._client.get(
+        response = self._get_with_retry(
             "/rest/api/3/search/jql",
             params={"jql": jql, "maxResults": max_results, "fields": "summary"},
         )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
         return [
             JiraIssueResult(
                 str(item["key"]),
@@ -145,7 +208,7 @@ class JiraClient:
 
     def find_bootstrap_issues(self) -> dict[str, JiraIssueResult]:
         """Return existing SAQA bootstrap work items, keyed by exact summary."""
-        response = self._client.get(
+        response = self._get_with_retry(
             "/rest/api/3/search/jql",
             params={
                 "jql": f"project = {self.config.project_key} AND labels = saqa-bootstrap",
@@ -153,8 +216,6 @@ class JiraClient:
                 "fields": "summary",
             },
         )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
         issues = response.json().get("issues", [])
         return {
             str(i["fields"]["summary"]): JiraIssueResult(
@@ -167,12 +228,10 @@ class JiraClient:
         }
 
     def get_issue_state(self, issue_key: str) -> JiraIssueState:
-        response = self._client.get(
+        response = self._get_with_retry(
             f"/rest/api/3/issue/{issue_key}",
             params={"fields": "status,labels"},
         )
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
         fields = response.json().get("fields", {})
         status = fields.get("status") or {}
         return JiraIssueState(
@@ -186,12 +245,10 @@ class JiraClient:
         comments: list[dict[str, Any]] = []
         start_at = 0
         for _ in range(max_pages):
-            response = self._client.get(
+            response = self._get_with_retry(
                 f"/rest/api/3/issue/{issue_key}/comment",
                 params={"startAt": start_at, "maxResults": 100, "orderBy": "-created"},
             )
-            self._raise_for_auth(response, "authentication")
-            response.raise_for_status()
             payload = response.json()
             batch = payload.get("comments", [])
             if not isinstance(batch, list):
@@ -266,9 +323,7 @@ class JiraClient:
 
     def transition_to_any(self, issue_key: str, target_statuses: Iterable[str]) -> str | None:
         """Transition only when Jira exposes an exact matching available destination status."""
-        response = self._client.get(f"/rest/api/3/issue/{issue_key}/transitions")
-        self._raise_for_auth(response, "authentication")
-        response.raise_for_status()
+        response = self._get_with_retry(f"/rest/api/3/issue/{issue_key}/transitions")
         wanted = {status.casefold() for status in target_statuses}
         current = self.get_issue_state(issue_key).status
         for transition in response.json().get("transitions", []):

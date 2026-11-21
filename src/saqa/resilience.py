@@ -1,7 +1,10 @@
 """Deterministic retry/resilience primitives for safe test doubles."""
 from __future__ import annotations
+
 from collections.abc import Callable
+
 import httpx
+
 
 def retry_read_only(operation: Callable[[], object], *, attempts: int = 3) -> tuple[object, int]:
     if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
@@ -12,5 +15,6 @@ def retry_read_only(operation: Callable[[], object], *, attempts: int = 3) -> tu
             return operation(), attempt
         except (TimeoutError, ConnectionError, httpx.TransportError) as exc:
             last = exc
-    assert last is not None
+    if last is None:  # pragma: no cover - defensive guard for python -O
+        raise RuntimeError("retry_read_only exhausted without capturing an exception")
     raise last
