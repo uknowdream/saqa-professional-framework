@@ -1,0 +1,90 @@
+{
+  "schema": "saqa.suite.v1",
+  "name": "juice-shop-qa-smoke",
+  "base_url": "http://127.0.0.1:3000",
+  "allow_remote": false,
+  "default_timeout_s": 10.0,
+  "follow_redirects": false,
+  "max_retries": 1,
+  "default_headers": {
+    "Accept": "application/json"
+  },
+  "variables": {
+    "search_term": "apple"
+  },
+  "cases": [
+    {
+      "id": "home-page-reachable",
+      "name": "Homepage loads within SLA without unhandled errors",
+      "path": "/",
+      "method": "GET",
+      "tags": ["smoke", "web"],
+      "expect": {
+        "status": 200,
+        "max_ms": 1500,
+        "body_not_contains": ["Traceback", "ReferenceError", "SQLITE_ERROR"]
+      }
+    },
+    {
+      "id": "product-search-contract",
+      "name": "Product search returns valid JSON contract and at least one item",
+      "path": "/rest/products/search",
+      "query": {
+        "q": "{{search_term}}"
+      },
+      "method": "GET",
+      "tags": ["smoke", "api", "contract"],
+      "expect": {
+        "status": 200,
+        "max_ms": 1500,
+        "headers": {
+          "content-type": {
+            "contains": "application/json"
+          }
+        },
+        "json_required_fields": ["status", "data"],
+        "json_paths": [
+          {
+            "path": "status",
+            "equals": "success",
+            "type": "string"
+          },
+          {
+            "path": "data",
+            "type": "array",
+            "min_length": 1
+          },
+          {
+            "path": "data[0].id",
+            "type": "integer",
+            "min": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "admin-app-config-schema",
+      "name": "Application configuration endpoint exposes expected structure",
+      "path": "/rest/admin/application-configuration",
+      "method": "GET",
+      "tags": ["api", "config"],
+      "expect": {
+        "status": 200,
+        "max_ms": 1500,
+        "headers": {
+          "content-type": {
+            "contains": "application/json"
+          }
+        },
+        "json_required_fields": ["config"],
+        "json_paths": [
+          {
+            "path": "config.application.name",
+            "type": "string",
+            "min_length": 1
+          }
+        ]
+      }
+    }
+  ]
+}

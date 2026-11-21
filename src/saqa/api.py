@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+
+
+_UNSET = object()
+_PATH_TOKEN_RE = re.compile(r"([^\.\[\]]+)|\[(\d+)\]")
 
 
 @dataclass(frozen=True)
@@ -25,6 +30,19 @@ class ApiResponse:
 
     def json(self) -> Any:
         return json.loads(self.body.decode("utf-8"))
+
+    @property
+    def text(self) -> str:
+        """Decode body as UTF-8 text without raising on invalid byte sequences."""
+        return self.body.decode("utf-8", errors="replace")
+
+    def header(self, name: str, default: str | None = None) -> str | None:
+        """Case-insensitive HTTP header lookup."""
+        target = name.lower()
+        for key, value in self.headers.items():
+            if key.lower() == target:
+                return value
+        return default
 
     @property
     def ok(self) -> bool:
@@ -244,3 +262,125 @@ def _json_type_matches(value: Any, expected: type | tuple[type, ...]) -> bool:
 def _type_names(expected: type | tuple[type, ...]) -> str:
     expected_types = expected if isinstance(expected, tuple) else (expected,)
     return " or ".join(item.__name__ for item in expected_types)
+
+
+def resolve_json_path(payload: Any, path: str) -> Any:
+    """Resolve dotted and list-indexed JSON paths such as ``data.items[0].id``."""
+    cleaned = path.strip()
+    if cleaned.startswith("$."):
+        cleaned = cleaned[2:]
+    elif cleaned == "$":
+        return payload
+    if not cleaned:
+        raise ValueError("JSON path must not be empty")
+
+    tokens = _PATH_TOKEN_RE.findall(cleaned)
+    reconstructed = "".join(f"[{idx}]" if idx else key for key, idx in tokens)
+    if reconstructed.replace(".", "") != cleaned.replace(".", "") or not tokens:
+        raise ValueError(f"invalid JSON path syntax: {path!r}")
+
+    current: Any = payload
+    for key, index_str in tokens:
+        if key:
+            if not isinstance(current, dict) or key not in current:
+                raise KeyError(f"JSON path {path!r} failed at key {key!r}")
+            current = current[key]
+        else:
+            idx = int(index_str)
+            if not isinstance(current, list) or idx < 0 or idx >= len(current):
+                raise IndexError(f"JSON path {path!r} failed at index [{idx}]")
+            current = current[idx]
+    return current
+
+
+def assert_status(response: ApiResponse, expected: int | Sequence[int]) -> None:
+    """Assert that the observed HTTP status matches expected status code(s)."""
+    allowed = (expected,) if isinstance(expected, int) else tuple(expected)
+    if not allowed:
+        raise ValueError("expected status codes must not be empty")
+    if response.status_code not in allowed:
+        raise AssertionError(
+            f"unexpected HTTP status {response.status_code}, expected "
+            f"{', '.join(str(code) for code in allowed)}"
+            + (f" ({response.error})" if response.error else "")
+        )
+
+
+def assert_response_time(response: ApiResponse, *, max_ms: float) -> None:
+    """Assert that response latency stays within the configured SLA budget."""
+    if max_ms <= 0:
+        raise ValueError("max_ms must be positive")
+    if response.elapsed_ms > max_ms:
+        raise AssertionError(
+            f"response time {response.elapsed_ms:.2f}ms exceeded SLA budget {max_ms:.2f}ms"
+        )
+
+
+def assert_header(
+    response: ApiResponse,
+    name: str,
+    *,
+    equals: str | None = None,
+    contains: str | None = None,
+    regex: str | None = None,
+) -> str:
+    """Assert presence and optional exact/substring/regex match of a response header."""
+    value = response.header(name)
+    if value is None:
+        raise AssertionError(f"missing response header: {name}")
+    if equals is not None and value != equals:
+        raise AssertionError(f"header {name!r} was {value!r}, expected {equals!r}")
+    if contains is not None and contains.lower() not in value.lower():
+        raise AssertionError(f"header {name!r} ({value!r}) does not contain {contains!r}")
+    if regex is not None and re.search(regex, value) is None:
+        raise AssertionError(f"header {name!r} ({value!r}) does not match pattern {regex!r}")
+    return value
+
+
+def assert_json_path(
+    response: ApiResponse,
+    path: str,
+    *,
+    equals: Any = _UNSET,
+    expected_type: type | tuple[type, ...] | None = None,
+    min_value: int | float | None = None,
+    max_value: int | float | None = None,
+    regex: str | None = None,
+    min_length: int | None = None,
+    max_length: int | None = None,
+) -> Any:
+    """Assert value, type, numeric bounds, length, or regex at a nested JSON path."""
+    if response.error:
+        raise AssertionError(response.error)
+    try:
+        payload = response.json()
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise AssertionError("response body is not valid JSON") from exc
+
+    try:
+        value = resolve_json_path(payload, path)
+    except (KeyError, IndexError) as exc:
+        raise AssertionError(str(exc)) from exc
+
+    if expected_type is not None and not _json_type_matches(value, expected_type):
+        raise AssertionError(
+            f"JSON path {path!r} has type {type(value).__name__}, expected {_type_names(expected_type)}"
+        )
+    if equals is not _UNSET and value != equals:
+        raise AssertionError(f"JSON path {path!r} was {value!r}, expected {equals!r}")
+    if min_value is not None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < min_value:
+            raise AssertionError(f"JSON path {path!r} value {value!r} is below minimum {min_value}")
+    if max_value is not None:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value > max_value:
+            raise AssertionError(f"JSON path {path!r} value {value!r} exceeds maximum {max_value}")
+    if regex is not None:
+        if not isinstance(value, str) or re.search(regex, value) is None:
+            raise AssertionError(f"JSON path {path!r} value {value!r} does not match pattern {regex!r}")
+    if min_length is not None:
+        if not isinstance(value, (str, list, dict)) or len(value) < min_length:
+            raise AssertionError(f"JSON path {path!r} length is below minimum {min_length}")
+    if max_length is not None:
+        if not isinstance(value, (str, list, dict)) or len(value) > max_length:
+            raise AssertionError(f"JSON path {path!r} length exceeds maximum {max_length}")
+    return value

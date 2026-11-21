@@ -378,6 +378,47 @@ The advanced QE layer now produces Allure-compatible result files, append-only h
 
 A mature implementation distinguishes stable PASS, flaky candidates, and stable failures. Flaky detection must never silently hide failures; quarantined tests remain visible and traceable with their reason and history.
 
+## ⚡ SAQA CLI Command Center & Quality Intelligence (v2.2)
+
+After installing the package (`pip install -e ".[test]"`), you can drive day-to-day QA workflows directly through the unified `saqa` CLI (or `python -m saqa`):
+
+```bash
+# Check workstation readiness (Python version & optional runtimes)
+saqa doctor
+
+# Scaffold a declarative read-only API/HTTP QA suite
+saqa init-suite my-suite.json --base-url http://127.0.0.1:3000
+
+# Run a declarative suite, emit SHA-256 evidence, compare baseline, track history, and build reports
+saqa run-suite examples/juice-shop-suite.json \
+  --output-dir artifacts/suite \
+  --html artifacts/suite/report.html \
+  --md artifacts/suite/report.md \
+  --history artifacts/history.jsonl \
+  --commit-sha $(git rev-parse HEAD)
+
+# Verify tamper-evident evidence integrity & run Quality Intelligence analytics
+saqa verify-manifest artifacts/suite/evidence-manifest.json
+saqa analyze artifacts/suite/evidence-manifest.json
+saqa analyze artifacts/history.jsonl
+
+# Compare two runs for new failures, fixes, and latency regressions
+saqa diff baseline-manifest.json artifacts/suite/evidence-manifest.json --fail-on-regression
+
+# Generate deterministic black-box test design matrices & synthetic QA data
+saqa generate-data bva --min 1 --max 100
+saqa generate-data pairwise --seed 42
+saqa generate-data users --count 10 --seed 42
+saqa generate-data edge-cases --category all
+```
+
+Key v2.2 modules under `src/saqa/`:
+
+- **`saqa.runner`** — Declarative JSON QA suite executor with JSONPath assertions, latency SLA budgets, schema-drift snapshots, bounded safe retries, and loopback-first safety guards.
+- **`saqa.test_design`** — Deterministic Boundary Value Analysis (numeric & string), Equivalence Partitioning, 100%-coverage Pairwise (All-Pairs) combinatorial generator, Decision Table evaluator, State Transition graph coverage (valid + negative probes), Error-Guessing payloads, and `SyntheticDataFactory`.
+- **`saqa.analytics`** — Quality Health Score (0–100 + A–F grade), linear-interpolated latency percentiles (`p50`/`p90`/`p95`/`p99`), cross-run regression diffing, and hash-chained history flakiness ranking with quarantine recommendations.
+- **`saqa.reporting`** — Offline-ready, XSS-safe interactive HTML5 QA dashboard and executive Markdown reporter.
+
 ## 🛡️ Safe Adversarial Testing
 
 Useful safe categories on isolated authorized targets include malformed-input handling, boundary values, invalid API contract cases, missing/extra fields, unexpected state transitions, safe header/configuration checks, and deterministic retry/resilience behavior.
