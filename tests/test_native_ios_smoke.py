@@ -149,8 +149,11 @@ def test_extraction_restores_executable_mode_and_ignores_nested_companion_apps(t
         zipped.write(nested / "Info.plist", "Payload/Main.app/WatchCompanion.app/Info.plist")
     found = extract_app_bundle(archive, tmp_path / "extracted")
     assert found.name == "Main.app"
-    mode = (found / "MainExecutable").stat().st_mode
-    assert mode & stat.S_IXUSR
+    if os.name == "posix":
+        mode = (found / "MainExecutable").stat().st_mode
+        assert mode & stat.S_IXUSR
+    else:
+        assert (found / "MainExecutable").is_file()
 
 
 def test_missing_xcrun_writes_blocked_native_evidence(tmp_path, monkeypatch):
