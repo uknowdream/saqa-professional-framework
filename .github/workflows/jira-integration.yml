@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  JIRA_BASE_URL: ${{ vars.JIRA_BASE_URL || 'https://dreamedx.atlassian.net' }}
+  JIRA_BASE_URL: ${{ vars.JIRA_BASE_URL || 'https://dreamexx.atlassian.net' }}
   JIRA_EMAIL: ${{ vars.JIRA_EMAIL || 'teukusaiful7@gmail.com' }}
   JIRA_PROJECT_KEY: ${{ vars.JIRA_PROJECT_KEY || 'QA' }}
 
