@@ -276,3 +276,84 @@ def test_sync_jira_handles_service_unavailable_with_structured_blocked_diagnosti
     with pytest.raises(SystemExit) as exc_info:
         sync_mod.main()
     assert exc_info.value.code == 1
+
+
+def test_sync_manifest_to_jira_updates_all_9_domains_and_creates_bug_on_failure(tmp_path):
+    from saqa.evidence import EvidenceRecord, utc_now, write_manifest
+    from saqa.jira import JiraConfig, JiraProjectResult
+    from saqa.jira_sync import ISSUE_SUMMARIES, sync_manifest_to_jira
+
+    class FakeSuiteJiraClient:
+        def __init__(self) -> None:
+            self.config = JiraConfig("https://jira.example", "qa@example.com", "token", "QA")
+            self.issues = {
+                summary: JiraIssueResult(key, str(idx), f"https://jira.example/browse/{key}")
+                for idx, (key, summary) in enumerate(ISSUE_SUMMARIES.items(), start=1)
+            }
+            self.labels_updated: list[tuple[str, tuple[str, ...]]] = []
+            self.transitions: list[tuple[str, str]] = []
+            self.comments: list[tuple[str, str]] = []
+            self.bugs: list[str] = []
+
+        def verify_access(self) -> JiraProjectResult:
+            return JiraProjectResult("QA", "SAQA Quality", "software")
+
+        def find_project_issues(self) -> dict[str, JiraIssueResult]:
+            return dict(self.issues)
+
+        def get_issue_state(self, issue_key: str) -> JiraIssueState:
+            return JiraIssueState(issue_key, "Backlog", ("saqa-bootstrap", "saqa-ci-fail"))
+
+        def update_labels(self, issue_key: str, *, add=(), remove=()) -> None:
+            self.labels_updated.append((issue_key, tuple(add)))
+
+        def transition_to_any(self, issue_key: str, target_statuses) -> str:
+            first = next(iter(target_statuses))
+            self.transitions.append((issue_key, first))
+            return first
+
+        def add_comment_once(self, issue_key: str, body: str, marker: str) -> bool:
+            self.comments.append((issue_key, marker))
+            return True
+
+        def search_issues(self, jql: str, max_results: int = 100):
+            return []
+
+        def create_bug(self, summary: str, description: str, labels: list[str]) -> JiraIssueResult:
+            self.bugs.append(summary)
+            return JiraIssueResult("QA-99", "99", "https://jira.example/browse/QA-99")
+
+        def close(self) -> None:
+            pass
+
+    manifest_path = tmp_path / "suite-manifest.json"
+    write_manifest(
+        [
+            EvidenceRecord(
+                test_id="web-home",
+                status="PASS",
+                observed_at=utc_now(),
+                target="https://www.dreamex.tech",
+                details={"suite": "dreamex-suite", "tags": ["web", "smoke"], "elapsed_ms": 120.0},
+            ),
+            EvidenceRecord(
+                test_id="api-broken",
+                status="FAIL",
+                observed_at=utc_now(),
+                target="https://www.dreamex.tech",
+                details={"suite": "dreamex-suite", "tags": ["api"], "elapsed_ms": 210.0},
+            ),
+        ],
+        manifest_path,
+    )
+
+    fake_client = FakeSuiteJiraClient()
+    summary = sync_manifest_to_jira(manifest_path, client=fake_client)  # type: ignore[arg-type]
+    assert summary["project_key"] == "QA"
+    assert summary["suite_name"] == "dreamex-suite"
+    assert len(summary["synced_issues"]) == 9
+    by_domain = {item["domain"]: item for item in summary["synced_issues"]}
+    assert by_domain["QA-2"]["status"] == "PASS"
+    assert by_domain["QA-4"]["status"] == "FAIL"
+    assert len(fake_client.comments) == 9
+    assert len(summary["created_bugs"]) >= 1

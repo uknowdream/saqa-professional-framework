@@ -18,6 +18,7 @@ from .analytics import (
 )
 from .evidence import verify_manifest
 from .history import append_history
+from .jira_sync import sync_manifest_to_jira, sync_records_to_jira
 from .reporting import render_html_report, render_markdown_report
 from .runner import create_starter_suite, load_suite_file, run_suite
 from .target_registry import DEFAULT_TARGETS
@@ -71,7 +72,20 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--baseline", type=Path, default=None, help="Optional baseline manifest for regression diff.")
     run_parser.add_argument("--history", type=Path, default=None, help="Optional hash-chained history JSONL file.")
     run_parser.add_argument("--commit-sha", default=None, help="Commit SHA recorded when appending to --history.")
+    run_parser.add_argument(
+        "--sync-jira",
+        action="store_true",
+        help="Automatically synchronize suite evidence, labels, transitions, and comments to Jira.",
+    )
     run_parser.add_argument("--json", action="store_true", dest="as_json", help="Print full analytics JSON to stdout.")
+
+    sync_jira_parser = subparsers.add_parser(
+        "sync-jira",
+        help="Synchronize a verified SAQA evidence manifest directly into Jira Cloud (QA-1..QA-9).",
+    )
+    sync_jira_parser.add_argument("manifest", type=Path, help="Path to verified evidence manifest JSON.")
+    sync_jira_parser.add_argument("--suite-name", default=None, help="Optional suite name override.")
+    sync_jira_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
     verify_parser = subparsers.add_parser(
         "verify-manifest",
@@ -289,17 +303,47 @@ def main(argv: Sequence[str] | None = None) -> int:
                 encoding="utf-8",
             )
 
+        jira_summary = None
+        if args.sync_jira:
+            jira_summary = sync_records_to_jira(
+                result.records,
+                suite_name=result.suite_name,
+                manifest_sha256=result.manifest_sha256,
+            )
+
         if args.as_json:
-            print(json.dumps({"analytics": result.analytics, "diff": diff}, indent=2))
+            print(json.dumps({"analytics": result.analytics, "diff": diff, "jira": jira_summary}, indent=2))
         else:
             a = result.analytics
+            jira_msg = (
+                f" | Jira {jira_summary['project_key']} ({len(jira_summary['synced_issues'])} issues synced)"
+                if jira_summary
+                else ""
+            )
             print(
                 f"SUITE {result.suite_name}: {a['overall_status']} | "
                 f"Health {a['health_score']}/100 ({a['health_grade']}) | "
                 f"Pass {a['pass_rate_pct']}% | P95 {a['latency']['p95_ms']}ms | "
-                f"Manifest {result.manifest_path}"
+                f"Manifest {result.manifest_path}{jira_msg}"
             )
         return 0 if result.passed else 1
+
+    if args.command == "sync-jira":
+        jira_summary = sync_manifest_to_jira(args.manifest, suite_name=args.suite_name)
+        if args.as_json:
+            print(json.dumps(jira_summary, indent=2))
+        else:
+            print(
+                f"JIRA_SYNC_PASS: project={jira_summary['project_key']} "
+                f"suite={jira_summary['suite_name']} status={jira_summary['overall_status']} "
+                f"issues_synced={len(jira_summary['synced_issues'])}"
+            )
+            for item in jira_summary["synced_issues"]:
+                print(
+                    f"  - {item['issue_key']} ({item['domain']}): {item['status']} "
+                    f"[{item['label']}] -> {item['transitioned_to'] or 'unchanged'} | {item['issue_url']}"
+                )
+        return 0
 
     if args.command == "verify-manifest":
         ok = verify_manifest(args.path)
