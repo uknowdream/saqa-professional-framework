@@ -7,6 +7,12 @@ from .contracts import Evidence, ResultStatus, is_certification_safe, validate_e
 from .jira_sync import sync_manifest_to_jira, sync_records_to_jira
 from .reporting import render_html_report, render_markdown_report
 from .runner import SuiteExecutionResult, create_starter_suite, load_suite_file, run_suite
+from .visual_evidence import (
+    capture_web_screenshot,
+    export_csv_matrix,
+    render_analytics_svg,
+    render_scorecard_png,
+)
 from .test_design import (
     DecisionRule,
     DesignedCase,
@@ -35,18 +41,22 @@ __all__ = [
     "analyze_records",
     "boundary_value_numeric",
     "boundary_value_string",
+    "capture_web_screenshot",
     "compare_manifests",
     "compute_latency_stats",
     "create_starter_suite",
     "equivalence_partitions",
     "error_guessing_payloads",
     "evaluate_decision_table",
+    "export_csv_matrix",
     "generate_decision_table_cases",
     "is_certification_safe",
     "load_suite_file",
     "pairwise_matrix",
+    "render_analytics_svg",
     "render_html_report",
     "render_markdown_report",
+    "render_scorecard_png",
     "run_suite",
     "state_transition_paths",
     "sync_manifest_to_jira",

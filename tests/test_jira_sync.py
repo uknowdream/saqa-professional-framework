@@ -357,3 +357,88 @@ def test_sync_manifest_to_jira_updates_all_9_domains_and_creates_bug_on_failure(
     assert by_domain["QA-4"]["status"] == "FAIL"
     assert len(fake_client.comments) == 9
     assert len(summary["created_bugs"]) >= 1
+
+
+def test_sync_manifest_to_jira_uploads_visuals_epics_timeline_and_resolves_stale_bugs(tmp_path):
+    from saqa.evidence import EvidenceRecord, utc_now, write_manifest
+    from saqa.jira import JiraConfig, JiraProjectResult
+    from saqa.jira_sync import ISSUE_SUMMARIES, sync_manifest_to_jira
+
+    class EnterpriseFakeJiraClient:
+        def __init__(self) -> None:
+            self.config = JiraConfig("https://jira.example", "qa@example.com", "token", "QA")
+            self.issues = {
+                summary: JiraIssueResult(key, str(idx), f"https://jira.example/browse/{key}")
+                for idx, (key, summary) in enumerate(ISSUE_SUMMARIES.items(), start=1)
+            }
+            self.issues["[SAQA-AUTO] QA-4 | SAQA CI | run 100"] = JiraIssueResult(
+                "QA-10", "10", "https://jira.example/browse/QA-10"
+            )
+            self.epics: list[str] = []
+            self.field_updates: list[tuple[str, dict]] = []
+            self.attachments: list[tuple[str, str]] = []
+            self.adf_comments: list[str] = []
+            self.statuses: dict[str, str] = {"QA-10": "Backlog"}
+
+        def verify_access(self) -> JiraProjectResult:
+            return JiraProjectResult("QA", "SAQA Quality", "software")
+
+        def get_myself_account_id(self) -> str:
+            return "acc-123"
+
+        def find_project_issues(self) -> dict[str, JiraIssueResult]:
+            return dict(self.issues)
+
+        def create_epic(self, summary, description_adf, labels, *, start_date=None, due_date=None, assignee_id=None):
+            key = f"QA-{20 + len(self.epics)}"
+            self.epics.append(key)
+            issue = JiraIssueResult(key, str(20 + len(self.epics)), f"https://jira.example/browse/{key}")
+            self.issues[summary] = issue
+            return issue
+
+        def get_issue_state(self, issue_key: str) -> JiraIssueState:
+            return JiraIssueState(issue_key, self.statuses.get(issue_key, "Backlog"), ("saqa-bootstrap",))
+
+        def update_labels(self, issue_key: str, *, add=(), remove=()) -> None:
+            pass
+
+        def update_issue_fields(self, issue_key: str, fields) -> None:
+            self.field_updates.append((issue_key, dict(fields)))
+
+        def transition_to_any(self, issue_key: str, target_statuses) -> str:
+            first = next(iter(target_statuses))
+            self.statuses[issue_key] = first
+            return first
+
+        def add_adf_comment_once(self, issue_key: str, adf_doc, marker: str) -> bool:
+            self.adf_comments.append(issue_key)
+            return True
+
+        def upload_attachment(self, issue_key: str, file_path, *, replace_existing: bool = True):
+            self.attachments.append((issue_key, file_path.name))
+            return {"filename": file_path.name}
+
+        def close(self) -> None:
+            pass
+
+    manifest_path = tmp_path / "evidence-manifest.json"
+    write_manifest(
+        [
+            EvidenceRecord(
+                test_id="api-ok",
+                status="PASS",
+                observed_at=utc_now(),
+                target="https://www.dreamex.tech",
+                details={"suite": "dreamex-suite", "tags": ["api", "web"], "elapsed_ms": 95.0},
+            )
+        ],
+        manifest_path,
+    )
+
+    client = EnterpriseFakeJiraClient()
+    summary = sync_manifest_to_jira(manifest_path, client=client)  # type: ignore[arg-type]
+    assert len(summary["synced_epics"]) == 3
+    assert "QA-10" in summary["resolved_bugs"]
+    uploaded_names = {name for _, name in client.attachments}
+    assert {"qa-scorecard.png", "qa-analytics-chart.svg", "qa-test-matrix.csv", "report.html", "report.md"}.issubset(uploaded_names)
+    assert any("customfield_10015" in fields and "duedate" in fields for _, fields in client.field_updates)

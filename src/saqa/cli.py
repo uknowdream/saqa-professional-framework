@@ -21,6 +21,7 @@ from .history import append_history
 from .jira_sync import sync_manifest_to_jira, sync_records_to_jira
 from .reporting import render_html_report, render_markdown_report
 from .runner import create_starter_suite, load_suite_file, run_suite
+from .visual_evidence import capture_web_screenshot
 from .target_registry import DEFAULT_TARGETS
 from .test_design import (
     SyntheticDataFactory,
@@ -75,17 +76,50 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--sync-jira",
         action="store_true",
-        help="Automatically synchronize suite evidence, labels, transitions, and comments to Jira.",
+        help="Automatically synchronize suite evidence, Timeline Epics, Rich ADF tables, photos, and reports to Jira.",
+    )
+    run_parser.add_argument(
+        "--screenshot",
+        action="store_true",
+        help="Capture live Desktop & Mobile PNG screenshots of the target URL and attach them to Jira.",
+    )
+    run_parser.add_argument(
+        "--attach",
+        action="append",
+        type=Path,
+        default=[],
+        help="Additional document/photo path(s) to upload to Jira (repeatable).",
     )
     run_parser.add_argument("--json", action="store_true", dest="as_json", help="Print full analytics JSON to stdout.")
 
     sync_jira_parser = subparsers.add_parser(
         "sync-jira",
-        help="Synchronize a verified SAQA evidence manifest directly into Jira Cloud (QA-1..QA-9).",
+        help="Synchronize a verified SAQA evidence manifest, visual PNGs, and reports directly into Jira Cloud.",
     )
     sync_jira_parser.add_argument("manifest", type=Path, help="Path to verified evidence manifest JSON.")
     sync_jira_parser.add_argument("--suite-name", default=None, help="Optional suite name override.")
+    sync_jira_parser.add_argument(
+        "--screenshot",
+        action="store_true",
+        help="Capture live Desktop & Mobile PNG screenshots of the target URL and attach them to Jira.",
+    )
+    sync_jira_parser.add_argument(
+        "--attach",
+        action="append",
+        type=Path,
+        default=[],
+        help="Additional document/photo path(s) to upload to Jira (repeatable).",
+    )
     sync_jira_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
+    shot_parser = subparsers.add_parser(
+        "capture-screenshot",
+        help="Capture a live PNG screenshot of an authorized HTTP(S) website.",
+    )
+    shot_parser.add_argument("url", help="Target HTTP(S) URL.")
+    shot_parser.add_argument("output", type=Path, help="Destination PNG file path.")
+    shot_parser.add_argument("--width", type=int, default=1440, help="Viewport width in pixels.")
+    shot_parser.add_argument("--height", type=int, default=900, help="Viewport height in pixels.")
 
     verify_parser = subparsers.add_parser(
         "verify-manifest",
@@ -305,10 +339,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         jira_summary = None
         if args.sync_jira:
+            attach_list: list[Path] = []
+            for candidate in (result.manifest_path, result.summary_path, args.html, args.md, *args.attach):
+                if candidate is not None and candidate.is_file():
+                    attach_list.append(candidate)
             jira_summary = sync_records_to_jira(
                 result.records,
                 suite_name=result.suite_name,
                 manifest_sha256=result.manifest_sha256,
+                attachments=attach_list,
+                artifact_dir=args.output_dir,
+                auto_generate_visuals=True,
+                capture_screenshots=bool(args.screenshot),
             )
 
         if args.as_json:
@@ -316,7 +358,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             a = result.analytics
             jira_msg = (
-                f" | Jira {jira_summary['project_key']} ({len(jira_summary['synced_issues'])} issues synced)"
+                f" | Jira {jira_summary['project_key']} ("
+                f"{len(jira_summary.get('synced_epics', []))} epics, "
+                f"{len(jira_summary['synced_issues'])} issues, "
+                f"{len(jira_summary.get('uploaded_attachments', []))} attachments, "
+                f"{len(jira_summary.get('resolved_bugs', []))} bugs resolved)"
                 if jira_summary
                 else ""
             )
@@ -329,20 +375,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.passed else 1
 
     if args.command == "sync-jira":
-        jira_summary = sync_manifest_to_jira(args.manifest, suite_name=args.suite_name)
+        jira_summary = sync_manifest_to_jira(
+            args.manifest,
+            suite_name=args.suite_name,
+            attachments=args.attach or None,
+            auto_generate_visuals=True,
+            capture_screenshots=bool(args.screenshot),
+        )
         if args.as_json:
             print(json.dumps(jira_summary, indent=2))
         else:
             print(
                 f"JIRA_SYNC_PASS: project={jira_summary['project_key']} "
                 f"suite={jira_summary['suite_name']} status={jira_summary['overall_status']} "
-                f"issues_synced={len(jira_summary['synced_issues'])}"
+                f"epics_synced={len(jira_summary.get('synced_epics', []))} "
+                f"issues_synced={len(jira_summary['synced_issues'])} "
+                f"attachments_uploaded={len(jira_summary.get('uploaded_attachments', []))} "
+                f"bugs_resolved={len(jira_summary.get('resolved_bugs', []))}"
             )
+            for ep in jira_summary.get("synced_epics", []):
+                print(f"  * EPIC {ep['epic_key']} ({ep['phase_id']}): {ep['status']} -> {ep['transitioned_to'] or 'unchanged'} | {ep['epic_url']}")
             for item in jira_summary["synced_issues"]:
                 print(
                     f"  - {item['issue_key']} ({item['domain']}): {item['status']} "
-                    f"[{item['label']}] -> {item['transitioned_to'] or 'unchanged'} | {item['issue_url']}"
+                    f"[{item['label']}] epic={item.get('parent_epic')} "
+                    f"timeline={item.get('start_date')}..{item.get('due_date')} "
+                    f"-> {item['transitioned_to'] or 'unchanged'} | {item['issue_url']}"
                 )
+            if jira_summary.get("resolved_bugs"):
+                print(f"  * AUTO_RESOLVED_BUGS: {', '.join(jira_summary['resolved_bugs'])}")
+        return 0
+
+    if args.command == "capture-screenshot":
+        saved = capture_web_screenshot(args.url, args.output, width=args.width, height=args.height)
+        if saved is None:
+            print("SCREENSHOT_UNAVAILABLE: neither Playwright nor Chromium/Edge binary was found", file=sys.stderr)
+            return 1
+        print(f"SCREENSHOT_SAVED: {saved}")
         return 0
 
     if args.command == "verify-manifest":

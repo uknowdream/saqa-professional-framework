@@ -4,11 +4,29 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from saqa.analytics import analyze_records
+from saqa.evidence import EvidenceRecord, utc_now
 from saqa.jira import JiraClient, JiraConfig, JiraIssueResult, JiraServiceUnavailableError
+from saqa.jira_sync import (
+    DOMAIN_PRIORITIES,
+    DOMAIN_TIMELINE_OFFSETS,
+    WIB,
+    _adf_heading,
+    _adf_paragraph,
+    _adf_status_lozenge,
+    _adf_text,
+    _ensure_epics_and_issues,
+    _resolve_stale_auto_bugs,
+    build_environment_adf,
+)
+from saqa.reporting import render_markdown_report
+from saqa.visual_evidence import render_scorecard_png
 
 ISSUE_SUMMARIES = {
     "QA-1": "SAQA | Test Management Foundation",
@@ -222,17 +240,101 @@ def create_failure_bug_once(client: JiraClient, key: str, issue: JiraIssueResult
     )
 
 
-def sync_issue(client: JiraClient, key: str, issue: JiraIssueResult, result: str, body: str, marker: str, run: RunSummary) -> None:
+def _build_ci_comment_adf(key: str, result: str, body: str, marker: str, run: RunSummary, start_date: str, due_date: str) -> dict[str, Any]:
+    panel_type = "success" if result == "PASS" else ("error" if result == "FAIL" else "warning")
+    return {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "panel",
+                "attrs": {"panelType": panel_type},
+                "content": [
+                    _adf_paragraph(
+                        _adf_text(f"CI Control-Plane Sync — {key} ({ISSUE_SUMMARIES.get(key, key)})  ", bold=True),
+                        _adf_status_lozenge(result),
+                    ),
+                    _adf_paragraph(
+                        _adf_text("Workflow: ", bold=True),
+                        _adf_text(f"{run.name} #{run.run_number}", code=True),
+                        _adf_text(" | Commit: ", bold=True),
+                        _adf_text(run.head_sha[:12], code=True),
+                        _adf_text(" | Timeline: ", bold=True),
+                        _adf_text(f"{start_date} -> {due_date}", code=True),
+                    ),
+                ],
+            },
+            _adf_heading(4, "CI Evidence Details"),
+            {"type": "codeBlock", "attrs": {"language": "text"}, "content": [_adf_text(body)]},
+            _adf_paragraph(_adf_text(marker, code=True)),
+        ],
+    }
+
+
+def sync_issue(
+    client: JiraClient,
+    key: str,
+    issue: JiraIssueResult,
+    result: str,
+    body: str,
+    marker: str,
+    run: RunSummary,
+    *,
+    epic_key: str | None = None,
+    assignee_id: str | None = None,
+) -> None:
     state = client.get_issue_state(issue.key)
     label = run_label(result)
     remove = tuple(existing for existing in STATUS_LABELS if existing in state.labels and existing != label)
-    add = tuple(label_name for label_name in ("saqa-automation", label) if label_name not in state.labels)
+    add = tuple(label_name for label_name in ("saqa-automation", f"saqa-{key.lower()}", label) if label_name not in state.labels)
     if add or remove:
         client.update_labels(issue.key, add=add, remove=remove)
-    added = client.add_comment_once(issue.key, body, marker)
+
+    today = datetime.now(WIB)
+    start_off, due_off = DOMAIN_TIMELINE_OFFSETS.get(key, (-7, 7))
+    start_date = (today + timedelta(days=start_off)).strftime("%Y-%m-%d")
+    due_date = (today + timedelta(days=due_off)).strftime("%Y-%m-%d")
+
+    if hasattr(client, "update_issue_fields"):
+        priority_name = "Highest" if result == "FAIL" else DOMAIN_PRIORITIES.get(key, "High")
+        fields_payload: dict[str, Any] = {
+            "customfield_10015": start_date,
+            "duedate": due_date,
+            "priority": {"name": priority_name},
+            "environment": build_environment_adf(
+                target_display=run.url or f"github:{run.branch}",
+                suite_name=run.name,
+                manifest_sha256=run.head_sha,
+            ),
+        }
+        if epic_key:
+            fields_payload["parent"] = {"key": epic_key}
+        if assignee_id:
+            fields_payload["assignee"] = {"accountId": assignee_id}
+        client.update_issue_fields(issue.key, fields_payload)
+
+    if hasattr(client, "add_adf_comment_once"):
+        comment_adf = _build_ci_comment_adf(key, result, body, marker, run, start_date, due_date)
+        added = client.add_adf_comment_once(issue.key, comment_adf, marker)
+    else:
+        added = client.add_comment_once(issue.key, body, marker)
+
     transitioned = client.transition_to_any(issue.key, transition_targets(result))
     defect = create_failure_bug_once(client, key, issue, run, result, body)
-    print(f"JIRA {key} ({issue.key}): result={result} comment={'added' if added else 'exists'} transition={transitioned or 'unchanged'} defect={defect.key if defect else 'none'}")
+    resolved_bugs = []
+    if result == "PASS":
+        resolved_bugs = _resolve_stale_auto_bugs(
+            client,
+            domain_key=key,
+            suite_name=run.name,
+            manifest_sha256=run.head_sha,
+            today_str=today.strftime("%Y-%m-%d"),
+        )
+    print(
+        f"JIRA {key} ({issue.key}): result={result} timeline={start_date}..{due_date} "
+        f"comment={'added' if added else 'exists'} transition={transitioned or 'unchanged'} "
+        f"defect={defect.key if defect else 'none'} resolved_bugs={len(resolved_bugs)}"
+    )
 
 
 def main() -> None:
@@ -320,10 +422,53 @@ def main() -> None:
             project = client.verify_access()
             print(f"JIRA project verified: {project.key} / {project.name}")
             managed = ensure_managed_issues(client)
+            today = datetime.now(WIB)
+            assignee_id = client.get_myself_account_id() if hasattr(client, "get_myself_account_id") else None
+            _, epic_key_by_domain, _ = _ensure_epics_and_issues(client, today=today, assignee_id=assignee_id)
             for key, result_value in domain_results.items():
                 issue = managed[key]
                 marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
-                sync_issue(client, key, issue, result_value, f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}", marker, run)
+                sync_issue(
+                    client,
+                    key,
+                    issue,
+                    result_value,
+                    f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
+                    marker,
+                    run,
+                    epic_key=epic_key_by_domain.get(key),
+                    assignee_id=assignee_id,
+                )
+
+            # Attach visual CI scorecard PNG and Markdown executive report to QA-1, QA-8, QA-9
+            if hasattr(client, "upload_attachment"):
+                ci_records = [
+                    EvidenceRecord(
+                        test_id=f"{dom}-{ISSUE_SUMMARIES[dom]}",
+                        status=res if res in {"PASS", "FAIL", "BLOCKED", "UNVERIFIED"} else "UNVERIFIED",
+                        observed_at=utc_now(),
+                        target=run.url or f"https://github.com/commit/{run.head_sha}",
+                        details={"workflow": run.name, "commit_sha": run.head_sha, "elapsed_ms": 100.0},
+                    )
+                    for dom, res in sorted(domain_results.items())
+                ]
+                ci_analytics = analyze_records(ci_records, manifest_sha256=run.head_sha)
+                with tempfile.TemporaryDirectory(prefix="saqa-ci-jira-") as tmp_dir:
+                    scorecard_png = render_scorecard_png(
+                        ci_analytics,
+                        ci_records,
+                        Path(tmp_dir) / "qa-ci-scorecard.png",
+                        title=f"SAQA CI | {run.name}",
+                    )
+                    ci_md = Path(tmp_dir) / "qa-ci-report.md"
+                    ci_md.write_text(
+                        render_markdown_report(ci_analytics, title=f"SAQA CI Report — {run.name} ({run.head_sha[:7]})"),
+                        encoding="utf-8",
+                    )
+                    for attach_key in ("QA-1", "QA-8", "QA-9"):
+                        if attach_key in managed:
+                            client.upload_attachment(managed[attach_key].key, scorecard_png)
+                            client.upload_attachment(managed[attach_key].key, ci_md)
     except JiraServiceUnavailableError as exc:
         diagnostic = {
             "status": "BLOCKED",

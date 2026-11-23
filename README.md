@@ -389,13 +389,21 @@ saqa doctor
 # Scaffold a declarative read-only API/HTTP QA suite
 saqa init-suite my-suite.json --base-url http://127.0.0.1:3000
 
-# Run a declarative suite, emit SHA-256 evidence, compare baseline, track history, and build reports
+# Run a declarative suite, capture live Desktop/Mobile screenshots, generate reports, and auto-sync to Jira (Epics, Timeline, Rich ADF, Photos & Docs)
 saqa run-suite examples/juice-shop-suite.json \
   --output-dir artifacts/suite \
   --html artifacts/suite/report.html \
   --md artifacts/suite/report.md \
   --history artifacts/history.jsonl \
-  --commit-sha $(git rev-parse HEAD)
+  --commit-sha $(git rev-parse HEAD) \
+  --screenshot \
+  --sync-jira
+
+# Or synchronize any verified manifest + reports/photos directly to Jira:
+saqa sync-jira artifacts/suite/evidence-manifest.json --screenshot
+
+# Capture a live website PNG screenshot (Playwright or headless Chrome/Edge):
+saqa capture-screenshot https://www.dreamex.tech artifacts/screenshot.png --width 1440 --height 900
 
 # Verify tamper-evident evidence integrity & run Quality Intelligence analytics
 saqa verify-manifest artifacts/suite/evidence-manifest.json

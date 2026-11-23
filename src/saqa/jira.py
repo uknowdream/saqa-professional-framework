@@ -4,7 +4,8 @@ from __future__ import annotations
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Iterable
+from pathlib import Path
+from typing import Any, Iterable, Mapping
 
 import httpx
 
@@ -341,6 +342,102 @@ class JiraClient:
                 self._raise_for_auth(transition_response, "transition write")
                 transition_response.raise_for_status()
                 return destination
+        return None
+
+    def get_myself_account_id(self) -> str | None:
+        """Return the authenticated Jira user's accountId when available."""
+        response = self._get_with_retry("/rest/api/3/myself")
+        account_id = response.json().get("accountId")
+        return str(account_id) if account_id else None
+
+    def create_epic(
+        self,
+        summary: str,
+        description_adf: Mapping[str, Any],
+        labels: list[str],
+        *,
+        start_date: str | None = None,
+        due_date: str | None = None,
+        assignee_id: str | None = None,
+    ) -> JiraIssueResult:
+        """Create a Jira Epic for Timeline / Roadmap grouping."""
+        fields: dict[str, Any] = {
+            "project": {"key": self.config.project_key},
+            "issuetype": {"name": "Epic"},
+            "summary": summary,
+            "description": dict(description_adf),
+            "labels": labels,
+        }
+        if start_date:
+            fields["customfield_10015"] = start_date
+        if due_date:
+            fields["duedate"] = due_date
+        if assignee_id:
+            fields["assignee"] = {"accountId": assignee_id}
+        response = self._client.post("/rest/api/3/issue", json={"fields": fields})
+        self._raise_for_auth(response, "epic write")
+        response.raise_for_status()
+        result = response.json()
+        key = str(result["key"])
+        return JiraIssueResult(key, str(result["id"]), f"{self.config.base_url}/browse/{key}")
+
+    def update_issue_fields(self, issue_key: str, fields: Mapping[str, Any]) -> None:
+        """Update rich issue fields (description ADF, timeline dates, parent epic, priority, environment)."""
+        if not fields:
+            return
+        response = self._client.put(f"/rest/api/3/issue/{issue_key}", json={"fields": dict(fields)})
+        self._raise_for_auth(response, "field update")
+        response.raise_for_status()
+
+    def add_adf_comment_once(self, issue_key: str, adf_doc: Mapping[str, Any], marker: str) -> bool:
+        """Add a rich Atlassian Document Format (ADF) comment only if marker is not present."""
+        for comment in self.get_issue_comments(issue_key):
+            if marker in str(comment):
+                return False
+        response = self._client.post(
+            f"/rest/api/3/issue/{issue_key}/comment",
+            json={"body": dict(adf_doc)},
+        )
+        self._raise_for_auth(response, "comment")
+        response.raise_for_status()
+        return True
+
+    def upload_attachment(
+        self,
+        issue_key: str,
+        file_path: Path,
+        *,
+        replace_existing: bool = True,
+    ) -> dict[str, Any] | None:
+        """Attach a report or evidence file directly to a Jira issue."""
+        if not file_path.is_file():
+            return None
+        if replace_existing:
+            issue_resp = self._get_with_retry(
+                f"/rest/api/3/issue/{issue_key}",
+                params={"fields": "attachment"},
+            )
+            attachments = (issue_resp.json().get("fields") or {}).get("attachment") or []
+            for att in attachments:
+                if isinstance(att, dict) and att.get("filename") == file_path.name and att.get("id"):
+                    self._client.delete(f"/rest/api/3/attachment/{att['id']}")
+
+        content = file_path.read_bytes()
+        response = httpx.post(
+            f"{self.config.base_url}/rest/api/3/issue/{issue_key}/attachments",
+            auth=(self.config.email, self.config.api_token),
+            headers={
+                "Accept": "application/json",
+                "X-Atlassian-Token": "no-check",
+            },
+            files={"file": (file_path.name, content)},
+            timeout=30.0,
+        )
+        self._raise_for_auth(response, "attachment upload")
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, list) and payload:
+            return dict(payload[0])
         return None
 
 
