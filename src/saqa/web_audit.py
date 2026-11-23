@@ -407,15 +407,29 @@ def run_deep_web_audit(
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     redacted_target = redact_url(target_url)
     suite_name = f"deep-audit-{parsed.hostname}"
+    default_headers = {
+        "User-Agent": "SAQA-Professional-Framework/2.3.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Encoding": "identity",
+    }
     records: list[EvidenceRecord] = []
     findings: list[dict[str, Any]] = []
 
     # Fetch primary landing page
-    landing = requester(target_url, method="GET", timeout=timeout, follow_redirects=True, use_environment_proxies=False)
-    if landing.status_code == 0 and landing.error:
+    landing = requester(
+        target_url,
+        method="GET",
+        headers=default_headers,
+        timeout=timeout,
+        follow_redirects=True,
+        use_environment_proxies=False,
+    )
+    if (landing.status_code == 0 and landing.error) or landing.status_code >= 400:
+        status_val = "BLOCKED" if landing.status_code in {0, 403, 429} else "FAIL"
+        reason = landing.error or f"Landing page returned HTTP {landing.status_code}"
         blocked_rec = EvidenceRecord(
             test_id="deep-audit.landing-reachability",
-            status="BLOCKED",
+            status=status_val,
             observed_at=utc_now(),
             target=redacted_target,
             details={
@@ -423,9 +437,9 @@ def run_deep_web_audit(
                 "case_name": "Landing page reachability",
                 "tags": ["web", "smoke"],
                 "http_method": "GET",
-                "status_code": 0,
+                "status_code": landing.status_code,
                 "elapsed_ms": round(landing.elapsed_ms, 3),
-                "failure_reasons": [landing.error],
+                "failure_reasons": [reason],
             },
         )
         records.append(blocked_rec)
@@ -585,7 +599,7 @@ def run_deep_web_audit(
 
     discoverability: dict[str, int] = {}
     for meta_path in ("/robots.txt", "/sitemap.xml", "/manifest.webmanifest"):
-        resp = requester(f"{base_url}{meta_path}", method="GET", timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+        resp = requester(f"{base_url}{meta_path}", method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
         discoverability[meta_path] = resp.status_code
         if resp.status_code == 200:
             seo_checks.append(f"endpoint:{meta_path}")
@@ -656,7 +670,7 @@ def run_deep_web_audit(
     broken_links: list[dict[str, Any]] = []
     asset_latencies: list[float] = []
     for u in checked_urls:
-        resp = requester(u, method="GET", timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+        resp = requester(u, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
         asset_latencies.append(round(resp.elapsed_ms, 2))
         if resp.status_code == 0 or resp.status_code >= 400:
             broken_links.append({"url": u, "status_code": resp.status_code, "error": resp.error})
@@ -701,7 +715,7 @@ def run_deep_web_audit(
     exposure_failures: list[str] = []
     exposure_checks: list[str] = []
     for probe_path in ("/.env", "/.git/HEAD"):
-        probe_resp = requester(f"{base_url}{probe_path}", method="GET", timeout=timeout, follow_redirects=False, use_environment_proxies=False)
+        probe_resp = requester(f"{base_url}{probe_path}", method="GET", headers=default_headers, timeout=timeout, follow_redirects=False, use_environment_proxies=False)
         leaked = probe_resp.status_code == 200 and any(pat.search(probe_resp.text) for pat in _SENSITIVE_PATTERNS)
         if leaked:
             exposure_failures.append(f"CRITICAL: Sensitive file exposed at {probe_path} (HTTP 200)")
@@ -730,7 +744,7 @@ def run_deep_web_audit(
     # ── PILLAR 7: Multi-Sample Performance & Caching Consistency Profile ──────
     sample_times: list[float] = [round(landing.elapsed_ms, 3)]
     for _ in range(max(0, perf_samples - 1)):
-        s_resp = requester(target_url, method="GET", timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+        s_resp = requester(target_url, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
         if s_resp.status_code > 0:
             sample_times.append(round(s_resp.elapsed_ms, 3))
 

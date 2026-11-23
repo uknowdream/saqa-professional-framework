@@ -142,3 +142,15 @@ def test_run_deep_web_audit_rejects_invalid_and_credentialed_urls():
         run_deep_web_audit("ftp://example.test")
     with pytest.raises(ValueError, match="embedded credentials"):
         run_deep_web_audit("https://user:pass@example.test/")
+
+
+def test_run_deep_web_audit_marks_waf_403_as_blocked_and_sends_user_agent():
+    seen_headers: list[dict[str, str]] = []
+
+    def waf_req(url, **kwargs):
+        seen_headers.append(dict(kwargs.get("headers") or {}))
+        return ApiResponse(403, {"Content-Type": "text/html"}, b"<html>Blocked</html>", 25.0, error="HTTP 403")
+
+    result = run_deep_web_audit("https://example.test/", requester=waf_req)
+    assert result.analytics["overall_status"] == "BLOCKED"
+    assert "SAQA-Professional-Framework" in seen_headers[0].get("User-Agent", "")
