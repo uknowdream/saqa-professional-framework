@@ -405,6 +405,12 @@ saqa sync-jira artifacts/suite/evidence-manifest.json --screenshot
 # Capture a live website PNG screenshot (Playwright or headless Chrome/Edge):
 saqa capture-screenshot https://www.dreamex.tech artifacts/screenshot.png --width 1440 --height 900
 
+# Run a zero-code 7-pillar Deep Website QA Audit (TLS cert expiry, OWASP headers & cookies, WCAG 2.2 DOM, SEO/JSON-LD, broken links, exposure hygiene, perf) + screenshots + Jira sync:
+saqa deep-audit https://www.dreamex.tech/ --output-dir artifacts/deep-audit --screenshot --sync-jira
+
+# Auto-generate or execute read-only contract tests directly from any OpenAPI 3.x / Swagger 2.0 spec:
+saqa audit-openapi contracts/juice-shop.openapi.json --base-url http://127.0.0.1:3000
+
 # Verify tamper-evident evidence integrity & run Quality Intelligence analytics
 saqa verify-manifest artifacts/suite/evidence-manifest.json
 saqa analyze artifacts/suite/evidence-manifest.json

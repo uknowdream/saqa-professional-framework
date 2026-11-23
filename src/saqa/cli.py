@@ -18,10 +18,9 @@ from .analytics import (
 )
 from .evidence import verify_manifest
 from .history import append_history
-from .jira_sync import sync_manifest_to_jira, sync_records_to_jira
+from .openapi_audit import audit_openapi_spec, generate_suite_from_openapi, load_openapi_spec
 from .reporting import render_html_report, render_markdown_report
 from .runner import create_starter_suite, load_suite_file, run_suite
-from .visual_evidence import capture_web_screenshot
 from .target_registry import DEFAULT_TARGETS
 from .test_design import (
     SyntheticDataFactory,
@@ -31,6 +30,8 @@ from .test_design import (
     pairwise_matrix,
     verify_pairwise_coverage,
 )
+from .visual_evidence import capture_web_screenshot
+from .web_audit import run_deep_web_audit
 
 
 def _check_module(name: str) -> bool:
@@ -120,6 +121,36 @@ def _build_parser() -> argparse.ArgumentParser:
     shot_parser.add_argument("output", type=Path, help="Destination PNG file path.")
     shot_parser.add_argument("--width", type=int, default=1440, help="Viewport width in pixels.")
     shot_parser.add_argument("--height", type=int, default=900, help="Viewport height in pixels.")
+
+    deep_parser = subparsers.add_parser(
+        "deep-audit",
+        help="Run a 7-pillar automated deep website QA audit (TLS, OWASP headers, WCAG DOM, SEO/JSON-LD, broken links, exposure hygiene, perf).",
+    )
+    deep_parser.add_argument("url", help="Authorized target HTTP(S) URL to audit.")
+    deep_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("artifacts/deep-audit"),
+        help="Directory for manifest, HTML/MD/CSV reports, PNG scorecard, SVG chart, and screenshots.",
+    )
+    deep_parser.add_argument("--max-links", type=int, default=18, help="Maximum unique internal links/assets to verify.")
+    deep_parser.add_argument("--samples", type=int, default=3, help="Number of latency samples for performance profile.")
+    deep_parser.add_argument("--screenshot", action="store_true", help="Capture live Desktop & Mobile screenshots.")
+    deep_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync deep audit results, photos, and reports to Jira.")
+    deep_parser.add_argument("--attach", action="append", type=Path, default=[], help="Extra files to attach to Jira.")
+    deep_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
+    openapi_parser = subparsers.add_parser(
+        "audit-openapi",
+        help="Auto-generate and/or execute read-only contract tests from an OpenAPI 3.x / Swagger 2.0 JSON spec.",
+    )
+    openapi_parser.add_argument("spec", type=Path, help="Path to OpenAPI/Swagger JSON file.")
+    openapi_parser.add_argument("--base-url", default="http://127.0.0.1:3000", help="Target API base URL.")
+    openapi_parser.add_argument("--allow-remote", action="store_true", help="Allow authorized non-loopback target URL.")
+    openapi_parser.add_argument("--export-suite", type=Path, default=None, help="Export generated SAQA suite JSON without executing.")
+    openapi_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/openapi-audit"), help="Directory for execution evidence.")
+    openapi_parser.add_argument("--sync-jira", action="store_true", help="Synchronize audit results directly to Jira.")
+    openapi_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
     verify_parser = subparsers.add_parser(
         "verify-manifest",
@@ -339,6 +370,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         jira_summary = None
         if args.sync_jira:
+            from .jira_sync import sync_records_to_jira
+
             attach_list: list[Path] = []
             for candidate in (result.manifest_path, result.summary_path, args.html, args.md, *args.attach):
                 if candidate is not None and candidate.is_file():
@@ -375,6 +408,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0 if result.passed else 1
 
     if args.command == "sync-jira":
+        from .jira_sync import sync_manifest_to_jira
+
         jira_summary = sync_manifest_to_jira(
             args.manifest,
             suite_name=args.suite_name,
@@ -413,6 +448,79 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 1
         print(f"SCREENSHOT_SAVED: {saved}")
         return 0
+
+    if args.command == "deep-audit":
+        result = run_deep_web_audit(
+            args.url,
+            output_dir=args.output_dir,
+            max_links=args.max_links,
+            perf_samples=args.samples,
+        )
+        captured: list[Path] = []
+        if args.screenshot:
+            for label, w, h in (("desktop", 1440, 900), ("mobile", 390, 844)):
+                shot = capture_web_screenshot(args.url, args.output_dir / f"screenshot-{label}.png", width=w, height=h)
+                if shot is not None:
+                    captured.append(shot)
+
+        jira_summary = None
+        if args.sync_jira and result.manifest_path is not None:
+            from .jira_sync import sync_manifest_to_jira
+
+            jira_summary = sync_manifest_to_jira(
+                result.manifest_path,
+                attachments=[*captured, *args.attach] or None,
+                auto_generate_visuals=True,
+                capture_screenshots=False,
+            )
+
+        if args.as_json:
+            print(json.dumps({"analytics": result.analytics, "findings": list(result.findings), "jira": jira_summary}, indent=2))
+        else:
+            a = result.analytics
+            jira_msg = (
+                f" | Jira {jira_summary['project_key']} ({len(jira_summary['synced_issues'])} issues, "
+                f"{len(jira_summary.get('uploaded_attachments', []))} attachments)"
+                if jira_summary
+                else ""
+            )
+            print(
+                f"DEEP_AUDIT {result.target_url}: {a['overall_status']} | "
+                f"Health {a['health_score']}/100 ({a['health_grade']}) | "
+                f"Pass {a['pass_rate_pct']}% ({a['status_counts']['PASS']}/{a['total_records']}) | "
+                f"Findings {len(result.findings)} | Out {args.output_dir}{jira_msg}"
+            )
+        return 0 if result.passed else 1
+
+    if args.command == "audit-openapi":
+        if args.export_suite is not None:
+            spec = load_openapi_spec(args.spec)
+            suite = generate_suite_from_openapi(spec, base_url=args.base_url, allow_remote=args.allow_remote)
+            args.export_suite.parent.mkdir(parents=True, exist_ok=True)
+            args.export_suite.write_text(json.dumps(suite, indent=2) + "\n", encoding="utf-8")
+            print(f"OPENAPI_SUITE_EXPORTED: {args.export_suite} ({len(suite['cases'])} GET endpoint(s))")
+            return 0
+        result = audit_openapi_spec(
+            args.spec,
+            base_url=args.base_url,
+            allow_remote=args.allow_remote,
+            output_dir=args.output_dir,
+        )
+        jira_summary = None
+        if args.sync_jira and result.manifest_path is not None:
+            from .jira_sync import sync_manifest_to_jira
+
+            jira_summary = sync_manifest_to_jira(result.manifest_path, auto_generate_visuals=True)
+        if args.as_json:
+            print(json.dumps({"analytics": result.analytics, "jira": jira_summary}, indent=2))
+        else:
+            a = result.analytics
+            print(
+                f"OPENAPI_AUDIT {result.suite_name}: {a['overall_status']} | "
+                f"Health {a['health_score']}/100 ({a['health_grade']}) | "
+                f"Pass {a['pass_rate_pct']}% | Manifest {result.manifest_path}"
+            )
+        return 0 if result.passed else 1
 
     if args.command == "verify-manifest":
         ok = verify_manifest(args.path)

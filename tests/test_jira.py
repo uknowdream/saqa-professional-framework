@@ -297,3 +297,57 @@ def test_jira_raises_service_unavailable_on_persistent_503() -> None:
     finally:
         client.close()
     assert exc_info.value.status_code == 503
+
+
+def test_jira_enterprise_methods_epic_fields_adf_comment_and_attachment(tmp_path, monkeypatch) -> None:
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path))
+        if request.url.path == "/rest/api/3/myself":
+            return httpx.Response(200, json={"accountId": "acc-42"})
+        if request.method == "POST" and request.url.path == "/rest/api/3/issue":
+            return httpx.Response(201, json={"id": "20001", "key": "QA-20"})
+        if request.method == "PUT" and request.url.path == "/rest/api/3/issue/QA-1":
+            return httpx.Response(204)
+        if request.method == "GET" and request.url.path == "/rest/api/3/issue/QA-1/comment":
+            return httpx.Response(200, json={"comments": [], "total": 0})
+        if request.method == "POST" and request.url.path == "/rest/api/3/issue/QA-1/comment":
+            return httpx.Response(201, json={"id": "30001"})
+        if request.method == "GET" and request.url.path == "/rest/api/3/issue/QA-1":
+            return httpx.Response(200, json={"fields": {"attachment": [{"id": "att-old", "filename": "demo.txt"}]}})
+        if request.method == "DELETE" and request.url.path == "/rest/api/3/attachment/att-old":
+            return httpx.Response(204)
+        return httpx.Response(404)
+
+    config = JiraConfig("https://jira.example", "qa@example.com", "secret-token", "QA")
+    client = JiraClient(config, timeout=1.0, max_retries=1, retry_backoff_s=0.0)
+    client._client = httpx.Client(transport=httpx.MockTransport(handler), base_url=config.base_url)
+
+    sample_file = tmp_path / "demo.txt"
+    sample_file.write_text("qa evidence", encoding="utf-8")
+
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda url, **kwargs: httpx.Response(200, json=[{"id": "att-new", "filename": "demo.txt"}], request=httpx.Request("POST", url)),
+    )
+
+    try:
+        assert client.get_myself_account_id() == "acc-42"
+        epic = client.create_epic(
+            "SAQA Epic | Phase 1",
+            {"type": "doc", "version": 1, "content": []},
+            ["saqa-epic"],
+            start_date="2026-11-01",
+            due_date="2026-11-15",
+            assignee_id="acc-42",
+        )
+        assert epic.key == "QA-20"
+        client.update_issue_fields("QA-1", {"customfield_10015": "2026-11-01", "duedate": "2026-11-10"})
+        assert client.add_adf_comment_once("QA-1", {"type": "doc", "version": 1, "content": []}, "[M1]") is True
+        att = client.upload_attachment("QA-1", sample_file)
+        assert att is not None and att["filename"] == "demo.txt"
+    finally:
+        client.close()
+    assert ("DELETE", "/rest/api/3/attachment/att-old") in seen
