@@ -260,3 +260,76 @@ def translate_recommendation(rec: str, lang: str = "en") -> str:
     out = out.replace("Unblock environment/target dependencies for:", "Buka hambatan lingkungan/target pengujian untuk:")
     out = out.replace("Investigate high P95 latency", "Investigasi latensi P95 yang tinggi")
     return out
+
+
+_CASE_NAME_ID_MAP: dict[str, str] = {
+    "Pillar 1 — TLS/SSL Protocol & Certificate Expiry Audit": "Pilar 1 — Audit Protokol TLS/SSL & Masa Berlaku Sertifikat",
+    "Pillar 1 — TLS/SSL Audit (HTTP target)": "Pilar 1 — Audit TLS/SSL (Target HTTP)",
+    "Pillar 2 — OWASP Security Headers & Cookie Hygiene Audit": "Pilar 2 — Audit Header Keamanan OWASP & Sanitasi Cookie",
+    "Pillar 3 — WCAG 2.2 Semantic DOM Accessibility Audit": "Pilar 3 — Audit Aksesibilitas DOM Semantik WCAG 2.2",
+    "Pillar 4 — SEO Metadata, JSON-LD & Discoverability Audit": "Pilar 4 — Audit Metadata SEO, JSON-LD & Keterlacakan Situs",
+    "Pillar 5 — Automated Broken Link, Static Asset & Mixed-Content Crawler": "Pilar 5 — Perayap Tautan Rusak, Aset Statis & Mixed-Content",
+    "Pillar 6 — Read-Only Sensitive Dotfile Exposure Hygiene Audit": "Pilar 6 — Audit Proteksi Eksposur File Sensitif (.env / .git)",
+    "Pillar 7 — Multi-Sample Performance, Payload & Cache Profile": "Pilar 7 — Profil Performa Multi-Sampel, Ukuran Muatan & Cache",
+    "Pillar 8 — Post-JS SPA Rendered DOM, Core Web Vitals & Runtime Audit": "Pilar 8 — Audit DOM Pasca-Render JS (SPA), Core Web Vitals & Runtime",
+    "Pillar 9 — CORS, SRI, RFC 9116, Mobile App-Links & GraphQL Security Audit": "Pilar 9 — Audit Keamanan CORS, SRI, RFC 9116, Universal Links Mobile & GraphQL",
+    "Responsive Multi-Viewport Matrix (Desktop / Tablet / Mobile)": "Matriks Responsif Multi-Layar (Desktop / Tablet / Mobile)",
+    "Mobile Pillar 1 — Package SHA-256 Integrity, Size Budget & Code Signing": "Pilar Mobile 1 — Integritas Paket SHA-256, Batas Ukuran & Tanda Tangan Kode",
+    "Mobile Pillar 2 — App Manifest, Debuggability & HTTPS Transport Security": "Pilar Mobile 2 — Manifes Aplikasi, Proteksi Debug & Keamanan Transpor HTTPS",
+    "Mobile Pillar 3 — Runtime Permissions & Store Privacy Compliance": "Pilar Mobile 3 — Izin Akses Perangkat & Kepatuhan Privasi App Store/Play Store",
+    "Mobile Pillar 4 — Embedded Secret Scan & 64-Bit Store ABI Readiness": "Pilar Mobile 4 — Pemindaian Kredensial Tertanam & Kesiapan ABI 64-Bit",
+    "Mobile Pillar 5 — Maestro E2E Mobile UI Flow": "Pilar Mobile 5 — Alur UI E2E Aplikasi Mobile (Maestro)",
+    "Landing page reachability": "Keterjangkauan Halaman Utama",
+}
+
+_FINDING_SUBSTR_ID_MAP: tuple[tuple[str, str], ...] = (
+    (
+        "Both Content-Security-Policy and Content-Security-Policy-Report-Only are sent simultaneously",
+        "Header Content-Security-Policy dan Content-Security-Policy-Report-Only dikirim bersamaan",
+    ),
+    ("Recommended baseline headers absent:", "Header keamanan dasar yang disarankan belum terpasang:"),
+    ("Missing Cache-Control header on landing page", "Header Cache-Control tidak ditemukan pada halaman utama"),
+    ("Missing <meta name='description'>", "Elemen <meta name='description'> tidak ditemukan"),
+    ("Missing <link rel='canonical'>", "Elemen <link rel='canonical'> tidak ditemukan"),
+    ("Incomplete OpenGraph metadata (og:title / og:description)", "Metadata OpenGraph belum lengkap (og:title / og:description)"),
+    ("No <main> landmark found in initial HTML", "Elemen landmark <main> belum ditemukan pada HTML awal"),
+    (
+        "No <h1> landmark heading found in initial server HTML (may be client-rendered)",
+        "Elemen <h1> belum ditemukan pada HTML awal server (dirender di sisi klien)",
+    ),
+    ("Missing lang attribute on <html> element", "Atribut lang tidak ditemukan pada elemen <html>"),
+    ("Missing or empty <title> element", "Elemen <title> kosong atau tidak ditemukan"),
+    ("Viewport meta disables pinch-to-zoom", "Meta viewport menonaktifkan fitur perbesar layar (pinch-to-zoom)"),
+    ("Horizontal layout overflow on", "Tata letak meluap secara horizontal pada layar"),
+    ("broken link/asset(s) found:", "tautan/aset rusak ditemukan:"),
+    ("CRITICAL: Sensitive file exposed at", "KRITIS: File sensitif terekspos secara publik pada"),
+    ("CRITICAL: Hardcoded secret(s) detected inside mobile bundle:", "KRITIS: Kredensial rahasia tertanam ditemukan di dalam paket mobile:"),
+    ("GraphQL Introspection is publicly enabled on /graphql", "GraphQL Introspection aktif secara publik pada /graphql"),
+    ("external third-party <script> tag(s) missing Subresource Integrity (SRI)", "tag <script> pihak ketiga belum dilengkapi Subresource Integrity (SRI)"),
+)
+
+
+def translate_case_name(case_name: str, lang: str = "en") -> str:
+    """Localize canonical SAQA scenario / pillar names into Bahasa Indonesia when lang='id'."""
+    if normalize_lang(lang) != "id":
+        return case_name
+    if case_name in _CASE_NAME_ID_MAP:
+        return _CASE_NAME_ID_MAP[case_name]
+    if case_name.startswith("Multi-Page Sitemap & BFS Deep Site Crawler ("):
+        suffix = case_name.removeprefix("Multi-Page Sitemap & BFS Deep Site Crawler (").replace("page(s))", "halaman)")
+        return f"Perayap Mendalam Multi-Halaman Sitemap & BFS ({suffix}"
+    if case_name.startswith("Concurrent HTTP Load & SLA Stress Gate ("):
+        suffix = case_name.removeprefix("Concurrent HTTP Load & SLA Stress Gate (")
+        return f"Gerbang Uji Beban Konkuren & SLA HTTP ({suffix}"
+    return case_name
+
+
+def translate_finding_or_reason(text: str, lang: str = "en") -> str:
+    """Localize technical QA findings, warnings, and failure reasons into Bahasa Indonesia when lang='id'."""
+    if normalize_lang(lang) != "id":
+        return text
+    out = text
+    for en_sub, id_sub in _FINDING_SUBSTR_ID_MAP:
+        if en_sub in out:
+            out = out.replace(en_sub, id_sub)
+    return out

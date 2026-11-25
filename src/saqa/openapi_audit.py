@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
-from .api import ApiResponse, request as http_request
+from .api import ApiResponse
+from .api import request as http_request
 from .runner import SuiteExecutionResult, run_suite
 
 _PATH_PARAM_RE = re.compile(r"\{([^}]+)\}")
@@ -96,10 +98,11 @@ def generate_suite_from_openapi(
                 params_list.extend(p for p in source if isinstance(p, Mapping))
 
         param_by_name = {str(p.get("name")): p for p in params_list if p.get("name")}
-        resolved_path = _PATH_PARAM_RE.sub(
-            lambda m: _sample_param_value(param_by_name.get(m.group(1), {})),
-            str(raw_path),
-        )
+
+        def _replace_param(match: re.Match[str], pmap: dict[str, Mapping[str, Any]] = param_by_name) -> str:
+            return _sample_param_value(pmap.get(match.group(1), {}))
+
+        resolved_path = _PATH_PARAM_RE.sub(_replace_param, str(raw_path))
         query_params: dict[str, str] = {}
         for p in params_list:
             if str(p.get("in", "")).lower() == "query" and p.get("name"):

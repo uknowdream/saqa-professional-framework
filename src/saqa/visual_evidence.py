@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .evidence import EvidenceRecord
-from .i18n import normalize_lang
+from .i18n import normalize_lang, translate_case_name, translate_finding_or_reason
 
 DEFAULT_VIEWPORTS: tuple[tuple[str, int, int], ...] = (
     ("desktop", 1440, 900),
@@ -393,9 +393,10 @@ def export_csv_matrix(
         writer.writerow(headers)
         for rec in norm_records:
             det = rec["details"]
+            raw_case = str(det.get("case_name") or rec["test_id"])
             writer.writerow([
                 rec["test_id"],
-                det.get("case_name") or rec["test_id"],
+                translate_case_name(raw_case, code),
                 rec["target"],
                 rec["status"],
                 det.get("http_method") or "GET",
@@ -403,7 +404,7 @@ def export_csv_matrix(
                 det.get("elapsed_ms", det.get("duration_ms", "")),
                 ", ".join(str(t) for t in (det.get("tags") or [])),
                 "; ".join(str(c) for c in (det.get("checks_passed") or [])),
-                "; ".join(str(f) for f in (det.get("failure_reasons") or [])),
+                "; ".join(translate_finding_or_reason(str(f), code) for f in (det.get("failure_reasons") or [])),
                 rec["observed_at"],
             ])
     return output_path
@@ -461,6 +462,13 @@ def capture_web_screenshot(
                 page.goto(url, wait_until="networkidle", timeout=timeout_s * 1000)
                 if freeze_animations:
                     page.add_style_tag(content=_FREEZE_ANIMATION_CSS)
+                    page.evaluate(
+                        """() => {
+                            window.scrollTo(0, 0);
+                            document.querySelectorAll('video').forEach(v => { try { v.pause(); v.currentTime = 0; } catch (e) {} });
+                            window.requestAnimationFrame = () => 0;
+                        }"""
+                    )
                 shot_kwargs: dict[str, Any] = {"path": str(output_path), "full_page": full_page}
                 if freeze_animations:
                     shot_kwargs["animations"] = "disabled"

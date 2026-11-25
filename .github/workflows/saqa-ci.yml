@@ -40,7 +40,7 @@ jobs:
         run: python -m compileall -q src tests
       - name: Static lint and type checking (Ruff & Mypy)
         run: |
-          python -m ruff check src/saqa/i18n.py src/saqa/jira_sync.py src/saqa/visual_diff.py src/saqa/visual_evidence.py src/saqa/spa_audit.py src/saqa/web_audit.py src/saqa/reporting.py src/saqa/cli.py src/saqa/benchmark.py src/saqa/notifications.py src/saqa/http_pool.py
+          python -m ruff check src/saqa
           python -m mypy src/saqa
       - name: Tests with retry-aware per-attempt telemetry
         shell: bash

@@ -19,9 +19,12 @@ from .i18n import (
     get_all_summary_variants,
     normalize_lang,
     tr,
+    translate_case_name,
+    translate_finding_or_reason,
     translate_recommendation,
 )
 from .jira import JiraClient, JiraConfig, JiraIssueResult
+from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .visual_evidence import (
     capture_viewport_matrix,
@@ -311,7 +314,7 @@ def build_domain_adf_document(
 
     for idx, rec in enumerate(domain_records, start=1):
         det = rec["details"]
-        case_name = str(det.get("case_name") or rec["test_id"])
+        case_name = translate_case_name(str(det.get("case_name") or rec["test_id"]), code)
         method_val = str(det.get("http_method") or (det.get("http_methods") or ["GET"])[0])
         http_code = det.get("status_code", 200)
         elapsed = det.get("elapsed_ms", det.get("duration_ms", "-"))
@@ -320,7 +323,7 @@ def build_domain_adf_document(
         failures = det.get("failure_reasons") or []
         if failures:
             prefix = "GAGAL: " if code == "id" else "FAIL: "
-            assertions_str = prefix + "; ".join(str(f) for f in failures)
+            assertions_str = prefix + "; ".join(translate_finding_or_reason(str(f), code) for f in failures)
         elif checks:
             passed_word = "lulus" if code == "id" else "passed"
             assertions_str = f"{len(checks)} {passed_word} ({', '.join(str(c) for c in checks[:4])})"
@@ -801,6 +804,19 @@ def sync_records_to_jira(
                 all_attachments.append(md_path)
                 existing_names.add(md_path.name)
 
+            if "qa-executive-report.pdf" not in existing_names:
+                pdf_path = work_dir / "qa-executive-report.pdf"
+                render_pdf_report(
+                    analytics,
+                    norm_records,
+                    pdf_path,
+                    manifest_sha256=manifest_sha256,
+                    title=report_title,
+                    lang=code,
+                )
+                all_attachments.append(pdf_path)
+                existing_names.add(pdf_path.name)
+
             if "junit.xml" not in existing_names:
                 junit_path = work_dir / "junit.xml"
                 junit_path.write_text(
@@ -1111,6 +1127,7 @@ def sync_manifest_to_jira(
         for p in (
             manifest_path,
             parent / "suite-summary.json",
+            parent / "qa-executive-report.pdf",
             parent / "report.html",
             parent / "report.md",
             parent / "junit.xml",

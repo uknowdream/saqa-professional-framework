@@ -35,7 +35,8 @@ from .analytics import analyze_records, compute_latency_stats
 from .api import ApiResponse
 from .evidence import EvidenceRecord, utc_now, write_manifest
 from .http_pool import create_pooled_requester
-from .i18n import normalize_lang
+from .i18n import normalize_lang, translate_finding_or_reason
+from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .url_safety import redact_url
 from .visual_evidence import export_csv_matrix, render_analytics_svg, render_scorecard_png
@@ -523,16 +524,17 @@ def _run_multipage_crawl(
     initial_dom: _DomAuditParser,
     sitemap_xml: str,
     *,
+    extra_seed_links: list[str] | None = None,
     max_pages: int,
     requester: Callable[..., ApiResponse],
     default_headers: Mapping[str, str],
     timeout: float,
 ) -> tuple[EvidenceRecord, list[dict[str, Any]]]:
-    """BFS + Sitemap multi-page deep QA crawler auditing WCAG DOM, SEO, and HTTP health across subpages."""
+    """BFS + Sitemap + SPA-DOM multi-page deep QA crawler auditing WCAG DOM, SEO, and HTTP health across subpages."""
     visited: set[str] = {urldefrag(start_url)[0].rstrip("/") or start_url}
     queue: deque[str] = deque()
 
-    # Seed from sitemap.xml <loc> entries first, then landing page internal links
+    # Seed from sitemap.xml <loc> entries first, then landing page & SPA-rendered internal links
     for loc in _SITEMAP_LOC_RE.findall(sitemap_xml):
         clean_u = urldefrag(loc.strip())[0]
         up = urlparse(clean_u)
@@ -541,8 +543,8 @@ def _run_multipage_crawl(
             if key not in visited:
                 queue.append(clean_u)
 
-    for lnk in initial_dom.links:
-        href = lnk["href"]
+    raw_hrefs = [lnk["href"] for lnk in initial_dom.links] + list(extra_seed_links or [])
+    for href in raw_hrefs:
         if not href or href.startswith(("data:", "javascript:", "mailto:", "tel:", "#")):
             continue
         clean_u = urldefrag(urljoin(start_url, href))[0]
@@ -565,12 +567,13 @@ def _run_multipage_crawl(
             continue
         visited.add(norm_key)
 
+        safe_page_ref = f"{redact_url(page_url)}{urlparse(page_url).path}"
         resp = requester(page_url, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
         latencies.append(round(resp.elapsed_ms, 2))
         ctype = (resp.header("content-type") or "").lower()
         if resp.status_code == 0 or resp.status_code >= 400:
-            failures.append(f"Subpage {redact_url(page_url)} returned HTTP {resp.status_code}")
-            crawled_pages.append({"url": redact_url(page_url), "status_code": resp.status_code, "a11y_status": "FAIL"})
+            failures.append(f"Subpage {safe_page_ref} returned HTTP {resp.status_code}")
+            crawled_pages.append({"url": safe_page_ref, "status_code": resp.status_code, "a11y_status": "FAIL"})
             continue
 
         if "html" not in ctype and "<html" not in resp.text[:500].lower():
@@ -580,12 +583,12 @@ def _run_multipage_crawl(
         sub_dom.feed(resp.text)
         a11y_st, _, a11y_fail, _ = _audit_dom_accessibility(sub_dom)
         if a11y_fail:
-            failures.append(f"Subpage {redact_url(page_url)} WCAG failure: {a11y_fail[0]}")
+            failures.append(f"Subpage {safe_page_ref} WCAG failure: {a11y_fail[0]}")
         if not sub_dom.meta_by_name.get("description"):
-            findings.append({"severity": "LOW", "pillar": "Multi-Page SEO", "message": f"Subpage {redact_url(page_url)} missing meta description"})
+            findings.append({"severity": "LOW", "pillar": "Multi-Page SEO", "message": f"Subpage {safe_page_ref} missing meta description"})
 
         crawled_pages.append({
-            "url": redact_url(page_url),
+            "url": safe_page_ref,
             "status_code": resp.status_code,
             "elapsed_ms": round(resp.elapsed_ms, 2),
             "a11y_status": a11y_st,
@@ -1092,17 +1095,18 @@ def _run_deep_web_audit_impl(
     )
 
     # ── PILLAR 8 (Optional): Live Headless Browser SPA DOM & Core Web Vitals ──
+    spa_rendered_links: list[str] = []
     if include_spa_audit:
         from .spa_audit import build_spa_audit_record
 
-        records.append(
-            build_spa_audit_record(
-                target_url,
-                suite_name=suite_name,
-                timeout_s=int(max(15, timeout)),
-                extra_headers=extra_headers,
-            )
+        spa_rec = build_spa_audit_record(
+            target_url,
+            suite_name=suite_name,
+            timeout_s=int(max(15, timeout)),
+            extra_headers=extra_headers,
         )
+        records.append(spa_rec)
+        spa_rendered_links = list(spa_rec.details.get("rendered_links") or [])
 
     # ── PILLAR 9 (Optional): Modern Web, API & Mobile App-Link Security ───────
     if include_modern_security:
@@ -1130,7 +1134,7 @@ def _run_deep_web_audit_impl(
             )
         )
 
-    # ── MULTI-PAGE CRAWLER (Optional): Sitemap + BFS Internal Page Audit ──────
+    # ── MULTI-PAGE CRAWLER (Optional): Sitemap + SPA + BFS Internal Page Audit ─
     if crawl_max_pages > 1:
         crawl_rec, crawl_findings = _run_multipage_crawl(
             target_url,
@@ -1138,6 +1142,7 @@ def _run_deep_web_audit_impl(
             origin_host,
             dom,
             sitemap_body,
+            extra_seed_links=spa_rendered_links,
             max_pages=crawl_max_pages,
             requester=requester,
             default_headers=default_headers,
@@ -1145,6 +1150,12 @@ def _run_deep_web_audit_impl(
         )
         records.append(crawl_rec)
         findings.extend(crawl_findings)
+
+    if code == "id":
+        findings = [
+            {**f, "message": translate_finding_or_reason(str(f.get("message", "")), code)}
+            for f in findings
+        ]
 
     manifest_path: Path | None = None
     manifest_sha: str | None = None
@@ -1182,6 +1193,14 @@ def _run_deep_web_audit_impl(
         (output_dir / "report.md").write_text(
             render_markdown_report(analytics, title=report_title, lang=code),
             encoding="utf-8",
+        )
+        render_pdf_report(
+            analytics,
+            records,
+            output_dir / "qa-executive-report.pdf",
+            manifest_sha256=manifest_sha,
+            title=report_title,
+            lang=code,
         )
         (output_dir / "junit.xml").write_text(
             render_junit_xml(analytics, records, suite_name=suite_name),

@@ -8,7 +8,7 @@ from typing import Any
 
 
 class ResultStatus(str, Enum):
-    PASS = "PASS"
+    PASS = "PASS"  # noqa: S105
     FAIL = "FAIL"
     BLOCKED = "BLOCKED"
     UNVERIFIED = "UNVERIFIED"
@@ -36,7 +36,7 @@ class Evidence:
         duration_ms: float = 0.0,
         details: dict[str, Any] | None = None,
         artifact_paths: tuple[str, ...] = (),
-    ) -> "Evidence":
+    ) -> Evidence:
         timestamp = datetime.now(timezone.utc).isoformat()
         return cls(test_id, capability, status, timestamp, timestamp, duration_ms, details or {}, artifact_paths)
 

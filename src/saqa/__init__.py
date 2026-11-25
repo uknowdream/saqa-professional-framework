@@ -1,15 +1,26 @@
 """SAQA Professional QA Automation Framework."""
 from __future__ import annotations
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 from .analytics import analyze_history_file, analyze_manifest, analyze_records, compare_manifests, compute_latency_stats
 from .benchmark import run_multi_target_benchmark
 from .contracts import Evidence, ResultStatus, is_certification_safe, validate_evidence
+from .evidence import compute_hmac_sha256, verify_manifest, write_manifest
 from .http_pool import create_pooled_requester
-from .i18n import SUPPORTED_LANGUAGES, get_issue_summaries, normalize_lang, tr
+from .i18n import (
+    SUPPORTED_LANGUAGES,
+    get_issue_summaries,
+    normalize_lang,
+    tr,
+    translate_case_name,
+    translate_finding_or_reason,
+)
+from .load_test import run_load_test
+from .mobile_audit import MobileAuditResult, audit_mobile_package
 from .notifications import dispatch_notifications, format_alert_message
 from .openapi_audit import audit_openapi_spec, generate_suite_from_openapi, load_openapi_spec
+from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .runner import SuiteExecutionResult, create_starter_suite, load_suite_file, run_suite
 from .spa_audit import (
@@ -49,6 +60,7 @@ __all__ = [
     "DeepAuditResult",
     "DesignedCase",
     "Evidence",
+    "MobileAuditResult",
     "ResultStatus",
     "SUPPORTED_LANGUAGES",
     "SuiteExecutionResult",
@@ -58,6 +70,7 @@ __all__ = [
     "analyze_history_file",
     "analyze_manifest",
     "analyze_records",
+    "audit_mobile_package",
     "audit_openapi_spec",
     "boundary_value_numeric",
     "boundary_value_string",
@@ -67,6 +80,7 @@ __all__ = [
     "capture_web_screenshot",
     "compare_manifests",
     "compare_png_images",
+    "compute_hmac_sha256",
     "compute_latency_stats",
     "create_pooled_requester",
     "create_starter_suite",
@@ -93,18 +107,24 @@ __all__ = [
     "render_html_report",
     "render_junit_xml",
     "render_markdown_report",
+    "render_pdf_report",
     "render_sarif_report",
     "render_scorecard_png",
     "run_browser_journey",
     "run_deep_web_audit",
+    "run_load_test",
     "run_multi_target_benchmark",
     "run_suite",
     "state_transition_paths",
     "sync_manifest_to_jira",
     "sync_records_to_jira",
     "tr",
+    "translate_case_name",
+    "translate_finding_or_reason",
     "validate_evidence",
+    "verify_manifest",
     "verify_pairwise_coverage",
+    "write_manifest",
 ]
 
 

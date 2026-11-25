@@ -12,9 +12,9 @@ import re
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
-
+from typing import Any
 
 _UNSET = object()
 _PATH_TOKEN_RE = re.compile(r"([^\.\[\]]+)|\[(\d+)\]")
@@ -91,7 +91,7 @@ def request(
     if body is not None:
         payload = json.dumps(body).encode("utf-8") if not isinstance(body, bytes) else body
         request_headers.setdefault("Content-Type", "application/json")
-    req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)
+    req = urllib.request.Request(url, data=payload, headers=request_headers, method=method)  # noqa: S310
     started = time.perf_counter()
     if use_environment_proxies:
         opener = urllib.request.urlopen if follow_redirects else _NO_REDIRECT_OPENER.open

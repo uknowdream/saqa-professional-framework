@@ -21,8 +21,11 @@ from .benchmark import run_multi_target_benchmark
 from .evidence import verify_manifest
 from .history import append_history
 from .i18n import normalize_lang
+from .load_test import run_load_test
+from .mobile_audit import audit_mobile_package
 from .notifications import dispatch_notifications
 from .openapi_audit import audit_openapi_spec, generate_suite_from_openapi, load_openapi_spec
+from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .runner import create_starter_suite, load_suite_file, run_suite
 from .spa_audit import load_journey_file, run_browser_journey
@@ -87,6 +90,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("--html", type=Path, default=None, help="Optional path to write interactive HTML dashboard.")
     run_parser.add_argument("--md", type=Path, default=None, help="Optional path to write Markdown report.")
+    run_parser.add_argument("--pdf", type=Path, default=None, help="Optional path to write Executive PDF UAT report.")
     run_parser.add_argument("--junit", type=Path, default=None, help="Optional path to write JUnit XML report.")
     run_parser.add_argument("--sarif", type=Path, default=None, help="Optional path to write SARIF v2.1.0 report.")
     run_parser.add_argument("--baseline", type=Path, default=None, help="Optional baseline manifest for regression diff.")
@@ -190,6 +194,34 @@ def _build_parser() -> argparse.ArgumentParser:
     journey_parser.add_argument("--sync-jira", action="store_true", help="Synchronize journey evidence & step screenshots to Jira.")
     journey_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
+    mobile_parser = subparsers.add_parser(
+        "audit-mobile",
+        help="Audit an Android (.apk/.aab) or iOS (.ipa/.app.zip) package for signing, manifest security, permissions, secrets, ABI & Maestro flows.",
+    )
+    mobile_parser.add_argument("app", type=Path, help="Path to client mobile package (.apk, .aab, .ipa, or .app.zip).")
+    mobile_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/mobile-audit"), help="Output directory for mobile audit reports.")
+    mobile_parser.add_argument("--maestro-flow", type=Path, default=None, help="Optional Maestro YAML flow to execute on emulator/device.")
+    mobile_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' or 'id'.")
+    mobile_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
+    mobile_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
+    mobile_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync mobile audit reports (PDF/HTML/PNG/SARIF) to Jira.")
+    mobile_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
+    load_parser = subparsers.add_parser(
+        "load-test",
+        help="Run a bounded read-only concurrent HTTP load & SLA stress gate (RPS, error rate, P50/P95/P99).",
+    )
+    load_parser.add_argument("url", help="Target HTTP(S) URL (loopback by default; pass --allow-remote for authorized targets).")
+    load_parser.add_argument("--requests", type=int, default=30, help="Total concurrent GET requests (1-1000).")
+    load_parser.add_argument("--concurrency", type=int, default=6, help="Worker concurrency (1-50).")
+    load_parser.add_argument("--max-p95-ms", type=float, default=2500.0, help="Maximum allowed P95 latency SLA in milliseconds.")
+    load_parser.add_argument("--max-error-pct", type=float, default=1.0, help="Maximum allowed error rate percentage.")
+    load_parser.add_argument("--allow-remote", action="store_true", help="Allow authorized non-loopback target URL.")
+    load_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/load-test"), help="Output directory for load reports.")
+    load_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' or 'id'.")
+    load_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync load test SLA evidence & PDF report to Jira.")
+    load_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
     vdiff_parser = subparsers.add_parser(
         "visual-diff",
         help="Pixel-by-pixel PNG visual regression comparator with region masking, anti-aliasing tolerance, and diff heatmap.",
@@ -260,6 +292,7 @@ def _build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("manifest", type=Path, help="Path to verified evidence manifest JSON.")
     report_parser.add_argument("--html", type=Path, default=None, help="Path to write interactive HTML report.")
     report_parser.add_argument("--md", type=Path, default=None, help="Path to write Markdown report.")
+    report_parser.add_argument("--pdf", type=Path, default=None, help="Path to write Executive PDF UAT report.")
     report_parser.add_argument("--junit", type=Path, default=None, help="Path to write JUnit XML report.")
     report_parser.add_argument("--sarif", type=Path, default=None, help="Path to write SARIF v2.1.0 JSON report.")
     report_parser.add_argument("--baseline", type=Path, default=None, help="Optional baseline manifest for comparison.")
@@ -449,6 +482,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     lang=lang_code,
                 ),
                 encoding="utf-8",
+            )
+        if args.pdf is not None:
+            render_pdf_report(
+                result.analytics,
+                result.records,
+                args.pdf,
+                manifest_sha256=result.manifest_sha256,
+                title=r_title,
+                lang=lang_code,
             )
         if args.junit is not None:
             args.junit.parent.mkdir(parents=True, exist_ok=True)
@@ -645,6 +687,83 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         return 0 if j_analytics["overall_status"] == "PASS" else 1
 
+    if args.command == "audit-mobile":
+        lang_code = normalize_lang(args.lang)
+        mob_res = audit_mobile_package(
+            args.app,
+            output_dir=args.output_dir,
+            maestro_flow=args.maestro_flow,
+            lang=lang_code,
+        )
+        jira_summary = None
+        if args.sync_jira and mob_res.manifest_path is not None:
+            from .jira_sync import sync_manifest_to_jira
+
+            jira_summary = sync_manifest_to_jira(
+                mob_res.manifest_path,
+                sprint_start=args.sprint_start,
+                sprint_end=args.sprint_end,
+                lang=lang_code,
+            )
+        if args.as_json:
+            print(
+                json.dumps(
+                    {
+                        "platform": mob_res.platform,
+                        "app_sha256": mob_res.app_sha256,
+                        "metadata": mob_res.metadata,
+                        "analytics": mob_res.analytics,
+                        "findings": list(mob_res.findings),
+                        "jira": jira_summary,
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            a = mob_res.analytics
+            jira_msg = (
+                f" | Jira {jira_summary['project_key']} [{jira_summary['language'].upper()}] "
+                f"({len(jira_summary['synced_issues'])} issues, {len(jira_summary.get('uploaded_attachments', []))} attachments)"
+                if jira_summary
+                else ""
+            )
+            print(
+                f"MOBILE_AUDIT {mob_res.platform.upper()} {args.app.name}: {a['overall_status']} | "
+                f"Health {a['health_score']}/100 ({a['health_grade']}) | "
+                f"Pass {a['pass_rate_pct']}% | Findings {len(mob_res.findings)} | "
+                f"Lang {lang_code.upper()} | Out {args.output_dir}{jira_msg}"
+            )
+        return 0 if mob_res.passed else 1
+
+    if args.command == "load-test":
+        lang_code = normalize_lang(args.lang)
+        load_res = run_load_test(
+            args.url,
+            total_requests=args.requests,
+            concurrency=args.concurrency,
+            max_p95_ms=args.max_p95_ms,
+            max_error_rate_pct=args.max_error_pct,
+            allow_remote=bool(args.allow_remote),
+            output_dir=args.output_dir,
+            lang=lang_code,
+        )
+        jira_summary = None
+        if args.sync_jira and load_res.get("manifest_path"):
+            from .jira_sync import sync_manifest_to_jira
+
+            jira_summary = sync_manifest_to_jira(Path(load_res["manifest_path"]), lang=lang_code)
+        if args.as_json:
+            print(json.dumps({**load_res, "jira": jira_summary}, indent=2))
+        else:
+            status_lbl = "PASS" if load_res["passed"] else "FAIL"
+            print(
+                f"LOAD_TEST {load_res['target_url']}: {status_lbl} | "
+                f"RPS {load_res['throughput_rps']} | P95 {load_res['latency']['p95_ms']}ms | "
+                f"Errors {load_res['error_rate_pct']}% ({load_res['error_count']}/{load_res['total_requests']}) | "
+                f"Out {args.output_dir}"
+            )
+        return 0 if load_res["passed"] else 1
+
     if args.command == "visual-diff":
         masks = [parse_mask_spec(m) for m in args.mask]
         vdiff = compare_png_images(
@@ -771,9 +890,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         stats = analyze_manifest(args.manifest)
         diff = compare_manifests(args.baseline, args.manifest) if args.baseline is not None else None
         history_stats = analyze_history_file(args.history) if args.history is not None else None
-        if args.html is None and args.md is None and args.junit is None and args.sarif is None:
+        if args.html is None and args.md is None and args.pdf is None and args.junit is None and args.sarif is None:
             print(render_markdown_report(stats, diff=diff, history=history_stats, title=args.title, lang=lang_code))
             return 0
+        if args.pdf is not None:
+            render_pdf_report(stats, records, args.pdf, manifest_sha256=sha, title=args.title, lang=lang_code)
+            print(f"PDF_REPORT: {args.pdf}")
         if args.html is not None:
             args.html.parent.mkdir(parents=True, exist_ok=True)
             args.html.write_text(

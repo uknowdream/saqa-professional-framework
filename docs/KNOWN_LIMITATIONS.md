@@ -1,7 +1,7 @@
 # SAQA Professional Framework — Known Limitations and Next Priorities
 
-Last reviewed: 2026-10-22  
-Main-branch certified commit at review: `9ffeb5c6206d5c1786e8cb0d1b3652f6a37bc6e1` (PR #16 merged on 2026-10-21).
+Last reviewed: 2026-11-25 (v2.6.0 Enterprise & Bilingual Release)
+Main-branch certified baseline: Commit-scoped fail-closed verification across Web, API, SPA/CWV, Mobile Package (`.apk`/`.aab`/`.ipa`), Load/SLA, PDF/JUnit/SARIF, and Bilingual (`EN`/`ID`) Jira Cloud synchronization.
 
 ## Current verified baseline
 

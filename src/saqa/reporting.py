@@ -9,7 +9,7 @@ from typing import Any
 
 from . import __version__
 from .evidence import EvidenceRecord
-from .i18n import normalize_lang, tr, translate_recommendation
+from .i18n import normalize_lang, tr, translate_finding_or_reason, translate_recommendation
 
 
 def _esc(value: Any) -> str:
@@ -222,7 +222,7 @@ def render_markdown_report(
             "|---|---|---|",
         ])
         for item in analytics["failing_tests"]:
-            reasons = "; ".join(item.get("reasons") or ["Failed without detail"])
+            reasons = "; ".join(translate_finding_or_reason(str(r), code) for r in (item.get("reasons") or ["Failed without detail"]))
             lines.append(f"| `{item['test_id']}` | `{item['target']}` | {reasons} |")
 
     if analytics.get("slowest_tests"):
@@ -319,7 +319,7 @@ def render_html_report(
         elapsed_str = f"{elapsed} ms" if isinstance(elapsed, (int, float)) else "-"
         reasons = details.get("failure_reasons") or ([] if not details.get("error") else [str(details["error"])])
         passed_suffix = "pemeriksaan lulus" if code == "id" else "check(s) passed"
-        summary_msg = "; ".join(str(r) for r in reasons) if reasons else f"{len(details.get('checks_passed', []))} {passed_suffix}"
+        summary_msg = "; ".join(translate_finding_or_reason(str(r), code) for r in reasons) if reasons else f"{len(details.get('checks_passed', []))} {passed_suffix}"
         pretty_json = _esc(json.dumps(details, indent=2, sort_keys=True))
         rows_html.append(
             f'<tr class="case-row" data-status="{_esc(status)}" data-search="{_esc(rec["test_id"].lower() + " " + rec["target"].lower() + " " + summary_msg.lower())}">'

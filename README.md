@@ -378,18 +378,21 @@ The advanced QE layer now produces Allure-compatible result files, append-only h
 
 A mature implementation distinguishes stable PASS, flaky candidates, and stable failures. Flaky detection must never silently hide failures; quarantined tests remain visible and traceable with their reason and history.
 
-## ⚡ SAQA CLI Command Center, Bilingual Jira (ID/EN) & Deep Audit (v2.5)
+## ⚡ SAQA CLI Command Center, Mobile APK/IPA Audit, PDF Certificate & Bilingual Jira (v2.6)
 
-After installing the package (`pip install -e ".[test,lint]"`), you can drive day-to-day QA workflows directly through the unified `saqa` CLI (or `python -m saqa`), including **bilingual Bahasa Indonesia (`--lang id`) and English (`--lang en`)** synchronization into Jira Cloud:
+After installing the package (`pip install -e ".[test,lint]"`), you can drive end-to-end Web, API, Mobile App (`.apk`/`.aab`/`.ipa`), and Load/SLA QA workflows directly through the unified `saqa` CLI (or `python -m saqa`), including **100% pure Bahasa Indonesia (`--lang id`) and English (`--lang en`)** synchronization into Jira Cloud and **Executive PDF Sign-Off Reports (`qa-executive-report.pdf`)**:
 
 ```bash
 # Check workstation readiness (Python version & optional runtimes)
 saqa doctor
 
-# Scaffold a declarative read-only API/HTTP QA suite
-saqa init-suite my-suite.json --base-url http://127.0.0.1:3000
+# 1. Audit a client Android (.apk/.aab) or iOS (.ipa) Mobile App & sync PDF/HTML/SARIF to Jira in Bahasa Indonesia:
+saqa audit-mobile client-release.apk \
+  --output-dir artifacts/mobile-id \
+  --lang id \
+  --sync-jira
 
-# Run a 9-pillar + Multi-Page + Multi-Viewport + Live SPA Deep Audit and sync to Jira in Bahasa Indonesia (--lang id):
+# 2. Run a 9-pillar + SPA-Aware Multi-Page Crawler + Responsive Multi-Viewport Web Audit -> Jira (ID or EN):
 saqa deep-audit https://www.dreamex.tech/ \
   --output-dir artifacts/deep-audit-id \
   --spa \
@@ -402,23 +405,21 @@ saqa deep-audit https://www.dreamex.tech/ \
   --sprint-end 2026-12-01 \
   --sync-jira
 
-# Switch Jira & reports seamlessly to English (--lang en) for international clients without duplicating tickets:
+# 3. Built-in Read-Only Concurrent HTTP Load & SLA Stress Gate (zero external k6 dependency):
+saqa load-test http://127.0.0.1:3000/rest/products/search \
+  --requests 50 \
+  --concurrency 8 \
+  --max-p95-ms 800 \
+  --lang id \
+  --output-dir artifacts/load-test
+
+# 4. Switch Jira & reports seamlessly to English (--lang en) for international clients without duplicating tickets:
 saqa sync-jira artifacts/deep-audit-id/evidence-manifest.json --lang en
 
-# Execute declarative interactive Browser UI Journeys (with optional auth storage_state/cookies):
-saqa run-journey examples/client-journey.json --output-dir artifacts/journey --lang id --sync-jira
-
-# Animation-frozen, region-masked, anti-aliasing-aware Pixel Visual Regression Diffing:
-saqa capture-screenshot https://www.dreamex.tech artifacts/shot1.png --width 1440 --height 900
-saqa visual-diff baseline.png artifacts/shot1.png \
-  --mask 0,0,1440,120 \
-  --ignore-antialiasing \
-  --output artifacts/visual-diff.png \
-  --threshold 0.5
-
-# Export HTML, Markdown, JUnit XML, and SARIF v2.1.0 (GitHub Code Scanning) in Indonesian or English:
+# 5. Export Executive PDF Certificate, HTML, Markdown, JUnit XML, and SARIF v2.1.0:
 saqa report artifacts/deep-audit-id/evidence-manifest.json \
   --lang id \
+  --pdf artifacts/qa-executive-report.pdf \
   --html artifacts/report.html \
   --md artifacts/report.md \
   --junit artifacts/junit.xml \

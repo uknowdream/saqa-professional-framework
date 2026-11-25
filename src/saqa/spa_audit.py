@@ -13,7 +13,7 @@ import subprocess
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from .analytics import analyze_records
@@ -212,11 +212,12 @@ def build_spa_audit_record(
     *,
     suite_name: str,
     timeout_s: int = 25,
-    inspector=inspect_spa_runtime,
+    inspector=None,
     extra_headers: Mapping[str, str] | None = None,
     storage_state: Path | str | None = None,
 ) -> EvidenceRecord:
     """Run Pillar 8 SPA post-JS render & Core Web Vitals audit and return a canonical EvidenceRecord."""
+    active_inspector = inspector or inspect_spa_runtime
     redacted = redact_url(target_url)
     call_kwargs: dict[str, Any] = {"timeout_s": timeout_s}
     if extra_headers is not None:
@@ -224,9 +225,9 @@ def build_spa_audit_record(
     if storage_state is not None:
         call_kwargs["storage_state"] = storage_state
     try:
-        info = inspector(target_url, **call_kwargs)
+        info = active_inspector(target_url, **call_kwargs)
     except TypeError:
-        info = inspector(target_url, timeout_s=timeout_s)
+        info = active_inspector(target_url, timeout_s=timeout_s)
 
     if not info.get("available"):
         return EvidenceRecord(
@@ -294,6 +295,7 @@ def build_spa_audit_record(
             "engine": info["engine"],
             "dom_node_count": info["dom_node_count"],
             "rendered_links_count": len(dom.links),
+            "rendered_links": [str(lnk["href"]) for lnk in dom.links if lnk.get("href")][:100],
             "rendered_buttons_count": len(dom.buttons),
             "rendered_headings_count": len(dom.headings),
             "console_errors": info.get("console_errors", []),
@@ -421,11 +423,12 @@ def build_responsive_audit_record(
     *,
     suite_name: str,
     timeout_s: int = 25,
-    inspector=inspect_responsive_viewports,
+    inspector=None,
 ) -> EvidenceRecord:
     """Build EvidenceRecord for Multi-Viewport (Desktop/Tablet/Mobile) Responsive Layout & Tap-Target QA."""
+    active_inspector = inspector or inspect_responsive_viewports
     redacted = redact_url(target_url)
-    info = inspector(target_url, timeout_s=timeout_s)
+    info = active_inspector(target_url, timeout_s=timeout_s)
     if not info.get("available"):
         return EvidenceRecord(
             test_id="responsive.multi-viewport-matrix",
@@ -566,7 +569,13 @@ def run_browser_journey(
                             page.goto(full_u, wait_until="networkidle", timeout=int(step.get("timeout_ms", 20000)))
                             checks_passed.append(f"step_{idx}:goto")
                         elif action == "wait_for_selector":
-                            page.wait_for_selector(str(step["selector"]), state=str(step.get("state", "visible")), timeout=int(step.get("timeout_ms", 10000)))
+                            raw_st = str(step.get("state", "visible")).lower()
+                            wait_state: Literal["attached", "detached", "hidden", "visible"] = (
+                                "attached"
+                                if raw_st == "attached"
+                                else ("detached" if raw_st == "detached" else ("hidden" if raw_st == "hidden" else "visible"))
+                            )
+                            page.wait_for_selector(str(step["selector"]), state=wait_state, timeout=int(step.get("timeout_ms", 10000)))
                             checks_passed.append(f"step_{idx}:wait({step['selector']})")
                         elif action == "click":
                             page.click(str(step["selector"]), timeout=int(step.get("timeout_ms", 10000)))

@@ -1,8 +1,9 @@
 """Deterministic flakiness analysis for ordered execution histories."""
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any
 
 _ALLOWED = {"PASS", "FAIL", "SKIP", "BLOCKED", "UNVERIFIED", "N/A", "NOT_APPLICABLE"}
 
@@ -62,7 +63,7 @@ def analyze_history(statuses: Sequence[str] | Iterable[str]) -> FlakyAnalysis:
     passes = normalized.count("PASS")
     fails = normalized.count("FAIL")
     other = len(normalized) - passes - fails
-    transitions = sum(a != b for a, b in zip(normalized, normalized[1:]))
+    transitions = sum(a != b for a, b in zip(normalized, normalized[1:], strict=False))
 
     if len(normalized) < 2:
         classification = "INSUFFICIENT_DATA"

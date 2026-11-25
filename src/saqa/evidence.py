@@ -1,8 +1,10 @@
-"""Tamper-evident evidence primitives for SAQA."""
+"""Tamper-evident SHA-256 and optional HMAC-SHA256 signed evidence primitives for SAQA."""
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import os
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -51,12 +53,29 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def write_manifest(records: list[EvidenceRecord], output: Path) -> str:
+def compute_hmac_sha256(canonical_payload: bytes, signing_key: str) -> str:
+    """Compute cryptographic HMAC-SHA256 provenance signature over canonical evidence bytes."""
+    if not signing_key:
+        raise ValueError("signing_key must be non-empty")
+    return hmac.new(signing_key.encode("utf-8"), canonical_payload, hashlib.sha256).hexdigest()
+
+
+def write_manifest(
+    records: list[EvidenceRecord],
+    output: Path,
+    *,
+    signing_key: str | None = None,
+) -> str:
     if not records:
         raise ValueError("evidence manifest requires at least one record")
     payload = [asdict(record) for record in records]
-    digest = hashlib.sha256(canonical_json(payload)).hexdigest()
-    output.write_text(json.dumps({"records": payload, "sha256": digest}, indent=2, allow_nan=False), encoding="utf-8")
+    canonical_bytes = canonical_json(payload)
+    digest = hashlib.sha256(canonical_bytes).hexdigest()
+    manifest_doc: dict[str, Any] = {"records": payload, "sha256": digest}
+    active_key = signing_key if signing_key is not None else os.getenv("SAQA_EVIDENCE_SIGNING_KEY", "")
+    if active_key:
+        manifest_doc["hmac_sha256"] = compute_hmac_sha256(canonical_bytes, active_key)
+    output.write_text(json.dumps(manifest_doc, indent=2, allow_nan=False), encoding="utf-8")
     return digest
 
 
@@ -76,8 +95,8 @@ def _valid_record(record: Any) -> bool:
     return True
 
 
-def verify_manifest(path: Path) -> bool:
-    """Return False for malformed, structurally invalid, or tampered manifests."""
+def verify_manifest(path: Path, *, signing_key: str | None = None, require_signature: bool = False) -> bool:
+    """Return False for malformed, structurally invalid, tampered, or bad-signature manifests."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError, RecursionError):
@@ -91,7 +110,21 @@ def verify_manifest(path: Path) -> bool:
     if not isinstance(records, list) or not records or not all(_valid_record(record) for record in records):
         return False
     try:
-        actual = hashlib.sha256(canonical_json(records)).hexdigest()
+        canonical_bytes = canonical_json(records)
+        actual = hashlib.sha256(canonical_bytes).hexdigest()
     except (TypeError, ValueError, OverflowError):
         return False
-    return actual == expected
+    if actual != expected:
+        return False
+
+    active_key = signing_key if signing_key is not None else os.getenv("SAQA_EVIDENCE_SIGNING_KEY", "")
+    recorded_hmac = data.get("hmac_sha256")
+    if require_signature and (not active_key or not isinstance(recorded_hmac, str)):
+        return False
+    if active_key and recorded_hmac is not None:
+        if not isinstance(recorded_hmac, str) or not _SHA256_RE.fullmatch(recorded_hmac):
+            return False
+        expected_hmac = compute_hmac_sha256(canonical_bytes, active_key)
+        if not hmac.compare_digest(recorded_hmac, expected_hmac):
+            return False
+    return True
