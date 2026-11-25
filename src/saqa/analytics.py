@@ -4,8 +4,9 @@ from __future__ import annotations
 import json
 import math
 import statistics
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from .evidence import EvidenceRecord, verify_manifest
 from .flaky import analyze_suite_flakiness

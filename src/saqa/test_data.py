@@ -33,7 +33,7 @@ class TestDataScope:
                 f"{len(errors)} test-data cleanup operation(s) failed: {details}"
             ) from errors[0]
 
-    def __enter__(self) -> "TestDataScope":
+    def __enter__(self) -> TestDataScope:
         return self
 
     def __exit__(self, exc_type, exc, tb):

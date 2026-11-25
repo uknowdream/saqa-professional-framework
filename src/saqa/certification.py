@@ -1,8 +1,8 @@
 """Deterministic release certification from canonical QA evidence."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from .contracts import ResultStatus
 

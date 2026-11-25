@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 from urllib.parse import urlencode, urlparse, urlunparse
 
 from .analytics import analyze_records
@@ -19,7 +20,6 @@ from .api import (
     assert_json_path,
     assert_response_time,
     assert_status,
-    request as http_request,
     resolve_json_path,
 )
 from .evidence import EvidenceRecord, utc_now, write_manifest

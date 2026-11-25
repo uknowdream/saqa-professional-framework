@@ -1,7 +1,10 @@
 """Append-only, hash-chained quality history for deterministic trend analysis."""
 from __future__ import annotations
-import hashlib, json
+
+import hashlib
+import json
 from pathlib import Path
+
 from .evidence import EvidenceRecord, canonical_json
 
 GENESIS = "0" * 64

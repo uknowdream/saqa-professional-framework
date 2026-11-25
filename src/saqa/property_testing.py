@@ -1,8 +1,10 @@
 """Deterministic property-style API contract generators without external services."""
 from __future__ import annotations
+
 import random
 from collections.abc import Callable
 from urllib.parse import urlparse
+
 
 def deterministic_cases(seed: int = 20260927, count: int = 32) -> list[dict]:
     rng = random.Random(seed)

@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 import httpx
 
@@ -29,7 +30,7 @@ class JiraConfig:
     project_key: str
 
     @classmethod
-    def from_env(cls) -> "JiraConfig":
+    def from_env(cls) -> JiraConfig:
         values = {
             "base_url": os.getenv("JIRA_BASE_URL", "").strip().rstrip("/"),
             "email": os.getenv("JIRA_EMAIL", "").strip(),
@@ -92,7 +93,7 @@ class JiraClient:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "JiraClient":
+    def __enter__(self) -> JiraClient:
         return self
 
     def __exit__(self, *_: object) -> None:

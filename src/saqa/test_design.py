@@ -14,9 +14,10 @@ from __future__ import annotations
 import itertools
 import random
 from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 
 @dataclass(frozen=True)
