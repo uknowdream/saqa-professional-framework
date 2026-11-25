@@ -378,9 +378,9 @@ The advanced QE layer now produces Allure-compatible result files, append-only h
 
 A mature implementation distinguishes stable PASS, flaky candidates, and stable failures. Flaky detection must never silently hide failures; quarantined tests remain visible and traceable with their reason and history.
 
-## ⚡ SAQA CLI Command Center & Quality Intelligence (v2.2)
+## ⚡ SAQA CLI Command Center, Bilingual Jira (ID/EN) & Deep Audit (v2.5)
 
-After installing the package (`pip install -e ".[test]"`), you can drive day-to-day QA workflows directly through the unified `saqa` CLI (or `python -m saqa`):
+After installing the package (`pip install -e ".[test,lint]"`), you can drive day-to-day QA workflows directly through the unified `saqa` CLI (or `python -m saqa`), including **bilingual Bahasa Indonesia (`--lang id`) and English (`--lang en`)** synchronization into Jira Cloud:
 
 ```bash
 # Check workstation readiness (Python version & optional runtimes)
@@ -389,61 +389,60 @@ saqa doctor
 # Scaffold a declarative read-only API/HTTP QA suite
 saqa init-suite my-suite.json --base-url http://127.0.0.1:3000
 
-# Run a declarative suite, capture live Desktop/Mobile screenshots, generate reports, and auto-sync to Jira (Epics, Timeline, Rich ADF, Photos & Docs)
-saqa run-suite examples/juice-shop-suite.json \
-  --output-dir artifacts/suite \
-  --html artifacts/suite/report.html \
-  --md artifacts/suite/report.md \
-  --history artifacts/history.jsonl \
-  --commit-sha $(git rev-parse HEAD) \
-  --screenshot \
-  --sync-jira
-
-# Or synchronize any verified manifest + reports/photos directly to Jira:
-saqa sync-jira artifacts/suite/evidence-manifest.json --screenshot
-
-# Capture a live website PNG screenshot (Playwright or headless Chrome/Edge):
-saqa capture-screenshot https://www.dreamex.tech artifacts/screenshot.png --width 1440 --height 900
-
-# Run an 8-pillar Deep Website + Live SPA Browser Audit + screenshots + custom Sprint Timeline + Jira sync:
+# Run a 9-pillar + Multi-Page + Multi-Viewport + Live SPA Deep Audit and sync to Jira in Bahasa Indonesia (--lang id):
 saqa deep-audit https://www.dreamex.tech/ \
-  --output-dir artifacts/deep-audit \
+  --output-dir artifacts/deep-audit-id \
   --spa \
+  --modern-security \
+  --responsive \
+  --crawl-pages 5 \
   --screenshot \
+  --lang id \
   --sprint-start 2026-11-10 \
-  --sprint-end 2026-11-30 \
+  --sprint-end 2026-12-01 \
   --sync-jira
 
-# Pixel-by-pixel Visual Regression Diffing with magenta diff heatmap output:
-saqa visual-diff baseline.png artifacts/deep-audit/screenshot-desktop.png --output artifacts/deep-audit/visual-diff.png --threshold 0.5
+# Switch Jira & reports seamlessly to English (--lang en) for international clients without duplicating tickets:
+saqa sync-jira artifacts/deep-audit-id/evidence-manifest.json --lang en
+
+# Execute declarative interactive Browser UI Journeys (with optional auth storage_state/cookies):
+saqa run-journey examples/client-journey.json --output-dir artifacts/journey --lang id --sync-jira
+
+# Animation-frozen, region-masked, anti-aliasing-aware Pixel Visual Regression Diffing:
+saqa capture-screenshot https://www.dreamex.tech artifacts/shot1.png --width 1440 --height 900
+saqa visual-diff baseline.png artifacts/shot1.png \
+  --mask 0,0,1440,120 \
+  --ignore-antialiasing \
+  --output artifacts/visual-diff.png \
+  --threshold 0.5
+
+# Export HTML, Markdown, JUnit XML, and SARIF v2.1.0 (GitHub Code Scanning) in Indonesian or English:
+saqa report artifacts/deep-audit-id/evidence-manifest.json \
+  --lang id \
+  --html artifacts/report.html \
+  --md artifacts/report.md \
+  --junit artifacts/junit.xml \
+  --sarif artifacts/results.sarif
 
 # Multi-target head-to-head QA Benchmark Matrix (HTML, Markdown, CSV, JSON):
 saqa benchmark https://www.dreamex.tech/ https://playwright.dev/ --output-dir artifacts/benchmark --spa
 
 # Auto-generate or execute read-only contract tests directly from any OpenAPI 3.x / Swagger 2.0 spec:
-saqa audit-openapi contracts/juice-shop.openapi.json --base-url http://127.0.0.1:3000
+saqa audit-openapi contracts/juice-shop.openapi.json --base-url http://127.0.0.1:3000 --lang id
 
-# Verify tamper-evident evidence integrity & run Quality Intelligence analytics
-saqa verify-manifest artifacts/suite/evidence-manifest.json
-saqa analyze artifacts/suite/evidence-manifest.json
-saqa analyze artifacts/history.jsonl
-
-# Compare two runs for new failures, fixes, and latency regressions
-saqa diff baseline-manifest.json artifacts/suite/evidence-manifest.json --fail-on-regression
-
-# Generate deterministic black-box test design matrices & synthetic QA data
-saqa generate-data bva --min 1 --max 100
+# Verify tamper-evident evidence integrity, diff runs, & generate black-box test data:
+saqa verify-manifest artifacts/deep-audit-id/evidence-manifest.json
+saqa diff baseline-manifest.json artifacts/deep-audit-id/evidence-manifest.json --fail-on-regression
 saqa generate-data pairwise --seed 42
-saqa generate-data users --count 10 --seed 42
-saqa generate-data edge-cases --category all
 ```
 
-Key v2.2 modules under `src/saqa/`:
+Key v2.5 modules under `src/saqa/`:
 
-- **`saqa.runner`** — Declarative JSON QA suite executor with JSONPath assertions, latency SLA budgets, schema-drift snapshots, bounded safe retries, and loopback-first safety guards.
-- **`saqa.test_design`** — Deterministic Boundary Value Analysis (numeric & string), Equivalence Partitioning, 100%-coverage Pairwise (All-Pairs) combinatorial generator, Decision Table evaluator, State Transition graph coverage (valid + negative probes), Error-Guessing payloads, and `SyntheticDataFactory`.
-- **`saqa.analytics`** — Quality Health Score (0–100 + A–F grade), linear-interpolated latency percentiles (`p50`/`p90`/`p95`/`p99`), cross-run regression diffing, and hash-chained history flakiness ranking with quarantine recommendations.
-- **`saqa.reporting`** — Offline-ready, XSS-safe interactive HTML5 QA dashboard and executive Markdown reporter.
+- **`saqa.i18n` & `saqa.jira_sync`** — Bilingual (`id` Bahasa Indonesia & `en` English) Jira Cloud control-plane sync with Timeline Epics, custom Sprint windows, Active Agile Scrum Sprint auto-assignment (`/rest/agile/1.0`), Two-Way Governance Waivers (`accepted-risk`/`wontfix`/`saqa-waived`), Rich ADF tables, and deduplicated parallel attachment uploads.
+- **`saqa.web_audit` & `saqa.spa_audit`** — 9-Pillar Web/API/App-Link auditor (TLS, OWASP headers, WCAG 2.2 DOM, SEO/JSON-LD, parallel broken-link crawler, dotfile exposure, keep-alive performance, live SPA DOM + Core Web Vitals `FCP`/`LCP`/`CLS`, CORS/SRI/`security.txt`/Android+iOS Universal Links/GraphQL introspection), Multi-Viewport Responsive Matrix, Sitemap+BFS Multi-Page Crawler, and Declarative Browser UI Journeys.
+- **`saqa.visual_diff` & `saqa.visual_evidence`** — Pure-Python PNG visual regression engine with bounding-box region masking (`--mask x,y,w,h`), subpixel anti-aliasing tolerance, CSS animation-frozen screenshots, PNG scorecards, SVG charts, and CSV matrices.
+- **`saqa.reporting`** — Localized (`id`/`en`) offline HTML5 dashboard, Markdown summary, **JUnit XML**, and **SARIF v2.1.0** exporters.
+- **`saqa.runner` & `saqa.test_design`** — Chained variable-extraction & parallel HTTP suite runner plus ISTQB BVA, Equivalence Partitioning, 100%-coverage Pairwise IPO, Decision Tables, and State Transition generators.
 
 ## 🛡️ Safe Adversarial Testing
 

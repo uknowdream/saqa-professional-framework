@@ -489,6 +489,61 @@ class JiraClient:
                 results = list(pool.map(_up, valid_paths))
         return [r for r in results if r is not None]
 
+    def find_project_issues_by_label(self, label: str, max_results: int = 50) -> list[JiraIssueResult]:
+        """Find project issues carrying a specific deterministic SAQA label (language-independent)."""
+        return self.search_issues(
+            f'project = {self.config.project_key} AND labels = "{label}"',
+            max_results=max_results,
+        )
+
+    def find_active_sprint(self) -> dict[str, Any] | None:
+        """Discover the active Scrum sprint for the configured project via Jira Software Agile API."""
+        try:
+            boards_resp = self._client.get(
+                "/rest/agile/1.0/board",
+                params={"projectKeyOrId": self.config.project_key, "maxResults": 20},
+            )
+            if boards_resp.status_code != 200:
+                return None
+            for board in boards_resp.json().get("values") or []:
+                board_id = board.get("id")
+                board_type = str(board.get("type", "")).lower()
+                if not board_id or board_type == "kanban":
+                    continue
+                sprints_resp = self._client.get(
+                    f"/rest/agile/1.0/board/{board_id}/sprint",
+                    params={"state": "active", "maxResults": 10},
+                )
+                if sprints_resp.status_code != 200:
+                    continue
+                sprints = sprints_resp.json().get("values") or []
+                if sprints:
+                    sp = sprints[0]
+                    return {
+                        "id": int(sp["id"]),
+                        "name": str(sp.get("name", f"Sprint {sp['id']}")),
+                        "board_id": int(board_id),
+                        "startDate": sp.get("startDate"),
+                        "endDate": sp.get("endDate"),
+                    }
+        except Exception:
+            return None
+        return None
+
+    def move_issues_to_sprint(self, sprint_id: int, issue_keys: Iterable[str]) -> bool:
+        """Assign Jira issues into an active Agile Scrum sprint."""
+        keys = [str(k) for k in issue_keys if k]
+        if not keys:
+            return False
+        try:
+            resp = self._client.post(
+                f"/rest/agile/1.0/sprint/{int(sprint_id)}/issue",
+                json={"issues": keys[:50]},
+            )
+            return resp.status_code in {200, 201, 204}
+        except Exception:
+            return False
+
 
 def verify_from_env() -> JiraProjectResult:
     with JiraClient(JiraConfig.from_env()) as client:

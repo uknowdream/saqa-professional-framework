@@ -147,22 +147,27 @@ def _evaluate_expectations(
     if not isinstance(headers_spec, Mapping):
         raise ValueError("expect.headers must be an object")
     for header_name, rule in headers_spec.items():
+        h_name = str(header_name)
         if isinstance(rule, str):
-            _run_check(
-                f"header:{header_name}",
-                lambda n=header_name, r=rule: assert_header(response, n, contains=r),
-            )
+            r_str = rule
+
+            def _check_hdr_str(n: str = h_name, r: str = r_str) -> None:
+                assert_header(response, n, contains=r)
+
+            _run_check(f"header:{h_name}", _check_hdr_str)
         elif isinstance(rule, Mapping):
-            _run_check(
-                f"header:{header_name}",
-                lambda n=header_name, r=rule: assert_header(
+            r_map = rule
+
+            def _check_hdr_map(n: str = h_name, r: Mapping[str, Any] = r_map) -> None:
+                assert_header(
                     response,
                     n,
                     equals=r.get("equals"),
                     contains=r.get("contains"),
                     regex=r.get("regex"),
-                ),
-            )
+                )
+
+            _run_check(f"header:{h_name}", _check_hdr_map)
         else:
             raise ValueError(f"invalid header expectation for {header_name!r}")
 
@@ -192,7 +197,11 @@ def _evaluate_expectations(
         }
         if "equals" in rule:
             kwargs["equals"] = rule["equals"]
-        _run_check(f"json_path:{path}", lambda p=path, kw=kwargs: assert_json_path(response, p, **kw))
+
+        def _check_jpath(p: str = path, kw: dict[str, Any] = kwargs) -> None:
+            assert_json_path(response, p, **kw)
+
+        _run_check(f"json_path:{path}", _check_jpath)
 
     body_text = response.text
     for needle in expect.get("body_contains") or []:

@@ -6,10 +6,12 @@ and falls back transparently to ``saqa.api.request`` in stdlib-only environments
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any, Callable, Iterator, Mapping
+from typing import Any
 
-from .api import ApiResponse, request as stdlib_request
+from .api import ApiResponse
+from .api import request as stdlib_request
 
 
 @contextmanager

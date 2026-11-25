@@ -42,29 +42,35 @@ def verify_history(path: Path) -> bool:
         return False
 
 def append_history(records: list[EvidenceRecord], path: Path, *, commit_sha: str) -> str:
+    from typing import Any
+
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
     lock_path.touch(exist_ok=True)
+    fcntl_mod: Any = None
     try:
-        import fcntl
+        import fcntl as _fcntl
+
+        fcntl_mod = _fcntl
     except ImportError:
-        fcntl = None
+        fcntl_mod = None
     handle = lock_path.open("r+", encoding="utf-8")
     try:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        if fcntl_mod is not None:
+            fcntl_mod.flock(handle.fileno(), fcntl_mod.LOCK_EX)
         previous = GENESIS
         if path.exists() and path.stat().st_size:
             if not verify_history(path):
                 raise RuntimeError("cannot append to corrupted quality history")
             lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-            previous = json.loads(lines[-1])["chain_sha256"]
-        entry = {"commit_sha": commit_sha, "records": [r.__dict__ for r in records], "previous_sha256": previous}
-        entry["chain_sha256"] = hashlib.sha256(canonical_json(entry)).hexdigest()
+            previous = str(json.loads(lines[-1])["chain_sha256"])
+        entry: dict[str, Any] = {"commit_sha": commit_sha, "records": [r.__dict__ for r in records], "previous_sha256": previous}
+        chain_sha = hashlib.sha256(canonical_json(entry)).hexdigest()
+        entry["chain_sha256"] = chain_sha
         with path.open("a", encoding="utf-8") as output:
             output.write(json.dumps(entry, sort_keys=True) + "\n")
-        return entry["chain_sha256"]
+        return chain_sha
     finally:
-        if fcntl is not None:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        if fcntl_mod is not None:
+            fcntl_mod.flock(handle.fileno(), fcntl_mod.LOCK_UN)
         handle.close()

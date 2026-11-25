@@ -1,4 +1,4 @@
-"""Visual QA evidence & document exporters: PNG scorecards, live browser screenshots, SVG charts, and CSV matrices."""
+"""Visual QA evidence & document exporters: PNG scorecards, deterministic animation-frozen browser screenshots, SVG charts, and CSV matrices."""
 from __future__ import annotations
 
 import csv
@@ -8,13 +8,31 @@ import shutil
 import struct
 import subprocess
 import zlib
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 from urllib.parse import urlparse
 
 from .evidence import EvidenceRecord
+from .i18n import normalize_lang
 
-# Minimal 5x7 crisp uppercase/digit/symbol bitmap font for dependency-free PNG scorecards
+DEFAULT_VIEWPORTS: tuple[tuple[str, int, int], ...] = (
+    ("desktop", 1440, 900),
+    ("tablet", 768, 1024),
+    ("mobile", 390, 844),
+)
+
+_FREEZE_ANIMATION_CSS = (
+    "*, *::before, *::after {"
+    " animation-duration: 0s !important;"
+    " animation-delay: 0s !important;"
+    " transition-duration: 0s !important;"
+    " transition-delay: 0s !important;"
+    " caret-color: transparent !important;"
+    " scroll-behavior: auto !important;"
+    "}"
+)
+
 _FONT_5X7: dict[str, tuple[str, ...]] = {
     " ": ("00000", "00000", "00000", "00000", "00000", "00000", "00000"),
     "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
@@ -93,7 +111,7 @@ def _encode_rgb_png(width: int, height: int, pixels: bytearray) -> bytes:
     raw_rows = bytearray()
     stride = width * 3
     for y in range(height):
-        raw_rows.append(0)  # Filter type 0 (None)
+        raw_rows.append(0)
         start = y * stride
         raw_rows.extend(pixels[start : start + stride])
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
@@ -146,8 +164,10 @@ def render_scorecard_png(
     output_path: Path,
     *,
     title: str = "SAQA QUALITY SCORECARD",
+    lang: str = "en",
 ) -> Path:
-    """Render a crisp, dependency-free 960x540 PNG QA scorecard & latency chart."""
+    """Render a crisp, dependency-free 960x540 PNG QA scorecard & latency chart (EN/ID)."""
+    code = normalize_lang(lang)
     width, height = 960, 540
     bg = (15, 23, 42)
     panel = (30, 41, 59)
@@ -164,24 +184,36 @@ def render_scorecard_png(
     overall = str(analytics.get("overall_status", "UNVERIFIED"))
     badge_color = c_pass if overall == "PASS" else (c_fail if overall == "FAIL" else c_blocked)
 
-    # Top header banner
     canvas.fill_rect(24, 20, width - 48, 66, panel)
     canvas.stroke_rect(24, 20, width - 48, 66, border, 2)
     canvas.fill_rect(24, 20, 8, 66, badge_color)
     canvas.draw_text(48, 36, title[:42], text_main, scale=2)
-    canvas.draw_text(48, 62, f"STATUS: {overall}  |  GRADE: {analytics.get('health_grade', 'N/A')}", text_muted, scale=1)
+    sub = (
+        f"STATUS: {overall}  |  PREDIKAT: {analytics.get('health_grade', 'N/A')}  |  ID"
+        if code == "id"
+        else f"STATUS: {overall}  |  GRADE: {analytics.get('health_grade', 'N/A')}  |  EN"
+    )
+    canvas.draw_text(48, 62, sub, text_muted, scale=1)
     canvas.fill_rect(width - 170, 34, 128, 36, badge_color)
     canvas.draw_text(width - 150, 44, overall[:8], bg, scale=2)
 
-    # 4 KPI Cards
     counts = analytics["status_counts"]
     lat = analytics["latency"]
-    kpis = [
-        ("HEALTH SCORE", f"{analytics['health_score']}/100", c_pass if analytics["health_score"] >= 85 else c_fail),
-        ("PASS RATE", f"{analytics['pass_rate_pct']}%", c_accent),
-        ("CHECKS PASSED", f"{counts['PASS']}/{analytics['total_records']}", c_pass),
-        ("LATENCY P95", f"{lat['p95_ms']} MS", c_accent),
-    ]
+    kpis = (
+        [
+            ("SKOR KESEHATAN", f"{analytics['health_score']}/100", c_pass if analytics["health_score"] >= 85 else c_fail),
+            ("KELULUSAN", f"{analytics['pass_rate_pct']}%", c_accent),
+            ("UJI LULUS", f"{counts['PASS']}/{analytics['total_records']}", c_pass),
+            ("LATENSI P95", f"{lat['p95_ms']} MS", c_accent),
+        ]
+        if code == "id"
+        else [
+            ("HEALTH SCORE", f"{analytics['health_score']}/100", c_pass if analytics["health_score"] >= 85 else c_fail),
+            ("PASS RATE", f"{analytics['pass_rate_pct']}%", c_accent),
+            ("CHECKS PASSED", f"{counts['PASS']}/{analytics['total_records']}", c_pass),
+            ("LATENCY P95", f"{lat['p95_ms']} MS", c_accent),
+        ]
+    )
     card_w = 216
     for idx, (label, val, accent) in enumerate(kpis):
         cx = 24 + idx * (card_w + 16)
@@ -192,10 +224,9 @@ def render_scorecard_png(
         canvas.draw_text(cx + 14, cy + 16, label, text_muted, scale=1)
         canvas.draw_text(cx + 14, cy + 42, val[:14], text_main, scale=2)
 
-    # Status Distribution Stacked Bar
     canvas.fill_rect(24, 206, width - 48, 66, panel)
     canvas.stroke_rect(24, 206, width - 48, 66, border, 1)
-    canvas.draw_text(40, 218, "STATUS DISTRIBUTION", text_muted, scale=1)
+    canvas.draw_text(40, 218, "DISTRIBUSI STATUS" if code == "id" else "STATUS DISTRIBUTION", text_muted, scale=1)
     bar_x, bar_y, bar_w, bar_h = 40, 236, width - 80, 18
     canvas.fill_rect(bar_x, bar_y, bar_w, bar_h, bg)
     total = max(1, int(analytics["total_records"]))
@@ -213,10 +244,15 @@ def render_scorecard_png(
         scale=1,
     )
 
-    # Latency Horizontal Bar Chart (top 7 executed tests)
     canvas.fill_rect(24, 286, width - 48, 200, panel)
     canvas.stroke_rect(24, 286, width - 48, 200, border, 1)
-    canvas.draw_text(40, 298, "EXECUTED SCENARIOS & RESPONSE LATENCY (MS)", text_muted, scale=1)
+    canvas.draw_text(
+        40,
+        298,
+        "SKENARIO DIEKSEKUSI & LATENSI RESPONS (MS)" if code == "id" else "EXECUTED SCENARIOS & RESPONSE LATENCY (MS)",
+        text_muted,
+        scale=1,
+    )
 
     norm_records = [_record_dict(r) for r in records]
     timed = []
@@ -237,7 +273,6 @@ def render_scorecard_png(
         canvas.fill_rect(chart_x, ry, fill_w, 14, row_color)
         canvas.draw_text(chart_x + chart_max_w + 14, ry + 3, f"{ms:.1f} MS ({status})", text_muted, scale=1)
 
-    # Cryptographic Footer
     sha = str(analytics.get("manifest_sha256") or "UNHASHED")
     canvas.draw_text(24, 504, f"EVIDENCE SHA256: {sha[:64]}", text_muted, scale=1)
 
@@ -252,8 +287,10 @@ def render_analytics_svg(
     output_path: Path,
     *,
     title: str = "SAQA Quality Analytics",
+    lang: str = "en",
 ) -> Path:
-    """Render a crisp scalable SVG analytics & latency chart."""
+    """Render a crisp scalable SVG analytics & latency chart (EN/ID)."""
+    code = normalize_lang(lang)
     counts = analytics["status_counts"]
     lat = analytics["latency"]
     overall = str(analytics["overall_status"])
@@ -279,6 +316,11 @@ def render_analytics_svg(
             f'<text x="742" y="{y + 14}" fill="#94a3b8" font-size="12" font-family="monospace">{ms:.1f} ms ({html.escape(status)})</text>'
         )
 
+    lbl_pass = "LULUS / TOTAL" if code == "id" else "PASS / TOTAL"
+    lbl_health = "SKOR KESEHATAN" if code == "id" else "HEALTH SCORE"
+    lbl_p95 = "LATENSI P95" if code == "id" else "LATENCY P95"
+    lbl_fail = "GAGAL / TERBLOKIR" if code == "id" else "FAIL / BLOCKED"
+
     svg_height = max(320, 215 + len(top_rows) * 28)
     svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="900" height="{svg_height}" viewBox="0 0 900 {svg_height}">
   <rect width="900" height="{svg_height}" rx="12" fill="#0f172a"/>
@@ -288,16 +330,16 @@ def render_analytics_svg(
   <rect x="756" y="34" width="104" height="34" rx="17" fill="{badge_bg}"/>
   <text x="808" y="56" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700" font-family="system-ui, sans-serif">{html.escape(overall)}</text>
   <rect x="20" y="100" width="205" height="62" rx="8" fill="#1e293b" stroke="#334155"/>
-  <text x="36" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">PASS / TOTAL</text>
+  <text x="36" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">{lbl_pass}</text>
   <text x="36" y="148" fill="#86efac" font-size="20" font-weight="700" font-family="system-ui, sans-serif">{counts['PASS']} / {analytics['total_records']}</text>
   <rect x="238" y="100" width="205" height="62" rx="8" fill="#1e293b" stroke="#334155"/>
-  <text x="254" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">HEALTH SCORE</text>
+  <text x="254" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">{lbl_health}</text>
   <text x="254" y="148" fill="#38bdf8" font-size="20" font-weight="700" font-family="system-ui, sans-serif">{analytics['health_score']} ({html.escape(str(analytics['health_grade']))})</text>
   <rect x="456" y="100" width="205" height="62" rx="8" fill="#1e293b" stroke="#334155"/>
-  <text x="472" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">LATENCY P95</text>
+  <text x="472" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">{lbl_p95}</text>
   <text x="472" y="148" fill="#f8fafc" font-size="20" font-weight="700" font-family="system-ui, sans-serif">{lat['p95_ms']} ms</text>
   <rect x="674" y="100" width="206" height="62" rx="8" fill="#1e293b" stroke="#334155"/>
-  <text x="690" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">FAIL / BLOCKED</text>
+  <text x="690" y="122" fill="#94a3b8" font-size="11" font-family="system-ui, sans-serif">{lbl_fail}</text>
   <text x="690" y="148" fill="#fca5a5" font-size="20" font-weight="700" font-family="system-ui, sans-serif">{counts['FAIL']} / {counts['BLOCKED']}</text>
   {''.join(bars)}
 </svg>
@@ -310,13 +352,29 @@ def render_analytics_svg(
 def export_csv_matrix(
     records: Sequence[EvidenceRecord | Mapping[str, Any]],
     output_path: Path,
+    *,
+    lang: str = "en",
 ) -> Path:
-    """Export executed QA evidence into an Excel-compatible UTF-8 CSV test matrix."""
+    """Export executed QA evidence into an Excel-compatible UTF-8 CSV test matrix (EN/ID)."""
+    code = normalize_lang(lang)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     norm_records = [_record_dict(r) for r in records]
-    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow([
+    headers = (
+        [
+            "ID Uji",
+            "Skenario",
+            "Target",
+            "Status",
+            "Metode HTTP",
+            "Kode HTTP",
+            "Latensi (ms)",
+            "Tag",
+            "Pemeriksaan Lulus",
+            "Alasan Kegagalan",
+            "Waktu Observasi",
+        ]
+        if code == "id"
+        else [
             "Test ID",
             "Scenario",
             "Target",
@@ -328,7 +386,11 @@ def export_csv_matrix(
             "Checks Passed",
             "Failure Reasons",
             "Observed At",
-        ])
+        ]
+    )
+    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(headers)
         for rec in norm_records:
             det = rec["details"]
             writer.writerow([
@@ -372,8 +434,10 @@ def capture_web_screenshot(
     width: int = 1440,
     height: int = 900,
     timeout_s: int = 30,
+    freeze_animations: bool = True,
+    full_page: bool = False,
 ) -> Path | None:
-    """Capture a live PNG screenshot of an authorized HTTP(S) URL via Playwright or headless Chrome/Edge."""
+    """Capture a deterministic PNG screenshot with CSS animation/transition freezing enabled by default."""
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError(f"invalid screenshot target URL: {url!r}")
@@ -389,14 +453,23 @@ def capture_web_screenshot(
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             try:
-                page = browser.new_page(viewport={"width": width, "height": height})
+                ctx_kwargs: dict[str, Any] = {"viewport": {"width": width, "height": height}}
+                if freeze_animations:
+                    ctx_kwargs["reduced_motion"] = "reduce"
+                context = browser.new_context(**ctx_kwargs)
+                page = context.new_page()
                 page.goto(url, wait_until="networkidle", timeout=timeout_s * 1000)
-                page.screenshot(path=str(output_path), full_page=False)
+                if freeze_animations:
+                    page.add_style_tag(content=_FREEZE_ANIMATION_CSS)
+                shot_kwargs: dict[str, Any] = {"path": str(output_path), "full_page": full_page}
+                if freeze_animations:
+                    shot_kwargs["animations"] = "disabled"
+                page.screenshot(**shot_kwargs)
                 if output_path.is_file() and output_path.stat().st_size > 0:
                     return output_path
             finally:
                 browser.close()
-    except Exception:
+    except Exception:  # noqa: S110
         pass
 
     # 2. Fallback to system headless Chrome / Chromium / Edge
@@ -412,10 +485,41 @@ def capture_web_screenshot(
         "--hide-scrollbars",
         f"--window-size={width},{height}",
         "--virtual-time-budget=5000",
-        f"--screenshot={output_path.resolve()}",
-        url,
     ]
+    if freeze_animations:
+        cmd.extend([
+            "--force-prefers-reduced-motion",
+            "--disable-smooth-scrolling",
+            "--run-all-compositor-stages-before-draw",
+        ])
+    cmd.extend([f"--screenshot={output_path.resolve()}", url])
     completed = subprocess.run(cmd, check=False, capture_output=True, timeout=timeout_s)
     if completed.returncode == 0 and output_path.is_file() and output_path.stat().st_size > 0:
         return output_path
     return None
+
+
+def capture_viewport_matrix(
+    url: str,
+    output_dir: Path,
+    *,
+    viewports: Sequence[tuple[str, int, int]] = DEFAULT_VIEWPORTS,
+    freeze_animations: bool = True,
+    timeout_s: int = 30,
+) -> list[Path]:
+    """Capture responsive Desktop, Tablet, and Mobile PNG screenshots with frozen animations."""
+    captured: list[Path] = []
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for label, width, height in viewports:
+        dest = output_dir / f"screenshot-{label}.png"
+        saved = capture_web_screenshot(
+            url,
+            dest,
+            width=width,
+            height=height,
+            timeout_s=timeout_s,
+            freeze_animations=freeze_animations,
+        )
+        if saved is not None:
+            captured.append(saved)
+    return captured

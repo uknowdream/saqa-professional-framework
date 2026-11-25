@@ -13,6 +13,7 @@ from typing import Any
 from saqa.analytics import analyze_records
 from saqa.evidence import EvidenceRecord, utc_now
 from saqa.jira import JiraClient, JiraConfig, JiraIssueResult, JiraServiceUnavailableError
+from saqa.i18n import get_all_summary_variants, get_issue_summaries, normalize_lang
 from saqa.jira_sync import (
     DOMAIN_PRIORITIES,
     DOMAIN_TIMELINE_OFFSETS,
@@ -201,12 +202,16 @@ def transition_targets(result: str) -> tuple[str, ...]:
 
 
 def ensure_managed_issues(client: JiraClient) -> dict[str, JiraIssueResult]:
-    """Resolve pre-bootstrapped QA issues without creating them during CI sync."""
+    """Resolve pre-bootstrapped QA issues (matching EN or ID summaries or SAQA domain labels) without creating them during CI sync."""
     project_issues = client.find_project_issues()
     managed: dict[str, JiraIssueResult] = {}
     missing: list[str] = []
     for key, summary in ISSUE_SUMMARIES.items():
-        existing = project_issues.get(summary)
+        existing = next((project_issues[v] for v in get_all_summary_variants(key) if v in project_issues), None)
+        if existing is None and hasattr(client, "find_project_issues_by_label"):
+            by_lbl = client.find_project_issues_by_label(f"saqa-{key.lower()}")
+            if by_lbl:
+                existing = by_lbl[0]
         if not existing:
             missing.append(f"{key}: {summary}")
             continue

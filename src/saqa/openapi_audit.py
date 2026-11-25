@@ -74,7 +74,8 @@ def generate_suite_from_openapi(
     max_ms: float = 2000.0,
 ) -> dict[str, Any]:
     """Generate a ready-to-run read-only SAQA declarative suite from all GET endpoints in an OpenAPI spec."""
-    info = spec.get("info") if isinstance(spec.get("info"), Mapping) else {}
+    raw_info = spec.get("info")
+    info: Mapping[str, Any] = raw_info if isinstance(raw_info, Mapping) else {}
     raw_title = str(info.get("title") or "openapi-service").strip()
     slug = re.sub(r"[^a-z0-9]+", "-", raw_title.lower()).strip("-") or "openapi-service"
     paths = spec.get("paths")
@@ -105,7 +106,8 @@ def generate_suite_from_openapi(
                 if p.get("required") or "example" in p or isinstance(p.get("schema"), Mapping):
                     query_params[str(p["name"])] = _sample_param_value(p)
 
-        responses = op.get("responses") if isinstance(op.get("responses"), Mapping) else {}
+        raw_responses = op.get("responses")
+        responses: Mapping[str, Any] = raw_responses if isinstance(raw_responses, Mapping) else {}
         ok_codes = [int(code) for code in responses if str(code).isdigit() and 200 <= int(code) < 300]
         expected_status: int | list[int] = ok_codes[0] if len(ok_codes) == 1 else (ok_codes or 200)
 

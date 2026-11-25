@@ -4,9 +4,10 @@ from __future__ import annotations
 import csv
 import html
 import json
+from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any
 
 from .web_audit import DeepAuditResult, run_deep_web_audit
 

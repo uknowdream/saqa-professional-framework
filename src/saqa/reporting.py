@@ -1,11 +1,15 @@
-"""Self-contained interactive HTML dashboard and Markdown executive reporter for SAQA."""
+"""Self-contained interactive HTML dashboard, Markdown reporter, JUnit XML, and SARIF v2.1.0 exporters (EN/ID)."""
 from __future__ import annotations
 
 import html
 import json
-from typing import Any, Mapping, Sequence
+import xml.etree.ElementTree as ET
+from collections.abc import Mapping, Sequence
+from typing import Any
 
+from . import __version__
 from .evidence import EvidenceRecord
+from .i18n import normalize_lang, tr, translate_recommendation
 
 
 def _esc(value: Any) -> str:
@@ -30,46 +34,205 @@ def _record_dict(item: EvidenceRecord | Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def render_junit_xml(
+    analytics: Mapping[str, Any],
+    records: Sequence[EvidenceRecord | Mapping[str, Any]],
+    *,
+    suite_name: str = "saqa-suite",
+) -> str:
+    """Export SAQA evidence records into standard JUnit XML for GitHub/GitLab/Jenkins/Jira Xray."""
+    norm_records = [_record_dict(r) for r in records]
+    counts = analytics["status_counts"]
+    total_time_s = 0.0
+    for rec in norm_records:
+        ms = rec["details"].get("elapsed_ms", rec["details"].get("duration_ms", 0.0))
+        if isinstance(ms, (int, float)):
+            total_time_s += float(ms) / 1000.0
+
+    skipped_count = int(counts.get("BLOCKED", 0)) + int(counts.get("NOT_APPLICABLE", 0)) + int(counts.get("UNVERIFIED", 0))
+    suites_el = ET.Element("testsuites")
+    suite_el = ET.SubElement(
+        suites_el,
+        "testsuite",
+        {
+            "name": suite_name,
+            "tests": str(len(norm_records)),
+            "failures": str(counts.get("FAIL", 0)),
+            "errors": "0",
+            "skipped": str(skipped_count),
+            "time": f"{total_time_s:.3f}",
+        },
+    )
+    props_el = ET.SubElement(suite_el, "properties")
+    for prop_name, prop_val in (
+        ("saqa.version", __version__),
+        ("saqa.health_score", str(analytics.get("health_score", ""))),
+        ("saqa.health_grade", str(analytics.get("health_grade", ""))),
+        ("saqa.manifest_sha256", str(analytics.get("manifest_sha256") or "")),
+    ):
+        ET.SubElement(props_el, "property", {"name": prop_name, "value": prop_val})
+
+    for rec in norm_records:
+        det = rec["details"]
+        ms = det.get("elapsed_ms", det.get("duration_ms", 0.0))
+        sec = (float(ms) / 1000.0) if isinstance(ms, (int, float)) else 0.0
+        case_el = ET.SubElement(
+            suite_el,
+            "testcase",
+            {
+                "classname": str(det.get("suite") or suite_name),
+                "name": rec["test_id"],
+                "time": f"{sec:.3f}",
+            },
+        )
+        status = rec["status"]
+        reasons = det.get("failure_reasons") or ([] if not det.get("error") else [str(det["error"])])
+        msg = "; ".join(str(r) for r in reasons) if reasons else f"Status: {status}"
+        if status == "FAIL":
+            fail_el = ET.SubElement(case_el, "failure", {"message": msg[:500], "type": "SAQAQualityGateFailure"})
+            fail_el.text = json.dumps(det, indent=2, sort_keys=True)
+        elif status in {"BLOCKED", "NOT_APPLICABLE", "UNVERIFIED"}:
+            ET.SubElement(case_el, "skipped", {"message": msg[:500], "type": status})
+
+    xml_body = ET.tostring(suites_el, encoding="unicode")
+    return '<?xml version="1.0" encoding="utf-8"?>\n' + xml_body + "\n"
+
+
+def render_sarif_report(
+    records: Sequence[EvidenceRecord | Mapping[str, Any]],
+    *,
+    suite_name: str = "saqa-suite",
+) -> dict[str, Any]:
+    """Export SAQA security, accessibility, and quality findings as SARIF v2.1.0 for GitHub Code Scanning."""
+    norm_records = [_record_dict(r) for r in records]
+    rules: list[dict[str, Any]] = []
+    seen_rules: set[str] = set()
+    sarif_results: list[dict[str, Any]] = []
+
+    for rec in norm_records:
+        rule_id = rec["test_id"]
+        det = rec["details"]
+        case_name = str(det.get("case_name") or rule_id)
+        if rule_id not in seen_rules:
+            seen_rules.add(rule_id)
+            rules.append({
+                "id": rule_id,
+                "name": rule_id.replace(".", "_").replace("-", "_"),
+                "shortDescription": {"text": case_name},
+                "properties": {"tags": list(det.get("tags") or []), "suite": suite_name},
+            })
+
+        failures = [str(f) for f in (det.get("failure_reasons") or [])]
+        warnings = [str(w) for w in (det.get("warnings") or [])]
+
+        if rec["status"] == "FAIL":
+            message_text = "; ".join(failures) if failures else f"{case_name} failed verification"
+            sarif_results.append({
+                "ruleId": rule_id,
+                "level": "error",
+                "message": {"text": message_text},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": rec["target"]},
+                        }
+                    }
+                ],
+            })
+        elif warnings:
+            for warn in warnings:
+                sarif_results.append({
+                    "ruleId": rule_id,
+                    "level": "warning",
+                    "message": {"text": warn},
+                    "locations": [
+                        {
+                            "physicalLocation": {
+                                "artifactLocation": {"uri": rec["target"]},
+                            }
+                        }
+                    ],
+                })
+
+    return {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "SAQA Professional Framework",
+                        "version": __version__,
+                        "informationUri": "https://github.com/uknowdream/saqa-professional-framework",
+                        "rules": rules,
+                    }
+                },
+                "results": sarif_results,
+            }
+        ],
+    }
+
+
 def render_markdown_report(
     analytics: Mapping[str, Any],
     *,
     diff: Mapping[str, Any] | None = None,
     history: Mapping[str, Any] | None = None,
     title: str = "SAQA Quality Report",
+    lang: str = "en",
 ) -> str:
-    """Render an executive GitHub-flavored Markdown QA summary."""
+    """Render an executive GitHub-flavored Markdown QA summary (EN/ID)."""
+    code = normalize_lang(lang)
     counts = analytics["status_counts"]
     latency = analytics["latency"]
     lines = [
         f"# {title}",
         "",
-        f"- **Overall Status:** `{analytics['overall_status']}`",
-        f"- **Health Score:** `{analytics['health_score']} / 100` (Grade **{analytics['health_grade']}**)",
-        f"- **Pass Rate:** `{analytics['pass_rate_pct']}%` ({counts['PASS']} PASS / {counts['FAIL']} FAIL / {counts['BLOCKED']} BLOCKED / {counts['UNVERIFIED']} UNVERIFIED)",
+        f"- **{tr('rpt_overall_status', code)}:** `{analytics['overall_status']}`",
+        f"- **{tr('rpt_health_score', code)}:** `{analytics['health_score']} / 100` (Grade **{analytics['health_grade']}**)",
+        f"- **{tr('rpt_pass_rate', code)}:** `{analytics['pass_rate_pct']}%` ({counts['PASS']} PASS / {counts['FAIL']} FAIL / {counts['BLOCKED']} BLOCKED / {counts['UNVERIFIED']} UNVERIFIED)",
     ]
     if analytics.get("manifest_sha256"):
         lines.append(f"- **Evidence SHA-256:** `{analytics['manifest_sha256']}`")
     if latency["count"] > 0:
         lines.append(
-            f"- **Latency (ms):** min `{latency['min_ms']}` · p50 `{latency['p50_ms']}` · "
+            f"- **{'Latensi (ms)' if code == 'id' else 'Latency (ms)'}:** min `{latency['min_ms']}` · p50 `{latency['p50_ms']}` · "
             f"p95 `{latency['p95_ms']}` · p99 `{latency['p99_ms']}` · max `{latency['max_ms']}`"
         )
 
-    lines.extend(["", "## Summary Metrics", "", "| Metric | Value |", "|---|---|"])
-    lines.append(f"| Total Records | {analytics['total_records']} |")
-    lines.append(f"| Applicable Records | {analytics['applicable_records']} |")
-    lines.append(f"| Pass Rate | {analytics['pass_rate_pct']}% |")
-    lines.append(f"| Fail Rate | {analytics['fail_rate_pct']}% |")
-    lines.append(f"| Health Score | {analytics['health_score']} ({analytics['health_grade']}) |")
+    lines.extend([
+        "",
+        f"## {tr('rpt_summary_metrics', code)}",
+        "",
+        f"| {tr('rpt_metric', code)} | {tr('rpt_value', code)} |",
+        "|---|---|",
+    ])
+    lines.append(f"| {tr('rpt_total_records', code)} | {analytics['total_records']} |")
+    lines.append(f"| {tr('rpt_applicable_records', code)} | {analytics['applicable_records']} |")
+    lines.append(f"| {tr('rpt_pass_rate', code)} | {analytics['pass_rate_pct']}% |")
+    lines.append(f"| {tr('rpt_fail_rate', code)} | {analytics['fail_rate_pct']}% |")
+    lines.append(f"| {tr('rpt_health_score', code)} | {analytics['health_score']} ({analytics['health_grade']}) |")
 
     if analytics.get("failing_tests"):
-        lines.extend(["", "## Failing Tests", "", "| Test ID | Target | Reasons |", "|---|---|---|"])
+        lines.extend([
+            "",
+            f"## {tr('rpt_failing_tests', code)}",
+            "",
+            f"| {tr('col_test_id', code)} | {tr('col_target', code)} | {tr('rpt_reasons', code)} |",
+            "|---|---|---|",
+        ])
         for item in analytics["failing_tests"]:
             reasons = "; ".join(item.get("reasons") or ["Failed without detail"])
             lines.append(f"| `{item['test_id']}` | `{item['target']}` | {reasons} |")
 
     if analytics.get("slowest_tests"):
-        lines.extend(["", "## Slowest Tests", "", "| Test ID | Status | Latency (ms) | Target |", "|---|---|---|---|"])
+        lines.extend([
+            "",
+            f"## {tr('rpt_slowest_tests', code)}",
+            "",
+            f"| {tr('col_test_id', code)} | {tr('col_status', code)} | {'Latensi (ms)' if code == 'id' else 'Latency (ms)'} | {tr('col_target', code)} |",
+            "|---|---|---|---|",
+        ])
         for item in analytics["slowest_tests"][:5]:
             lines.append(f"| `{item['test_id']}` | `{item['status']}` | {item['elapsed_ms']} | `{item['target']}` |")
 
@@ -117,9 +280,10 @@ def render_markdown_report(
                     f"`{'YES' if item['quarantine_recommended'] else 'NO'}` |"
                 )
 
-    lines.extend(["", "## Recommendations", ""])
+    rec_hdr = "Rekomendasi" if code == "id" else "Recommendations"
+    lines.extend(["", f"## {rec_hdr}", ""])
     for rec in analytics.get("recommendations", []):
-        lines.append(f"- {rec}")
+        lines.append(f"- {translate_recommendation(str(rec), code)}")
 
     return "\n".join(lines) + "\n"
 
@@ -132,8 +296,10 @@ def render_html_report(
     history: Mapping[str, Any] | None = None,
     manifest_sha256: str | None = None,
     title: str = "SAQA Quality Report",
+    lang: str = "en",
 ) -> str:
-    """Render a self-contained, offline-ready, XSS-safe interactive HTML QA dashboard."""
+    """Render a self-contained, offline-ready, XSS-safe interactive HTML QA dashboard (EN/ID)."""
+    code = normalize_lang(lang)
     norm_records = [_record_dict(rec) for rec in records]
     counts = analytics["status_counts"]
     latency = analytics["latency"]
@@ -152,7 +318,8 @@ def render_html_report(
         elapsed = details.get("elapsed_ms", details.get("duration_ms", "-"))
         elapsed_str = f"{elapsed} ms" if isinstance(elapsed, (int, float)) else "-"
         reasons = details.get("failure_reasons") or ([] if not details.get("error") else [str(details["error"])])
-        summary_msg = "; ".join(str(r) for r in reasons) if reasons else f"{len(details.get('checks_passed', []))} check(s) passed"
+        passed_suffix = "pemeriksaan lulus" if code == "id" else "check(s) passed"
+        summary_msg = "; ".join(str(r) for r in reasons) if reasons else f"{len(details.get('checks_passed', []))} {passed_suffix}"
         pretty_json = _esc(json.dumps(details, indent=2, sort_keys=True))
         rows_html.append(
             f'<tr class="case-row" data-status="{_esc(status)}" data-search="{_esc(rec["test_id"].lower() + " " + rec["target"].lower() + " " + summary_msg.lower())}">'
@@ -160,7 +327,7 @@ def render_html_report(
             f'<td><code>{_esc(rec["test_id"])}</code></td>'
             f'<td><code>{_esc(rec["target"])}</code></td>'
             f'<td class="num">{_esc(elapsed_str)}</td>'
-            f'<td>{_esc(summary_msg)}<details><summary>Details JSON</summary><pre>{pretty_json}</pre></details></td>'
+            f'<td>{_esc(summary_msg)}<details><summary>{_esc(tr("rpt_details_json", code))}</summary><pre>{pretty_json}</pre></details></td>'
             f"</tr>"
         )
 
@@ -214,10 +381,10 @@ def render_html_report(
         </section>
         """
 
-    recs_html = "".join(f"<li>{_esc(rec)}</li>" for rec in analytics.get("recommendations", []))
+    recs_html = "".join(f"<li>{_esc(translate_recommendation(str(rec), code))}</li>" for rec in analytics.get("recommendations", []))
 
     return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="{code}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -274,15 +441,15 @@ def render_html_report(
   </header>
 
   <div class="kpi-grid">
-    <div class="kpi"><div class="kpi-label">Health Score</div><div class="kpi-val">{_esc(analytics['health_score'])} <span class="muted">({_esc(analytics['health_grade'])})</span></div></div>
-    <div class="kpi"><div class="kpi-label">Pass Rate</div><div class="kpi-val">{_esc(analytics['pass_rate_pct'])}%</div></div>
-    <div class="kpi"><div class="kpi-label">Checks Executed</div><div class="kpi-val">{_esc(analytics['total_records'])}</div></div>
-    <div class="kpi"><div class="kpi-label">Latency P95</div><div class="kpi-val">{_esc(latency['p95_ms'])} <span class="muted">ms</span></div></div>
-    <div class="kpi"><div class="kpi-label">Latency Mean</div><div class="kpi-val">{_esc(latency['mean_ms'])} <span class="muted">ms</span></div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(tr('rpt_health_score', code))}</div><div class="kpi-val">{_esc(analytics['health_score'])} <span class="muted">({_esc(analytics['health_grade'])})</span></div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(tr('rpt_pass_rate', code))}</div><div class="kpi-val">{_esc(analytics['pass_rate_pct'])}%</div></div>
+    <div class="kpi"><div class="kpi-label">{_esc(tr('rpt_checks_executed', code))}</div><div class="kpi-val">{_esc(analytics['total_records'])}</div></div>
+    <div class="kpi"><div class="kpi-label">{'Latensi P95' if code == 'id' else 'Latency P95'}</div><div class="kpi-val">{_esc(latency['p95_ms'])} <span class="muted">ms</span></div></div>
+    <div class="kpi"><div class="kpi-label">{'Latensi Rata-rata' if code == 'id' else 'Latency Mean'}</div><div class="kpi-val">{_esc(latency['mean_ms'])} <span class="muted">ms</span></div></div>
   </div>
 
   <section class="panel">
-    <h2>Status Distribution</h2>
+    <h2>{_esc(tr('rpt_status_dist', code))}</h2>
     <div class="bar">
       <div class="seg-pass" style="width:{pass_w}%"></div>
       <div class="seg-fail" style="width:{fail_w}%"></div>
@@ -296,22 +463,22 @@ def render_html_report(
   {history_html}
 
   <section class="panel">
-    <h2>Actionable QA Recommendations</h2>
+    <h2>{_esc(tr('rpt_recommendations', code))}</h2>
     <ul class="clean-list">{recs_html}</ul>
   </section>
 
   <section class="panel">
-    <h2>Executed Test Evidence</h2>
+    <h2>{_esc(tr('rpt_executed_evidence', code))}</h2>
     <div class="controls">
-      <button class="btn active" data-filter="ALL">All ({analytics['total_records']})</button>
+      <button class="btn active" data-filter="ALL">{_esc(tr('rpt_all', code))} ({analytics['total_records']})</button>
       <button class="btn" data-filter="PASS">PASS ({counts['PASS']})</button>
       <button class="btn" data-filter="FAIL">FAIL ({counts['FAIL']})</button>
       <button class="btn" data-filter="BLOCKED">BLOCKED ({counts['BLOCKED']})</button>
       <button class="btn" data-filter="UNVERIFIED">UNVERIFIED ({counts['UNVERIFIED']})</button>
-      <input type="search" id="qa-search" placeholder="Filter by test ID, target, or error..." />
+      <input type="search" id="qa-search" placeholder="{_esc(tr('rpt_search_placeholder', code))}" />
     </div>
     <table>
-      <thead><tr><th>Status</th><th>Test ID</th><th>Target</th><th>Latency</th><th>Checks &amp; Details</th></tr></thead>
+      <thead><tr><th>{_esc(tr('col_status', code))}</th><th>{_esc(tr('col_test_id', code))}</th><th>{_esc(tr('col_target', code))}</th><th>{_esc(tr('col_latency', code))}</th><th>{_esc(tr('rpt_checks_details', code))}</th></tr></thead>
       <tbody id="qa-rows">{''.join(rows_html)}</tbody>
     </table>
   </section>

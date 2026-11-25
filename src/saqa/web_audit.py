@@ -1,8 +1,17 @@
-"""7-Pillar Automated Deep Website QA Auditor (TLS, Security Headers, WCAG DOM, SEO/JSON-LD, Broken Links, Hygiene, Perf).
+"""Multi-Pillar Automated Deep Website & Mobile-Web QA Auditor.
 
-Eliminates manual QA blindspots by executing comprehensive, strictly read-only
-automated inspections against any explicitly authorized HTTP(S) target and
-emitting tamper-evident SAQA evidence + visual reports.
+Covers:
+- Pillar 1: TLS/SSL Protocol & Certificate Expiry
+- Pillar 2: OWASP Security Headers & Cookie Hygiene
+- Pillar 3: WCAG 2.2 Semantic DOM Accessibility
+- Pillar 4: SEO Metadata, JSON-LD & Discoverability
+- Pillar 5: Parallel Broken Link, Static Asset & Mixed-Content Crawler
+- Pillar 6: Read-Only Sensitive Dotfile Exposure Hygiene
+- Pillar 7: Multi-Sample Keep-Alive Performance & Cache Profile
+- Pillar 8 (Optional): Live Headless Browser SPA Rendered DOM, Core Web Vitals & Runtime
+- Pillar 9 (Optional): Modern Web, API & Mobile App-Link Security (CORS, SRI, security.txt, Android/iOS Universal Links, GraphQL Introspection)
+- Multi-Viewport Responsive Matrix (Optional): Desktop / Tablet / Mobile overflow & tap targets
+- Multi-Page Site Crawler (Optional): Sitemap + BFS multi-page WCAG/SEO/HTTP crawler
 """
 from __future__ import annotations
 
@@ -10,20 +19,24 @@ import json
 import re
 import socket
 import ssl
+from collections import deque
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Callable
-from urllib.parse import urljoin, urlparse
+from typing import Any
+from urllib.parse import urldefrag, urljoin, urlparse
 
+from . import __version__
 from .analytics import analyze_records, compute_latency_stats
 from .api import ApiResponse
 from .evidence import EvidenceRecord, utc_now, write_manifest
 from .http_pool import create_pooled_requester
-from .reporting import render_html_report, render_markdown_report
+from .i18n import normalize_lang
+from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .url_safety import redact_url
 from .visual_evidence import export_csv_matrix, render_analytics_svg, render_scorecard_png
 
@@ -43,10 +56,12 @@ _SENSITIVE_PATTERNS = (
     re.compile(r"(DB_PASSWORD|AWS_SECRET_ACCESS_KEY|PRIVATE_KEY|API_SECRET)\s*=", re.IGNORECASE),
 )
 
+_SITEMAP_LOC_RE = re.compile(r"<loc>\s*([^<\s]+)\s*</loc>", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class DeepAuditResult:
-    """Complete output of a 7-pillar automated deep web QA audit."""
+    """Complete output of an automated deep web & app QA audit."""
 
     target_url: str
     records: tuple[EvidenceRecord, ...]
@@ -62,7 +77,7 @@ class DeepAuditResult:
 
 
 class _DomAuditParser(HTMLParser):
-    """Lightweight stdlib HTML parser collecting WCAG, SEO, JSON-LD, and link/asset signals."""
+    """Lightweight stdlib HTML parser collecting WCAG, SEO, JSON-LD, SRI, and link/asset signals."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -115,7 +130,12 @@ class _DomAuditParser(HTMLParser):
             if "canonical" in rel.split() and href:
                 self.canonical_href = href
             if href and any(r in rel for r in ("stylesheet", "icon", "manifest", "preload")):
-                self.assets.append({"tag": "link", "rel": rel, "url": href})
+                self.assets.append({
+                    "tag": "link",
+                    "rel": rel,
+                    "url": href,
+                    "integrity": attr_map.get("integrity", "").strip(),
+                })
         elif t == "script":
             stype = attr_map.get("type", "").strip().lower()
             src = attr_map.get("src", "").strip()
@@ -123,7 +143,12 @@ class _DomAuditParser(HTMLParser):
                 self._in_jsonld = True
                 self._jsonld_buf = []
             elif src:
-                self.assets.append({"tag": "script", "rel": "script", "url": src})
+                self.assets.append({
+                    "tag": "script",
+                    "rel": "script",
+                    "url": src,
+                    "integrity": attr_map.get("integrity", "").strip(),
+                })
         elif t in {"h1", "h2", "h3", "h4", "h5", "h6"}:
             self._current_heading_level = int(t[1])
             self._heading_buf = []
@@ -135,7 +160,7 @@ class _DomAuditParser(HTMLParser):
             self.images_total += 1
             src = attr_map.get("src", "").strip()
             if src:
-                self.assets.append({"tag": "img", "rel": "image", "url": src})
+                self.assets.append({"tag": "img", "rel": "image", "url": src, "integrity": ""})
             if "alt" not in attr_map:
                 self.images_missing_alt.append(src or "<inline-img>")
         elif t == "a":
@@ -221,9 +246,12 @@ def inspect_tls_certificate(hostname: str, port: int = 443, *, timeout: float = 
         expires_iso = expires_dt.isoformat()
         days_remaining = int((expires_dt - datetime.now(timezone.utc)).total_seconds() // 86400)
 
-    issuer_parts = [f"{k}={v}" for rdn in cert.get("issuer", ()) for k, v in rdn]
-    subject_parts = [f"{k}={v}" for rdn in cert.get("subject", ()) for k, v in rdn]
-    sans = [val for kind, val in cert.get("subjectAltName", ()) if kind == "DNS"]
+    raw_issuer: Any = cert.get("issuer", ())
+    raw_subject: Any = cert.get("subject", ())
+    raw_sans: Any = cert.get("subjectAltName", ())
+    issuer_parts = [f"{k}={v}" for rdn in raw_issuer for k, v in rdn]
+    subject_parts = [f"{k}={v}" for rdn in raw_subject for k, v in rdn]
+    sans = [val for kind, val in raw_sans if kind == "DNS"]
 
     return {
         "hostname": hostname,
@@ -263,7 +291,7 @@ def _audit_dom_accessibility(dom: _DomAuditParser) -> tuple[str, list[str], list
         warnings.append(f"Multiple <h1> elements detected ({h1_count})")
 
     skipped_levels = []
-    for (prev_lvl, _), (curr_lvl, _) in zip(dom.headings, dom.headings[1:]):
+    for (prev_lvl, _), (curr_lvl, _) in zip(dom.headings, dom.headings[1:], strict=False):
         if curr_lvl - prev_lvl > 1:
             skipped_levels.append(f"h{prev_lvl}->h{curr_lvl}")
     if skipped_levels:
@@ -346,7 +374,6 @@ def _audit_security_headers(response: ApiResponse) -> tuple[str, list[str], list
         else:
             missing.append(hdr)
 
-    # Mandatory baseline headers for production HTTPS sites
     critical_missing = [h for h in ("strict-transport-security", "x-content-type-options") if h in missing]
     if critical_missing:
         warnings.append(f"Recommended baseline headers absent: {', '.join(critical_missing)}")
@@ -366,7 +393,6 @@ def _audit_security_headers(response: ApiResponse) -> tuple[str, list[str], list
     else:
         checks_passed.append("no_x_powered_by_leak")
 
-    # Cookie hygiene check
     insecure_cookies: list[str] = []
     for k, v in response.headers.items():
         if k.lower() == "set-cookie":
@@ -390,6 +416,218 @@ def _audit_security_headers(response: ApiResponse) -> tuple[str, list[str], list
     return status, checks_passed, failures, details
 
 
+def _audit_modern_security_and_applinks(
+    target_url: str,
+    base_url: str,
+    origin_host: str,
+    dom: _DomAuditParser,
+    requester: Callable[..., ApiResponse],
+    default_headers: Mapping[str, str],
+    timeout: float,
+) -> tuple[EvidenceRecord, list[dict[str, Any]]]:
+    """Pillar 9: CORS reflection, SRI on third-party scripts, RFC 9116 security.txt, Mobile Universal/App Links, & GraphQL introspection."""
+    checks_passed: list[str] = []
+    failures: list[str] = []
+    warnings: list[str] = []
+    findings: list[dict[str, Any]] = []
+
+    # 1. CORS Misconfiguration Probe (read-only GET with canary Origin)
+    probe_origin = "https://saqa-cors-probe.invalid"
+    cors_headers = {**default_headers, "Origin": probe_origin}
+    cors_resp = requester(target_url, method="GET", headers=cors_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+    acao = (cors_resp.header("access-control-allow-origin") or "").strip()
+    acac = (cors_resp.header("access-control-allow-credentials") or "").strip().lower()
+    if acao == probe_origin:
+        if acac == "true":
+            failures.append("CRITICAL CORS: Server reflects arbitrary Origin with Access-Control-Allow-Credentials: true")
+        else:
+            warnings.append("CORS reflects arbitrary Origin header without strict allowlist")
+    elif acao == "*" and acac == "true":
+        failures.append("Invalid/insecure CORS: Access-Control-Allow-Origin '*' combined with Allow-Credentials 'true'")
+    else:
+        checks_passed.append("cors_origin_policy_safe")
+
+    # 2. Subresource Integrity (SRI) on cross-origin third-party scripts
+    missing_sri: list[str] = []
+    root_domain = origin_host.removeprefix("www.")
+    for asset in dom.assets:
+        if asset["tag"] != "script":
+            continue
+        full_u = urljoin(target_url, asset["url"])
+        up = urlparse(full_u)
+        if up.hostname and up.hostname.lower() != origin_host and not up.hostname.lower().endswith("." + root_domain):
+            if not asset.get("integrity", "").startswith(("sha256-", "sha384-", "sha512-")):
+                missing_sri.append(redact_url(full_u))
+    if missing_sri:
+        warnings.append(f"{len(missing_sri)} external third-party <script> tag(s) missing Subresource Integrity (SRI)")
+    else:
+        checks_passed.append("third_party_sri_ok")
+
+    # 3. RFC 9116 /.well-known/security.txt & Mobile App Deep-Links (Android assetlinks.json + iOS apple-app-site-association)
+    sec_txt = requester(f"{base_url}/.well-known/security.txt", method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+    if sec_txt.status_code == 200 and "contact:" in sec_txt.text.lower():
+        checks_passed.append("rfc9116_security_txt_present")
+
+    for mobile_well_known in ("/.well-known/assetlinks.json", "/.well-known/apple-app-site-association"):
+        mw_resp = requester(f"{base_url}{mobile_well_known}", method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+        ctype = (mw_resp.header("content-type") or "").lower()
+        if mw_resp.status_code == 200 and "json" in ctype:
+            try:
+                mw_resp.json()
+                checks_passed.append(f"mobile_applink_valid:{mobile_well_known}")
+            except Exception:
+                failures.append(f"Mobile deep-link file {mobile_well_known} returned HTTP 200 with malformed JSON")
+
+    # 4. Read-only GraphQL Introspection Leak Probe
+    gql_resp = requester(
+        f"{base_url}/graphql?query=%7B__schema%7BqueryType%7Bname%7D%7D%7D",
+        method="GET",
+        headers={**default_headers, "Accept": "application/json"},
+        timeout=timeout,
+        follow_redirects=False,
+        use_environment_proxies=False,
+    )
+    if gql_resp.status_code == 200 and '"__schema"' in gql_resp.text:
+        warnings.append("GraphQL Introspection is publicly enabled on /graphql — disable in production unless public API")
+    else:
+        checks_passed.append("graphql_introspection_protected")
+
+    for w in warnings:
+        findings.append({"severity": "MEDIUM", "pillar": "Modern Web & App Security", "message": w})
+
+    rec = EvidenceRecord(
+        test_id="pillar-9.modern-web-and-app-security",
+        status="FAIL" if failures else "PASS",
+        observed_at=utc_now(),
+        target=redact_url(target_url),
+        details={
+            "suite": f"deep-audit-{origin_host}",
+            "case_name": "Pillar 9 — CORS, SRI, RFC 9116, Mobile App-Links & GraphQL Security Audit",
+            "tags": ["security", "cors", "sri", "api", "graphql", "mobile"],
+            "http_method": "GET",
+            "status_code": cors_resp.status_code or 200,
+            "elapsed_ms": round(cors_resp.elapsed_ms, 3),
+            "checks_passed": checks_passed,
+            "failure_reasons": failures,
+            "warnings": warnings,
+            "missing_sri_scripts": missing_sri[:10],
+        },
+    )
+    return rec, findings
+
+
+def _run_multipage_crawl(
+    start_url: str,
+    base_url: str,
+    origin_host: str,
+    initial_dom: _DomAuditParser,
+    sitemap_xml: str,
+    *,
+    max_pages: int,
+    requester: Callable[..., ApiResponse],
+    default_headers: Mapping[str, str],
+    timeout: float,
+) -> tuple[EvidenceRecord, list[dict[str, Any]]]:
+    """BFS + Sitemap multi-page deep QA crawler auditing WCAG DOM, SEO, and HTTP health across subpages."""
+    visited: set[str] = {urldefrag(start_url)[0].rstrip("/") or start_url}
+    queue: deque[str] = deque()
+
+    # Seed from sitemap.xml <loc> entries first, then landing page internal links
+    for loc in _SITEMAP_LOC_RE.findall(sitemap_xml):
+        clean_u = urldefrag(loc.strip())[0]
+        up = urlparse(clean_u)
+        if up.scheme in {"http", "https"} and up.hostname and up.hostname.lower() == origin_host:
+            key = clean_u.rstrip("/") or clean_u
+            if key not in visited:
+                queue.append(clean_u)
+
+    for lnk in initial_dom.links:
+        href = lnk["href"]
+        if not href or href.startswith(("data:", "javascript:", "mailto:", "tel:", "#")):
+            continue
+        clean_u = urldefrag(urljoin(start_url, href))[0]
+        up = urlparse(clean_u)
+        if up.scheme in {"http", "https"} and up.hostname and up.hostname.lower() == origin_host:
+            if not any(up.path.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".svg", ".webp", ".css", ".js", ".pdf", ".zip", ".ico", ".xml")):
+                key = clean_u.rstrip("/") or clean_u
+                if key not in visited and clean_u not in queue:
+                    queue.append(clean_u)
+
+    crawled_pages: list[dict[str, Any]] = []
+    failures: list[str] = []
+    findings: list[dict[str, Any]] = []
+    latencies: list[float] = []
+
+    while queue and len(crawled_pages) < max(1, max_pages - 1):
+        page_url = queue.popleft()
+        norm_key = page_url.rstrip("/") or page_url
+        if norm_key in visited:
+            continue
+        visited.add(norm_key)
+
+        resp = requester(page_url, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+        latencies.append(round(resp.elapsed_ms, 2))
+        ctype = (resp.header("content-type") or "").lower()
+        if resp.status_code == 0 or resp.status_code >= 400:
+            failures.append(f"Subpage {redact_url(page_url)} returned HTTP {resp.status_code}")
+            crawled_pages.append({"url": redact_url(page_url), "status_code": resp.status_code, "a11y_status": "FAIL"})
+            continue
+
+        if "html" not in ctype and "<html" not in resp.text[:500].lower():
+            continue
+
+        sub_dom = _DomAuditParser()
+        sub_dom.feed(resp.text)
+        a11y_st, _, a11y_fail, _ = _audit_dom_accessibility(sub_dom)
+        if a11y_fail:
+            failures.append(f"Subpage {redact_url(page_url)} WCAG failure: {a11y_fail[0]}")
+        if not sub_dom.meta_by_name.get("description"):
+            findings.append({"severity": "LOW", "pillar": "Multi-Page SEO", "message": f"Subpage {redact_url(page_url)} missing meta description"})
+
+        crawled_pages.append({
+            "url": redact_url(page_url),
+            "status_code": resp.status_code,
+            "elapsed_ms": round(resp.elapsed_ms, 2),
+            "a11y_status": a11y_st,
+            "title": "".join(sub_dom.title_parts).strip()[:80],
+        })
+
+        # Discover deeper links (BFS)
+        for lnk in sub_dom.links:
+            href = lnk["href"]
+            if not href or href.startswith(("data:", "javascript:", "mailto:", "tel:", "#")):
+                continue
+            next_u = urldefrag(urljoin(page_url, href))[0]
+            nup = urlparse(next_u)
+            if nup.scheme in {"http", "https"} and nup.hostname and nup.hostname.lower() == origin_host:
+                nkey = next_u.rstrip("/") or next_u
+                if nkey not in visited and next_u not in queue:
+                    queue.append(next_u)
+
+    checks = [f"subpages_audited:{len(crawled_pages)}", f"total_pages_covered:{1 + len(crawled_pages)}"]
+    if not failures:
+        checks.append("all_crawled_subpages_healthy")
+
+    rec = EvidenceRecord(
+        test_id="multi-page.site-crawl-audit",
+        status="FAIL" if failures else "PASS",
+        observed_at=utc_now(),
+        target=redact_url(start_url),
+        details={
+            "suite": f"deep-audit-{origin_host}",
+            "case_name": f"Multi-Page Sitemap & BFS Deep Site Crawler ({1 + len(crawled_pages)} page(s))",
+            "tags": ["web", "crawl", "a11y", "seo"],
+            "http_method": "GET",
+            "status_code": 200 if not failures else 500,
+            "elapsed_ms": round(sum(latencies) / len(latencies), 3) if latencies else 0.0,
+            "checks_passed": checks,
+            "failure_reasons": failures,
+            "pages": crawled_pages,
+        },
+    )
+    return rec, findings
+
+
 def run_deep_web_audit(
     target_url: str,
     *,
@@ -398,10 +636,16 @@ def run_deep_web_audit(
     perf_samples: int = 3,
     timeout: float = 15.0,
     include_spa_audit: bool = False,
+    include_modern_security: bool = False,
+    include_responsive_audit: bool = False,
+    crawl_max_pages: int = 1,
+    extra_headers: Mapping[str, str] | None = None,
+    cookies: str | Mapping[str, str] | None = None,
+    lang: str = "en",
     requester: Callable[..., ApiResponse] | None = None,
     tls_inspector: Callable[..., dict[str, Any]] = inspect_tls_certificate,
 ) -> DeepAuditResult:
-    """Execute a comprehensive 7- or 8-pillar read-only QA audit against an authorized HTTP(S) website."""
+    """Execute a comprehensive multi-pillar read-only QA audit against an authorized HTTP(S) website or web-app."""
     parsed = urlparse(target_url.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError(f"target_url must be a valid http/https URL: {target_url!r}")
@@ -418,6 +662,12 @@ def run_deep_web_audit(
             perf_samples=perf_samples,
             timeout=timeout,
             include_spa_audit=include_spa_audit,
+            include_modern_security=include_modern_security,
+            include_responsive_audit=include_responsive_audit,
+            crawl_max_pages=crawl_max_pages,
+            extra_headers=extra_headers,
+            cookies=cookies,
+            lang=lang,
             requester=active_req,
             tls_inspector=tls_inspector,
         )
@@ -432,21 +682,35 @@ def _run_deep_web_audit_impl(
     perf_samples: int,
     timeout: float,
     include_spa_audit: bool,
+    include_modern_security: bool,
+    include_responsive_audit: bool,
+    crawl_max_pages: int,
+    extra_headers: Mapping[str, str] | None,
+    cookies: str | Mapping[str, str] | None,
+    lang: str,
     requester: Callable[..., ApiResponse],
     tls_inspector: Callable[..., dict[str, Any]],
 ) -> DeepAuditResult:
+    code = normalize_lang(lang)
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     redacted_target = redact_url(target_url)
     suite_name = f"deep-audit-{parsed.hostname}"
-    default_headers = {
-        "User-Agent": "SAQA-Professional-Framework/2.4.0",
+    default_headers: dict[str, str] = {
+        "User-Agent": f"SAQA-Professional-Framework/{__version__}",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Encoding": "identity",
     }
+    if extra_headers:
+        default_headers.update(extra_headers)
+    if cookies:
+        if isinstance(cookies, Mapping):
+            default_headers["Cookie"] = "; ".join(f"{k}={v}" for k, v in cookies.items())
+        else:
+            default_headers["Cookie"] = str(cookies)
+
     records: list[EvidenceRecord] = []
     findings: list[dict[str, Any]] = []
 
-    # Fetch primary landing page
     landing = requester(
         target_url,
         method="GET",
@@ -629,12 +893,15 @@ def _run_deep_web_audit_impl(
         seo_checks.append(f"valid_jsonld_blocks:{valid_jsonld}")
 
     discoverability: dict[str, int] = {}
+    sitemap_body = ""
     for meta_path in ("/robots.txt", "/sitemap.xml", "/manifest.webmanifest"):
         resp = requester(f"{base_url}{meta_path}", method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
         discoverability[meta_path] = resp.status_code
         if resp.status_code == 200:
             seo_checks.append(f"endpoint:{meta_path}")
-            if meta_path == "/manifest.webmanifest":
+            if meta_path == "/sitemap.xml":
+                sitemap_body = resp.text
+            elif meta_path == "/manifest.webmanifest":
                 try:
                     resp.json()
                     seo_checks.append("manifest_valid_json")
@@ -824,11 +1091,60 @@ def _run_deep_web_audit_impl(
         )
     )
 
-    # ── PILLAR 8 (Optional): Live Headless Browser SPA DOM & Runtime Audit ────
+    # ── PILLAR 8 (Optional): Live Headless Browser SPA DOM & Core Web Vitals ──
     if include_spa_audit:
         from .spa_audit import build_spa_audit_record
 
-        records.append(build_spa_audit_record(target_url, suite_name=suite_name, timeout_s=int(max(15, timeout))))
+        records.append(
+            build_spa_audit_record(
+                target_url,
+                suite_name=suite_name,
+                timeout_s=int(max(15, timeout)),
+                extra_headers=extra_headers,
+            )
+        )
+
+    # ── PILLAR 9 (Optional): Modern Web, API & Mobile App-Link Security ───────
+    if include_modern_security:
+        p9_rec, p9_findings = _audit_modern_security_and_applinks(
+            target_url,
+            base_url,
+            origin_host,
+            dom,
+            requester,
+            default_headers,
+            timeout,
+        )
+        records.append(p9_rec)
+        findings.extend(p9_findings)
+
+    # ── RESPONSIVE MATRIX (Optional): Desktop / Tablet / Mobile Viewports ─────
+    if include_responsive_audit:
+        from .spa_audit import build_responsive_audit_record
+
+        records.append(
+            build_responsive_audit_record(
+                target_url,
+                suite_name=suite_name,
+                timeout_s=int(max(15, timeout)),
+            )
+        )
+
+    # ── MULTI-PAGE CRAWLER (Optional): Sitemap + BFS Internal Page Audit ──────
+    if crawl_max_pages > 1:
+        crawl_rec, crawl_findings = _run_multipage_crawl(
+            target_url,
+            base_url,
+            origin_host,
+            dom,
+            sitemap_body,
+            max_pages=crawl_max_pages,
+            requester=requester,
+            default_headers=default_headers,
+            timeout=timeout,
+        )
+        records.append(crawl_rec)
+        findings.extend(crawl_findings)
 
     manifest_path: Path | None = None
     manifest_sha: str | None = None
@@ -848,6 +1164,7 @@ def _run_deep_web_audit_impl(
                 {
                     "suite_name": suite_name,
                     "target_url": target_url,
+                    "language": code,
                     "manifest_path": str(manifest_path),
                     "manifest_sha256": manifest_sha,
                     "analytics": analytics,
@@ -857,17 +1174,26 @@ def _run_deep_web_audit_impl(
             ),
             encoding="utf-8",
         )
+        report_title = f"{'Audit Mendalam SAQA' if code == 'id' else 'SAQA Deep Audit'} — {parsed.hostname}"
         (output_dir / "report.html").write_text(
-            render_html_report(analytics, records, manifest_sha256=manifest_sha, title=f"SAQA Deep Audit — {parsed.hostname}"),
+            render_html_report(analytics, records, manifest_sha256=manifest_sha, title=report_title, lang=code),
             encoding="utf-8",
         )
         (output_dir / "report.md").write_text(
-            render_markdown_report(analytics, title=f"SAQA Deep Audit — {parsed.hostname}"),
+            render_markdown_report(analytics, title=report_title, lang=code),
             encoding="utf-8",
         )
-        render_scorecard_png(analytics, records, output_dir / "qa-scorecard.png", title=f"SAQA DEEP AUDIT | {parsed.hostname}")
-        render_analytics_svg(analytics, records, output_dir / "qa-analytics-chart.svg", title=f"SAQA Deep Audit — {parsed.hostname}")
-        export_csv_matrix(records, output_dir / "qa-test-matrix.csv")
+        (output_dir / "junit.xml").write_text(
+            render_junit_xml(analytics, records, suite_name=suite_name),
+            encoding="utf-8",
+        )
+        (output_dir / "results.sarif").write_text(
+            json.dumps(render_sarif_report(records, suite_name=suite_name), indent=2),
+            encoding="utf-8",
+        )
+        render_scorecard_png(analytics, records, output_dir / "qa-scorecard.png", title=f"SAQA DEEP AUDIT | {parsed.hostname}", lang=code)
+        render_analytics_svg(analytics, records, output_dir / "qa-analytics-chart.svg", title=report_title, lang=code)
+        export_csv_matrix(records, output_dir / "qa-test-matrix.csv", lang=code)
 
     return DeepAuditResult(
         target_url=target_url,

@@ -5,7 +5,8 @@ import json
 import os
 import urllib.error
 import urllib.request
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 
@@ -23,16 +24,16 @@ def _send_json_payload(url: str, payload: Mapping[str, Any], *, timeout: float =
     validated = _validate_webhook_url(url)
     raw = json.dumps(dict(payload)).encode("utf-8")
     # Passing `data=raw` causes urllib.request.Request to send an HTTP POST payload cleanly.
-    req = urllib.request.Request(
+    req = urllib.request.Request(  # noqa: S310
         validated,
         data=raw,
         headers={
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "SAQA-Webhook-Notifier/2.4.0",
+            "User-Agent": "SAQA-Webhook-Notifier/2.5.0",
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - scheme validated above
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310  # nosec B310 - scheme validated above
             return {"ok": 200 <= resp.status < 300, "status_code": resp.status}
     except urllib.error.HTTPError as exc:
         return {"ok": False, "status_code": exc.code, "error": f"HTTP {exc.code}"}
