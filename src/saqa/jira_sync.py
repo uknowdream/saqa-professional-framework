@@ -441,11 +441,63 @@ def _compute_domain_results(
     return results
 
 
+def _compute_timeline_window(
+    *,
+    today: datetime,
+    sprint_start: str | None = None,
+    sprint_end: str | None = None,
+) -> tuple[dict[str, tuple[str, str]], dict[str, tuple[str, str]]]:
+    """Compute (epic_dates_by_phase, domain_dates_by_key) using custom sprint dates or smart defaults."""
+    if sprint_start and sprint_end:
+        s_dt = datetime.strptime(sprint_start, "%Y-%m-%d").replace(tzinfo=WIB)
+        e_dt = datetime.strptime(sprint_end, "%Y-%m-%d").replace(tzinfo=WIB)
+        if s_dt > e_dt:
+            raise ValueError("sprint_start must not be after sprint_end")
+        span_days = max(1, (e_dt - s_dt).days)
+        p1_end = s_dt + timedelta(days=max(1, round(span_days * 0.35)))
+        p2_start = s_dt + timedelta(days=max(0, round(span_days * 0.30)))
+        p2_end = s_dt + timedelta(days=max(1, round(span_days * 0.70)))
+        p3_start = s_dt + timedelta(days=max(0, round(span_days * 0.65)))
+        epic_dates = {
+            "PHASE-1": (s_dt.strftime("%Y-%m-%d"), min(e_dt, p1_end).strftime("%Y-%m-%d")),
+            "PHASE-2": (min(e_dt, p2_start).strftime("%Y-%m-%d"), min(e_dt, p2_end).strftime("%Y-%m-%d")),
+            "PHASE-3": (min(e_dt, p3_start).strftime("%Y-%m-%d"), e_dt.strftime("%Y-%m-%d")),
+        }
+        domain_keys = sorted(ISSUE_SUMMARIES)
+        domain_dates: dict[str, tuple[str, str]] = {}
+        for idx, dkey in enumerate(domain_keys):
+            d_start = s_dt + timedelta(days=round(span_days * (idx / len(domain_keys))))
+            d_end = s_dt + timedelta(days=max(1, round(span_days * ((idx + 1.5) / len(domain_keys)))))
+            if d_end > e_dt:
+                d_end = e_dt
+            if d_start > d_end:
+                d_start = d_end
+            domain_dates[dkey] = (d_start.strftime("%Y-%m-%d"), d_end.strftime("%Y-%m-%d"))
+        return epic_dates, domain_dates
+
+    epic_dates = {
+        ed["phase_id"]: (
+            (today + timedelta(days=int(ed["start_offset_days"]))).strftime("%Y-%m-%d"),
+            (today + timedelta(days=int(ed["end_offset_days"]))).strftime("%Y-%m-%d"),
+        )
+        for ed in EPIC_DEFINITIONS
+    }
+    domain_dates = {
+        dkey: (
+            (today + timedelta(days=s_off)).strftime("%Y-%m-%d"),
+            (today + timedelta(days=e_off)).strftime("%Y-%m-%d"),
+        )
+        for dkey, (s_off, e_off) in DOMAIN_TIMELINE_OFFSETS.items()
+    }
+    return epic_dates, domain_dates
+
+
 def _ensure_epics_and_issues(
     client: JiraClient,
     *,
     today: datetime,
     assignee_id: str | None,
+    epic_dates: Mapping[str, tuple[str, str]] | None = None,
 ) -> tuple[dict[str, JiraIssueResult], dict[str, str], dict[str, JiraIssueResult]]:
     """Ensure 3 Phase Epics and 9 Domain Tasks exist, returning (issues_by_domain, epic_key_by_domain, epics_by_phase)."""
     existing = client.find_project_issues()
@@ -455,8 +507,11 @@ def _ensure_epics_and_issues(
     if hasattr(client, "create_epic"):
         for epic_def in EPIC_DEFINITIONS:
             summary = epic_def["summary"]
-            start_d = (today + timedelta(days=int(epic_def["start_offset_days"]))).strftime("%Y-%m-%d")
-            due_d = (today + timedelta(days=int(epic_def["end_offset_days"]))).strftime("%Y-%m-%d")
+            if epic_dates and epic_def["phase_id"] in epic_dates:
+                start_d, due_d = epic_dates[epic_def["phase_id"]]
+            else:
+                start_d = (today + timedelta(days=int(epic_def["start_offset_days"]))).strftime("%Y-%m-%d")
+                due_d = (today + timedelta(days=int(epic_def["end_offset_days"]))).strftime("%Y-%m-%d")
             desc_adf = {
                 "type": "doc",
                 "version": 1,
@@ -592,6 +647,9 @@ def sync_records_to_jira(
     auto_generate_visuals: bool = True,
     capture_screenshots: bool = False,
     auto_resolve_bugs: bool = True,
+    sprint_start: str | None = None,
+    sprint_end: str | None = None,
+    skip_unchanged_attachments: bool = True,
     client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """Synchronize SAQA evidence, Timeline Epics, Rich ADF tables, Visual Photos, and Report Documents to Jira."""
@@ -603,6 +661,11 @@ def sync_records_to_jira(
     target_display = ", ".join(targets) if targets else "unknown"
     today = datetime.now(WIB)
     today_str = today.strftime("%Y-%m-%d")
+    epic_dates, domain_dates = _compute_timeline_window(
+        today=today,
+        sprint_start=sprint_start,
+        sprint_end=sprint_end,
+    )
 
     owns_client = client is None
     active_client = client or JiraClient(JiraConfig.from_env())
@@ -685,6 +748,7 @@ def sync_records_to_jira(
             active_client,
             today=today,
             assignee_id=assignee_id,
+            epic_dates=epic_dates,
         )
 
         # Transition Epics based on aggregate status of their child domains
@@ -719,9 +783,10 @@ def sync_records_to_jira(
                 remove=stale_labels,
             )
 
-            start_off, due_off = DOMAIN_TIMELINE_OFFSETS.get(domain_key, (-7, 7))
-            start_date = (today + timedelta(days=start_off)).strftime("%Y-%m-%d")
-            due_date = (today + timedelta(days=due_off)).strftime("%Y-%m-%d")
+            start_date, due_date = domain_dates.get(
+                domain_key,
+                ((today - timedelta(days=7)).strftime("%Y-%m-%d"), (today + timedelta(days=7)).strftime("%Y-%m-%d")),
+            )
             parent_epic_key = epic_key_by_domain.get(domain_key)
 
             if domain_key in {"QA-1", "QA-8", "QA-9"}:
@@ -790,12 +855,25 @@ def sync_records_to_jira(
             else:
                 commented = active_client.add_comment_once(issue.key, f"SAQA sync {marker}", marker)
 
-            # Upload full documents & visual photos directly to Jira
-            if files_for_domain and hasattr(active_client, "upload_attachment"):
-                for file_path in files_for_domain:
-                    att = active_client.upload_attachment(issue.key, file_path)
-                    if att:
-                        uploaded_attachments.append({"issue_key": issue.key, "filename": file_path.name})
+            # Upload full documents & visual photos directly to Jira (batched & deduplicated when supported)
+            if files_for_domain:
+                if hasattr(active_client, "upload_attachments_batch"):
+                    batch_res = active_client.upload_attachments_batch(
+                        issue.key,
+                        files_for_domain,
+                        skip_if_same_size=skip_unchanged_attachments,
+                    )
+                    for att in batch_res:
+                        uploaded_attachments.append({
+                            "issue_key": issue.key,
+                            "filename": str(att.get("filename", "")),
+                            "skipped_unchanged": bool(att.get("skipped_unchanged", False)),
+                        })
+                elif hasattr(active_client, "upload_attachment"):
+                    for file_path in files_for_domain:
+                        att = active_client.upload_attachment(issue.key, file_path)
+                        if att:
+                            uploaded_attachments.append({"issue_key": issue.key, "filename": file_path.name})
 
             if domain_status == "FAIL":
                 bug_summary = f"[SAQA-AUTO] {suite_name} failure in {domain_key} ({target_display})"
@@ -862,6 +940,9 @@ def sync_manifest_to_jira(
     auto_generate_visuals: bool = True,
     capture_screenshots: bool = False,
     auto_resolve_bugs: bool = True,
+    sprint_start: str | None = None,
+    sprint_end: str | None = None,
+    skip_unchanged_attachments: bool = True,
     client: JiraClient | None = None,
 ) -> dict[str, Any]:
     """Verify a SAQA evidence manifest file and synchronize its results, timeline, photos, and reports to Jira."""
@@ -883,6 +964,7 @@ def sync_manifest_to_jira(
             parent / "qa-analytics-chart.svg",
             parent / "screenshot-desktop.png",
             parent / "screenshot-mobile.png",
+            parent / "visual-diff.png",
         )
         if p.is_file()
     ]
@@ -903,5 +985,8 @@ def sync_manifest_to_jira(
         auto_generate_visuals=auto_generate_visuals,
         capture_screenshots=capture_screenshots,
         auto_resolve_bugs=auto_resolve_bugs,
+        sprint_start=sprint_start,
+        sprint_end=sprint_end,
+        skip_unchanged_attachments=skip_unchanged_attachments,
         client=client,
     )

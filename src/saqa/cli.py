@@ -16,8 +16,10 @@ from .analytics import (
     compare_manifests,
     load_verified_manifest,
 )
+from .benchmark import run_multi_target_benchmark
 from .evidence import verify_manifest
 from .history import append_history
+from .notifications import dispatch_notifications
 from .openapi_audit import audit_openapi_spec, generate_suite_from_openapi, load_openapi_spec
 from .reporting import render_html_report, render_markdown_report
 from .runner import create_starter_suite, load_suite_file, run_suite
@@ -30,6 +32,7 @@ from .test_design import (
     pairwise_matrix,
     verify_pairwise_coverage,
 )
+from .visual_diff import compare_png_images
 from .visual_evidence import capture_web_screenshot
 from .web_audit import run_deep_web_audit
 
@@ -91,6 +94,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Additional document/photo path(s) to upload to Jira (repeatable).",
     )
+    run_parser.add_argument("--workers", type=int, default=None, help="Concurrent worker count for independent suite cases.")
+    run_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
+    run_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
+    run_parser.add_argument("--webhook", action="append", default=[], help="Webhook URL(s) for Slack/Discord/generic alerts.")
+    run_parser.add_argument("--notify-on-fail", action="store_true", help="Send webhook notifications only when status != PASS.")
     run_parser.add_argument("--json", action="store_true", dest="as_json", help="Print full analytics JSON to stdout.")
 
     sync_jira_parser = subparsers.add_parser(
@@ -99,6 +107,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sync_jira_parser.add_argument("manifest", type=Path, help="Path to verified evidence manifest JSON.")
     sync_jira_parser.add_argument("--suite-name", default=None, help="Optional suite name override.")
+    sync_jira_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
+    sync_jira_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
     sync_jira_parser.add_argument(
         "--screenshot",
         action="store_true",
@@ -135,10 +145,36 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     deep_parser.add_argument("--max-links", type=int, default=18, help="Maximum unique internal links/assets to verify.")
     deep_parser.add_argument("--samples", type=int, default=3, help="Number of latency samples for performance profile.")
+    deep_parser.add_argument("--spa", action="store_true", help="Enable Pillar 8 live headless browser SPA rendered DOM & runtime audit.")
     deep_parser.add_argument("--screenshot", action="store_true", help="Capture live Desktop & Mobile screenshots.")
     deep_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync deep audit results, photos, and reports to Jira.")
+    deep_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
+    deep_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
+    deep_parser.add_argument("--webhook", action="append", default=[], help="Webhook URL(s) for Slack/Discord/generic alerts.")
+    deep_parser.add_argument("--notify-on-fail", action="store_true", help="Send webhook notifications only when status != PASS.")
     deep_parser.add_argument("--attach", action="append", type=Path, default=[], help="Extra files to attach to Jira.")
     deep_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
+    vdiff_parser = subparsers.add_parser(
+        "visual-diff",
+        help="Pixel-by-pixel PNG visual regression comparator with magenta diff heatmap output.",
+    )
+    vdiff_parser.add_argument("baseline", type=Path, help="Baseline PNG screenshot.")
+    vdiff_parser.add_argument("current", type=Path, help="Current PNG screenshot.")
+    vdiff_parser.add_argument("--output", type=Path, default=None, help="Optional path to save visual diff heatmap PNG.")
+    vdiff_parser.add_argument("--tolerance", type=int, default=10, help="Per-channel RGB tolerance (0-255).")
+    vdiff_parser.add_argument("--threshold", type=float, default=0.5, help="Maximum allowed mismatch percentage (0-100).")
+    vdiff_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
+
+    bench_parser = subparsers.add_parser(
+        "benchmark",
+        help="Audit and rank multiple websites/environments side-by-side (HTML, Markdown, CSV, JSON).",
+    )
+    bench_parser.add_argument("urls", nargs="+", help="Target HTTP(S) URLs to benchmark.")
+    bench_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/benchmark"), help="Output directory for benchmark matrix.")
+    bench_parser.add_argument("--spa", action="store_true", help="Include Pillar 8 SPA browser runtime audit.")
+    bench_parser.add_argument("--workers", type=int, default=4, help="Parallel target audit workers.")
+    bench_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
     openapi_parser = subparsers.add_parser(
         "audit-openapi",
@@ -330,7 +366,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "run-suite":
         suite = load_suite_file(args.suite)
-        result = run_suite(suite, output_dir=args.output_dir)
+        result = run_suite(suite, output_dir=args.output_dir, workers=args.workers)
 
         diff = None
         if args.baseline is not None and result.manifest_path is not None:
@@ -384,7 +420,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 artifact_dir=args.output_dir,
                 auto_generate_visuals=True,
                 capture_screenshots=bool(args.screenshot),
+                sprint_start=args.sprint_start,
+                sprint_end=args.sprint_end,
             )
+
+        dispatch_notifications(
+            result.analytics,
+            suite_name=result.suite_name,
+            webhook_urls=args.webhook,
+            only_on_failure=bool(args.notify_on_fail),
+        )
 
         if args.as_json:
             print(json.dumps({"analytics": result.analytics, "diff": diff, "jira": jira_summary}, indent=2))
@@ -416,6 +461,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             attachments=args.attach or None,
             auto_generate_visuals=True,
             capture_screenshots=bool(args.screenshot),
+            sprint_start=args.sprint_start,
+            sprint_end=args.sprint_end,
         )
         if args.as_json:
             print(json.dumps(jira_summary, indent=2))
@@ -455,6 +502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             max_links=args.max_links,
             perf_samples=args.samples,
+            include_spa_audit=bool(args.spa),
         )
         captured: list[Path] = []
         if args.screenshot:
@@ -472,7 +520,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 attachments=[*captured, *args.attach] or None,
                 auto_generate_visuals=True,
                 capture_screenshots=False,
+                sprint_start=args.sprint_start,
+                sprint_end=args.sprint_end,
             )
+
+        dispatch_notifications(
+            result.analytics,
+            suite_name=f"deep-audit:{args.url}",
+            target=args.url,
+            webhook_urls=args.webhook,
+            only_on_failure=bool(args.notify_on_fail),
+        )
 
         if args.as_json:
             print(json.dumps({"analytics": result.analytics, "findings": list(result.findings), "jira": jira_summary}, indent=2))
@@ -491,6 +549,43 @@ def main(argv: Sequence[str] | None = None) -> int:
                 f"Findings {len(result.findings)} | Out {args.output_dir}{jira_msg}"
             )
         return 0 if result.passed else 1
+
+    if args.command == "visual-diff":
+        vdiff = compare_png_images(
+            args.baseline,
+            args.current,
+            diff_output_path=args.output,
+            pixel_tolerance=args.tolerance,
+            max_mismatch_pct=args.threshold,
+        )
+        if args.as_json:
+            print(json.dumps(vdiff.to_dict(), indent=2))
+        else:
+            status_str = "PASS" if vdiff.passed else "FAIL"
+            print(
+                f"VISUAL_DIFF {status_str}: mismatch={vdiff.mismatch_pct}% "
+                f"({vdiff.mismatch_pixels}/{vdiff.total_pixels} px, threshold={vdiff.threshold_pct}%) "
+                f"diff_image={vdiff.diff_image_path}"
+            )
+        return 0 if vdiff.passed else 1
+
+    if args.command == "benchmark":
+        bench = run_multi_target_benchmark(
+            args.urls,
+            output_dir=args.output_dir,
+            include_spa_audit=bool(args.spa),
+            workers=args.workers,
+        )
+        if args.as_json:
+            print(json.dumps(bench, indent=2))
+        else:
+            print(f"BENCHMARK COMPLETE: {bench['target_count']} target(s) | Leader: {bench['leader']} | Out: {args.output_dir}")
+            for item in bench["rankings"]:
+                print(
+                    f"  #{item['rank']} {item['target_url']} -> {item['overall_status']} "
+                    f"Health {item['health_score']} ({item['health_grade']}) | P95 {item['p95_ms']}ms"
+                )
+        return 0
 
     if args.command == "audit-openapi":
         if args.export_suite is not None:

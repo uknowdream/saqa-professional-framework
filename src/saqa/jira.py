@@ -408,21 +408,33 @@ class JiraClient:
         file_path: Path,
         *,
         replace_existing: bool = True,
+        skip_if_same_size: bool = False,
+        existing_attachments: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
-        """Attach a report or evidence file directly to a Jira issue."""
+        """Attach a report or evidence file directly to a Jira issue with optional size deduplication."""
         if not file_path.is_file():
             return None
-        if replace_existing:
-            issue_resp = self._get_with_retry(
-                f"/rest/api/3/issue/{issue_key}",
-                params={"fields": "attachment"},
-            )
-            attachments = (issue_resp.json().get("fields") or {}).get("attachment") or []
-            for att in attachments:
-                if isinstance(att, dict) and att.get("filename") == file_path.name and att.get("id"):
+        content = file_path.read_bytes()
+        if replace_existing or skip_if_same_size:
+            if existing_attachments is None:
+                issue_resp = self._get_with_retry(
+                    f"/rest/api/3/issue/{issue_key}",
+                    params={"fields": "attachment"},
+                )
+                attachments = (issue_resp.json().get("fields") or {}).get("attachment") or []
+            else:
+                attachments = existing_attachments
+
+            matching = [
+                att for att in attachments
+                if isinstance(att, dict) and att.get("filename") == file_path.name and att.get("id")
+            ]
+            if skip_if_same_size and len(matching) == 1 and int(matching[0].get("size", -1)) == len(content):
+                return {"id": matching[0]["id"], "filename": file_path.name, "skipped_unchanged": True}
+            if replace_existing:
+                for att in matching:
                     self._client.delete(f"/rest/api/3/attachment/{att['id']}")
 
-        content = file_path.read_bytes()
         response = httpx.post(
             f"{self.config.base_url}/rest/api/3/issue/{issue_key}/attachments",
             auth=(self.config.email, self.config.api_token),
@@ -439,6 +451,43 @@ class JiraClient:
         if isinstance(payload, list) and payload:
             return dict(payload[0])
         return None
+
+    def upload_attachments_batch(
+        self,
+        issue_key: str,
+        file_paths: Iterable[Path],
+        *,
+        skip_if_same_size: bool = True,
+        max_workers: int = 4,
+    ) -> list[dict[str, Any]]:
+        """Upload multiple attachments concurrently after a single existing-attachment lookup."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        valid_paths = [Path(p) for p in file_paths if Path(p).is_file()]
+        if not valid_paths:
+            return []
+        issue_resp = self._get_with_retry(
+            f"/rest/api/3/issue/{issue_key}",
+            params={"fields": "attachment"},
+        )
+        existing = (issue_resp.json().get("fields") or {}).get("attachment") or []
+
+        def _up(fp: Path) -> dict[str, Any] | None:
+            return self.upload_attachment(
+                issue_key,
+                fp,
+                replace_existing=True,
+                skip_if_same_size=skip_if_same_size,
+                existing_attachments=existing,
+            )
+
+        workers = max(1, min(max_workers, len(valid_paths)))
+        if workers == 1:
+            results = [_up(p) for p in valid_paths]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(_up, valid_paths))
+        return [r for r in results if r is not None]
 
 
 def verify_from_env() -> JiraProjectResult:

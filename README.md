@@ -405,8 +405,20 @@ saqa sync-jira artifacts/suite/evidence-manifest.json --screenshot
 # Capture a live website PNG screenshot (Playwright or headless Chrome/Edge):
 saqa capture-screenshot https://www.dreamex.tech artifacts/screenshot.png --width 1440 --height 900
 
-# Run a zero-code 7-pillar Deep Website QA Audit (TLS cert expiry, OWASP headers & cookies, WCAG 2.2 DOM, SEO/JSON-LD, broken links, exposure hygiene, perf) + screenshots + Jira sync:
-saqa deep-audit https://www.dreamex.tech/ --output-dir artifacts/deep-audit --screenshot --sync-jira
+# Run an 8-pillar Deep Website + Live SPA Browser Audit + screenshots + custom Sprint Timeline + Jira sync:
+saqa deep-audit https://www.dreamex.tech/ \
+  --output-dir artifacts/deep-audit \
+  --spa \
+  --screenshot \
+  --sprint-start 2026-11-10 \
+  --sprint-end 2026-11-30 \
+  --sync-jira
+
+# Pixel-by-pixel Visual Regression Diffing with magenta diff heatmap output:
+saqa visual-diff baseline.png artifacts/deep-audit/screenshot-desktop.png --output artifacts/deep-audit/visual-diff.png --threshold 0.5
+
+# Multi-target head-to-head QA Benchmark Matrix (HTML, Markdown, CSV, JSON):
+saqa benchmark https://www.dreamex.tech/ https://playwright.dev/ --output-dir artifacts/benchmark --spa
 
 # Auto-generate or execute read-only contract tests directly from any OpenAPI 3.x / Swagger 2.0 spec:
 saqa audit-openapi contracts/juice-shop.openapi.json --base-url http://127.0.0.1:3000

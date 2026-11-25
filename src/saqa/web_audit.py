@@ -10,6 +10,8 @@ import json
 import re
 import socket
 import ssl
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -18,8 +20,9 @@ from typing import Any, Callable
 from urllib.parse import urljoin, urlparse
 
 from .analytics import analyze_records, compute_latency_stats
-from .api import ApiResponse, request as http_request
+from .api import ApiResponse
 from .evidence import EvidenceRecord, utc_now, write_manifest
+from .http_pool import create_pooled_requester
 from .reporting import render_html_report, render_markdown_report
 from .url_safety import redact_url
 from .visual_evidence import export_csv_matrix, render_analytics_svg, render_scorecard_png
@@ -394,21 +397,49 @@ def run_deep_web_audit(
     max_links: int = 18,
     perf_samples: int = 3,
     timeout: float = 15.0,
-    requester: Callable[..., ApiResponse] = http_request,
+    include_spa_audit: bool = False,
+    requester: Callable[..., ApiResponse] | None = None,
     tls_inspector: Callable[..., dict[str, Any]] = inspect_tls_certificate,
 ) -> DeepAuditResult:
-    """Execute a comprehensive 7-pillar read-only QA audit against an authorized HTTP(S) website."""
+    """Execute a comprehensive 7- or 8-pillar read-only QA audit against an authorized HTTP(S) website."""
     parsed = urlparse(target_url.strip())
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError(f"target_url must be a valid http/https URL: {target_url!r}")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("target_url must not contain embedded credentials")
 
+    pool_ctx = create_pooled_requester(max_connections=12) if requester is None else nullcontext(requester)
+    with pool_ctx as active_req:
+        return _run_deep_web_audit_impl(
+            target_url,
+            parsed=parsed,
+            output_dir=output_dir,
+            max_links=max_links,
+            perf_samples=perf_samples,
+            timeout=timeout,
+            include_spa_audit=include_spa_audit,
+            requester=active_req,
+            tls_inspector=tls_inspector,
+        )
+
+
+def _run_deep_web_audit_impl(
+    target_url: str,
+    *,
+    parsed,
+    output_dir: Path | None,
+    max_links: int,
+    perf_samples: int,
+    timeout: float,
+    include_spa_audit: bool,
+    requester: Callable[..., ApiResponse],
+    tls_inspector: Callable[..., dict[str, Any]],
+) -> DeepAuditResult:
     base_url = f"{parsed.scheme}://{parsed.netloc}"
     redacted_target = redact_url(target_url)
     suite_name = f"deep-audit-{parsed.hostname}"
     default_headers = {
-        "User-Agent": "SAQA-Professional-Framework/2.3.0",
+        "User-Agent": "SAQA-Professional-Framework/2.4.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Encoding": "identity",
     }
@@ -669,11 +700,15 @@ def run_deep_web_audit(
     checked_urls = candidate_urls[: max(1, max_links)]
     broken_links: list[dict[str, Any]] = []
     asset_latencies: list[float] = []
-    for u in checked_urls:
-        resp = requester(u, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
-        asset_latencies.append(round(resp.elapsed_ms, 2))
-        if resp.status_code == 0 or resp.status_code >= 400:
-            broken_links.append({"url": u, "status_code": resp.status_code, "error": resp.error})
+    if checked_urls:
+        def _probe_link(u: str) -> tuple[str, ApiResponse]:
+            return u, requester(u, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+
+        with ThreadPoolExecutor(max_workers=min(6, len(checked_urls))) as pool:
+            for u, resp in pool.map(_probe_link, checked_urls):
+                asset_latencies.append(round(resp.elapsed_ms, 2))
+                if resp.status_code == 0 or resp.status_code >= 400:
+                    broken_links.append({"url": u, "status_code": resp.status_code, "error": resp.error})
 
     link_failures: list[str] = []
     link_checks: list[str] = [f"checked_urls:{len(checked_urls)}"]
@@ -788,6 +823,12 @@ def run_deep_web_audit(
             },
         )
     )
+
+    # ── PILLAR 8 (Optional): Live Headless Browser SPA DOM & Runtime Audit ────
+    if include_spa_audit:
+        from .spa_audit import build_spa_audit_record
+
+        records.append(build_spa_audit_record(target_url, suite_name=suite_name, timeout_s=int(max(15, timeout))))
 
     manifest_path: Path | None = None
     manifest_sha: str | None = None

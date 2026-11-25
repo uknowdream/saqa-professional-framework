@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -18,8 +20,10 @@ from .api import (
     assert_response_time,
     assert_status,
     request as http_request,
+    resolve_json_path,
 )
 from .evidence import EvidenceRecord, utc_now, write_manifest
+from .http_pool import create_pooled_requester
 from .url_safety import redact_url
 
 SAFE_HTTP_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -235,13 +239,46 @@ def load_suite_file(path: Path) -> dict[str, Any]:
     return data
 
 
+def _extract_case_variables(
+    response: ApiResponse,
+    extract_spec: Mapping[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Extract chained variables from JSON paths, headers, or regex captures."""
+    extracted: dict[str, Any] = {}
+    errors: list[str] = []
+    for var_name, raw_expr in extract_spec.items():
+        expr = str(raw_expr).strip()
+        try:
+            if expr.startswith("json:"):
+                json_path = expr[5:].strip()
+                extracted[var_name] = resolve_json_path(response.json(), json_path)
+            elif expr.startswith("header:"):
+                hdr_name = expr[7:].strip()
+                val = response.header(hdr_name)
+                if val is None:
+                    raise KeyError(f"missing header {hdr_name!r}")
+                extracted[var_name] = val
+            elif expr.startswith("regex:"):
+                pattern = expr[6:]
+                match = re.search(pattern, response.text)
+                if match is None:
+                    raise ValueError(f"regex {pattern!r} did not match response body")
+                extracted[var_name] = match.group(1) if match.groups() else match.group(0)
+            else:
+                extracted[var_name] = resolve_json_path(response.json(), expr)
+        except Exception as exc:
+            errors.append(f"extract:{var_name}: {exc}")
+    return extracted, errors
+
+
 def run_suite(
     suite: Mapping[str, Any],
     *,
     output_dir: Path | None = None,
-    requester: Callable[..., ApiResponse] = http_request,
+    workers: int | None = None,
+    requester: Callable[..., ApiResponse] | None = None,
 ) -> SuiteExecutionResult:
-    """Execute a declarative QA suite and emit tamper-evident evidence + analytics."""
+    """Execute a declarative QA suite (with chained extraction & optional concurrency) and emit evidence."""
     suite_name = str(suite.get("name", "")).strip()
     if not suite_name:
         raise ValueError("suite 'name' must be a non-empty string")
@@ -254,15 +291,22 @@ def run_suite(
     variables.setdefault("base_url", base_url)
     allow_remote = bool(suite.get("allow_remote", False))
     default_timeout = float(suite.get("default_timeout_s", 10.0))
-    default_headers = _interpolate_value(dict(suite.get("default_headers") or {}), variables)
+    default_headers = dict(suite.get("default_headers") or {})
     follow_redirects = bool(suite.get("follow_redirects", False))
     max_retries = int(suite.get("max_retries", 0))
     if max_retries < 0 or max_retries > 3:
         raise ValueError("max_retries must be between 0 and 3")
 
-    records: list[EvidenceRecord] = []
-    seen_ids: set[str] = set()
+    effective_workers = int(workers if workers is not None else suite.get("concurrency", 1))
+    if effective_workers < 1:
+        raise ValueError("workers/concurrency must be at least 1")
 
+    has_chaining = any(isinstance(c, Mapping) and bool(c.get("extract")) for c in cases)
+    if has_chaining:
+        effective_workers = 1  # Chained suites must execute sequentially so extracted variables propagate
+
+    seen_ids: set[str] = set()
+    validated_cases: list[tuple[int, str, Mapping[str, Any]]] = []
     for idx, raw_case in enumerate(cases, start=1):
         if not isinstance(raw_case, Mapping):
             raise ValueError(f"suite case[{idx}] must be an object")
@@ -270,52 +314,65 @@ def run_suite(
         if not case_id or case_id in seen_ids:
             raise ValueError(f"duplicate or empty test case id: {case_id!r}")
         seen_ids.add(case_id)
-
         method = str(raw_case.get("method", "GET")).upper()
         if method not in SAFE_HTTP_METHODS:
             raise ValueError(
                 f"case {case_id!r} uses unsupported method {method!r}; "
                 f"declarative runner enforces read-only methods: {sorted(SAFE_HTTP_METHODS)}"
             )
-
-        url = _validate_target_url(_build_case_url(base_url, raw_case, variables), allow_remote=allow_remote)
-        case_headers = dict(default_headers)
-        case_headers.update(_interpolate_value(dict(raw_case.get("headers") or {}), variables))
-        timeout = float(raw_case.get("timeout_s", default_timeout))
         case_retries = int(raw_case.get("max_retries", max_retries))
         if case_retries < 0 or case_retries > 3:
             raise ValueError(f"case {case_id!r} max_retries must be between 0 and 3")
+        validated_cases.append((idx, case_id, raw_case))
 
-        expect = _interpolate_value(dict(raw_case.get("expect") or {}), variables)
+    pool_ctx = create_pooled_requester(max_connections=max(4, effective_workers * 2)) if requester is None else nullcontext(requester)
 
-        attempts = 0
-        response: ApiResponse | None = None
-        for attempt in range(1, case_retries + 2):
-            attempts = attempt
-            response = requester(
-                url,
-                method=method,
-                headers=case_headers,
-                timeout=timeout,
-                follow_redirects=follow_redirects,
-                use_environment_proxies=False,
-            )
-            if response.status_code != 0:
-                break
+    with pool_ctx as active_requester:
+        def _execute_one(item: tuple[int, str, Mapping[str, Any]], vars_snapshot: dict[str, Any]) -> tuple[int, EvidenceRecord, dict[str, Any]]:
+            _, case_id, raw_case = item
+            method = str(raw_case.get("method", "GET")).upper()
+            url = _validate_target_url(_build_case_url(base_url, raw_case, vars_snapshot), allow_remote=allow_remote)
+            case_headers = _interpolate_value(dict(default_headers), vars_snapshot)
+            case_headers.update(_interpolate_value(dict(raw_case.get("headers") or {}), vars_snapshot))
+            timeout = float(raw_case.get("timeout_s", default_timeout))
+            case_retries = int(raw_case.get("max_retries", max_retries))
+            expect = _interpolate_value(dict(raw_case.get("expect") or {}), vars_snapshot)
 
-        if response is None:  # pragma: no cover - defensive guard
-            raise RuntimeError(f"no response received for case {case_id!r}")
+            attempts = 0
+            response: ApiResponse | None = None
+            for attempt in range(1, case_retries + 2):
+                attempts = attempt
+                response = active_requester(
+                    url,
+                    method=method,
+                    headers=case_headers,
+                    timeout=timeout,
+                    follow_redirects=follow_redirects,
+                    use_environment_proxies=False,
+                )
+                if response.status_code != 0:
+                    break
 
-        if response.status_code == 0 and response.error:
-            status = "BLOCKED"
-            checks_passed: list[str] = []
-            failures = [f"transport: {response.error}"]
-        else:
-            checks_passed, failures = _evaluate_expectations(response, expect)
-            status = "PASS" if not failures else "FAIL"
+            if response is None:  # pragma: no cover
+                raise RuntimeError(f"no response received for case {case_id!r}")
 
-        records.append(
-            EvidenceRecord(
+            extracted_vars: dict[str, Any] = {}
+            if response.status_code == 0 and response.error:
+                status = "BLOCKED"
+                checks_passed: list[str] = []
+                failures = [f"transport: {response.error}"]
+            else:
+                checks_passed, failures = _evaluate_expectations(response, expect)
+                extract_spec = raw_case.get("extract")
+                if isinstance(extract_spec, Mapping) and extract_spec:
+                    extracted_vars, extract_errors = _extract_case_variables(response, extract_spec)
+                    if extract_errors:
+                        failures.extend(extract_errors)
+                    else:
+                        checks_passed.append(f"extract({','.join(sorted(extracted_vars))})")
+                status = "PASS" if not failures else "FAIL"
+
+            record = EvidenceRecord(
                 test_id=case_id,
                 status=status,
                 observed_at=utc_now(),
@@ -331,11 +388,27 @@ def run_suite(
                     "response_sha256": response.sha256,
                     "attempts": attempts,
                     "checks_passed": checks_passed,
+                    "extracted_keys": sorted(extracted_vars),
                     "failure_reasons": failures,
                     "destructive_actions": False,
                 },
             )
-        )
+            return item[0], record, extracted_vars
+
+        records: list[EvidenceRecord] = []
+        if effective_workers == 1:
+            for item in validated_cases:
+                _, rec, new_vars = _execute_one(item, variables)
+                variables.update(new_vars)
+                records.append(rec)
+        else:
+            # Validate all URLs upfront before thread dispatch so policy errors surface deterministically
+            for _, _, raw_case in validated_cases:
+                _validate_target_url(_build_case_url(base_url, raw_case, variables), allow_remote=allow_remote)
+            with ThreadPoolExecutor(max_workers=min(effective_workers, len(validated_cases))) as pool:
+                results = list(pool.map(lambda it: _execute_one(it, dict(variables)), validated_cases))
+            results.sort(key=lambda r: r[0])
+            records = [rec for _, rec, _ in results]
 
     manifest_path: Path | None = None
     manifest_sha: str | None = None
