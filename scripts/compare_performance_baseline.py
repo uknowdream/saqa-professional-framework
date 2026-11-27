@@ -1,6 +1,13 @@
 """Compare repeated, metadata-matched k6 run sets against a measured baseline."""
 from __future__ import annotations
-import argparse, hashlib, json, math, statistics, re, sys
+
+import argparse
+import hashlib
+import json
+import math
+import re
+import statistics
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.build_performance_run_set import canonical_policy_sha256, extract_sample, read_json
+from scripts.build_performance_run_set import canonical_policy_sha256, extract_sample, read_json  # noqa: E402
 
 SCHEMA = "saqa.performance-run-set.v1"
 METADATA = ("target_profile", "workload_profile", "workload_sha256", "policy_id", "policy_version", "policy_sha256", "environment_fingerprint")

@@ -3,8 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
-from scripts.pytest_attempt_telemetry import AttemptTelemetryPlugin, SHARD_SCHEMA
+from scripts.pytest_attempt_telemetry import SHARD_SCHEMA, AttemptTelemetryPlugin
 from scripts.summarize_test_attempts import REPORT_SCHEMA, load_shards, main, summarize_shards
 
 

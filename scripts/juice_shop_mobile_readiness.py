@@ -1,6 +1,8 @@
 """Read-only mobile viewport readiness smoke for the local OWASP Juice Shop target."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from datetime import datetime, timezone
@@ -15,7 +17,13 @@ ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username
+        or parsed.password
+        or parsed.port is None
+    ):
         raise ValueError("mobile target must be credential-free HTTP on 127.0.0.1 with a port")
 
 
@@ -25,7 +33,13 @@ def _guard_request(route) -> None:
     if route.request.method != "GET":
         route.abort()
         return
-    if parsed.scheme != base.scheme or parsed.hostname != base.hostname or parsed.port != base.port or parsed.username or parsed.password:
+    if (
+        parsed.scheme != base.scheme
+        or parsed.hostname != base.hostname
+        or parsed.port != base.port
+        or parsed.username
+        or parsed.password
+    ):
         route.abort()
         raise RuntimeError(f"blocked mobile request outside authorized target origin: {route.request.url!r}")
     route.continue_()
@@ -52,6 +66,7 @@ def main() -> None:
         if BROWSER not in ALLOWED_BROWSERS:
             raise ValueError(f"unsupported browser: {BROWSER}")
         from playwright.sync_api import sync_playwright
+
         with sync_playwright() as playwright:
             browser = None
             context = None
@@ -67,29 +82,41 @@ def main() -> None:
                 page.wait_for_function("document.body && document.body.innerText.trim().length > 0", timeout=15000)
                 title = page.title()
                 body_text = page.locator("body").inner_text().strip()
-                horizontal_overflow = page.evaluate("() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1")
-                evidence["details"] = {"status_code": response.status if response else None, "title": title, "body_text_non_empty": bool(body_text), "horizontal_overflow": bool(horizontal_overflow), "final_url": page.url}
+                horizontal_overflow = page.evaluate(
+                    "() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1"
+                )
+                evidence["details"] = {
+                    "status_code": response.status if response else None,
+                    "title": title,
+                    "body_text_non_empty": bool(body_text),
+                    "horizontal_overflow": bool(horizontal_overflow),
+                    "final_url": page.url,
+                }
                 if not response or response.status < 200 or response.status >= 400:
-                    raise AssertionError(f"expected successful page response, got {response.status if response else None}")
+                    raise AssertionError(
+                        f"expected successful page response, got {response.status if response else None}"
+                    )
                 if "Juice Shop" not in title:
                     raise AssertionError(f"unexpected title: {title!r}")
                 if not body_text:
                     raise AssertionError("page body is empty")
                 if horizontal_overflow:
                     raise AssertionError("mobile viewport has horizontal document overflow")
-                context.close(); context = None
-                browser.close(); browser = None
+                context.close()
+                context = None
+                browser.close()
+                browser = None
                 evidence["status"] = "PASS"
             except Exception as exc:
                 evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
                 raise
             finally:
                 if context is not None:
-                    try: context.close()
-                    except Exception: pass
+                    with contextlib.suppress(Exception):
+                        context.close()
                 if browser is not None:
-                    try: browser.close()
-                    except Exception: pass
+                    with contextlib.suppress(Exception):
+                        browser.close()
     except Exception as exc:
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     finally:

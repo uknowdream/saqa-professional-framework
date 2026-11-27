@@ -436,21 +436,40 @@ class JiraClient:
                 for att in matching:
                     self._client.delete(f"/rest/api/3/attachment/{att['id']}")
 
-        response = httpx.post(
-            f"{self.config.base_url}/rest/api/3/issue/{issue_key}/attachments",
-            auth=(self.config.email, self.config.api_token),
-            headers={
-                "Accept": "application/json",
-                "X-Atlassian-Token": "no-check",
-            },
-            files={"file": (file_path.name, content)},
-            timeout=30.0,
-        )
-        self._raise_for_auth(response, "attachment upload")
-        response.raise_for_status()
-        payload = response.json()
-        if isinstance(payload, list) and payload:
-            return dict(payload[0])
+        last_resp: httpx.Response | None = None
+        last_exc: Exception | None = None
+        upload_url = f"{self.config.base_url}/rest/api/3/issue/{issue_key}/attachments"
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                response = httpx.post(
+                    upload_url,
+                    auth=(self.config.email, self.config.api_token),
+                    headers={
+                        "Accept": "application/json",
+                        "X-Atlassian-Token": "no-check",
+                    },
+                    files={"file": (file_path.name, content)},
+                    timeout=30.0,
+                )
+            except httpx.TransportError as exc:
+                last_exc = exc
+                if attempt < self.max_retries and self.retry_backoff_s > 0:
+                    time.sleep(self.retry_backoff_s * attempt)
+                continue
+            self._raise_for_auth(response, "attachment upload")
+            if response.status_code in _RETRYABLE_STATUS_CODES:
+                last_resp = response
+                retry_after_raw = response.headers.get("Retry-After", "")
+                delay = float(retry_after_raw) if retry_after_raw.isdigit() else (self.retry_backoff_s * attempt)
+                if attempt < self.max_retries and delay > 0:
+                    time.sleep(min(delay, 10.0))
+                continue
+            response.raise_for_status()
+            payload = response.json()
+            if isinstance(payload, list) and payload:
+                return dict(payload[0])
+            return None
+        self._raise_unavailable(last_resp, f"/rest/api/3/issue/{issue_key}/attachments", last_exc)
         return None
 
     def upload_attachments_batch(
@@ -491,9 +510,10 @@ class JiraClient:
         return [r for r in results if r is not None]
 
     def find_project_issues_by_label(self, label: str, max_results: int = 50) -> list[JiraIssueResult]:
-        """Find project issues carrying a specific deterministic SAQA label (language-independent)."""
+        """Find project issues carrying a specific deterministic SAQA label (JQL-escaped, language-independent)."""
+        escaped = label.replace("\\", "\\\\").replace('"', '\\"')
         return self.search_issues(
-            f'project = {self.config.project_key} AND labels = "{label}"',
+            f'project = {self.config.project_key} AND labels = "{escaped}"',
             max_results=max_results,
         )
 

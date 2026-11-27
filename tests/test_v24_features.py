@@ -12,14 +12,14 @@ from saqa.analytics import analyze_records
 from saqa.api import ApiResponse
 from saqa.benchmark import run_multi_target_benchmark
 from saqa.cli import main as cli_main
-from saqa.evidence import EvidenceRecord, utc_now, write_manifest
+from saqa.evidence import EvidenceRecord, utc_now
 from saqa.http_pool import create_pooled_requester
 from saqa.jira_sync import _compute_timeline_window
 from saqa.notifications import dispatch_notifications, format_alert_message
 from saqa.runner import run_suite
 from saqa.spa_audit import build_spa_audit_record, inspect_spa_runtime
 from saqa.visual_diff import compare_png_images, decode_png_rgb
-from saqa.visual_evidence import _png_chunk, render_scorecard_png
+from saqa.visual_evidence import _png_chunk
 from saqa.web_audit import DeepAuditResult
 
 
@@ -268,8 +268,9 @@ def test_benchmark_and_custom_sprint_timeline_and_http_pool(tmp_path):
 
 
 def test_inspect_spa_runtime_validation_and_chromium_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    from types import SimpleNamespace
     import sys
+    from types import SimpleNamespace
+
     from saqa import spa_audit
 
     with pytest.raises(ValueError, match="invalid SPA audit URL"):

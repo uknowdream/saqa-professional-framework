@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from saqa.ssrf import safe_parse_xml
+
 SCHEMA = "saqa.test-stability-history.v1"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PYTHON_DIR_RE = re.compile(r"^python-(\d+\.\d+)$")
@@ -24,8 +26,8 @@ ERROR_STATUSES = {"FAIL", "ERROR"}
 def parse_junit(path: Path) -> dict[str, str]:
     """Return one unambiguous outcome per fully qualified JUnit test ID."""
     try:
-        root = ET.parse(path).getroot()
-    except (OSError, ET.ParseError) as exc:
+        root = safe_parse_xml(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ET.ParseError) as exc:
         raise ValueError(f"cannot parse JUnit XML {path}: {exc}") from exc
     if root.tag not in {"testsuite", "testsuites"}:
         raise ValueError(f"unsupported JUnit root element in {path}: {root.tag}")

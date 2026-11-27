@@ -1,6 +1,10 @@
 """Validate generated SPDX JSON SBOMs and emit a digest-bound inventory record."""
 from __future__ import annotations
-import argparse, hashlib, json, re
+
+import argparse
+import hashlib
+import json
+import re
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit

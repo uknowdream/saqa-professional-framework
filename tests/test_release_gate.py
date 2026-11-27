@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from scripts.qa_release_gate import (
     ALLOWED_RELEASE_EVENTS,
     MANDATORY,

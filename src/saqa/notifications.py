@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
+
+from . import __version__
+from .ssrf import is_private_or_metadata_ip
+
+_TG_TOKEN_RE = re.compile(r"/bot[^/\s]+/")
 
 
 def _validate_webhook_url(url: str) -> str:
@@ -17,6 +23,10 @@ def _validate_webhook_url(url: str) -> str:
         raise ValueError(f"invalid webhook URL: {url!r}")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("webhook URL must not contain embedded credentials in authority")
+    host = parsed.hostname.lower().strip("[]")
+    # Block cloud metadata / link-local / non-loopback private RFC1918 SSRF targets
+    if host not in {"127.0.0.1", "localhost", "::1"} and is_private_or_metadata_ip(host):
+        raise ValueError(f"SSRF blocked: webhook host {host!r} targets private or cloud-metadata IP space")
     return cleaned
 
 
@@ -29,7 +39,7 @@ def _send_json_payload(url: str, payload: Mapping[str, Any], *, timeout: float =
         data=raw,
         headers={
             "Content-Type": "application/json; charset=utf-8",
-            "User-Agent": "SAQA-Webhook-Notifier/2.5.0",
+            "User-Agent": f"SAQA-Webhook-Notifier/{__version__}",
         },
     )
     try:
@@ -38,7 +48,8 @@ def _send_json_payload(url: str, payload: Mapping[str, Any], *, timeout: float =
     except urllib.error.HTTPError as exc:
         return {"ok": False, "status_code": exc.code, "error": f"HTTP {exc.code}"}
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return {"ok": False, "status_code": 0, "error": str(exc)}
+        safe_err = _TG_TOKEN_RE.sub("/bot<REDACTED>/", str(exc))
+        return {"ok": False, "status_code": 0, "error": safe_err}
 
 
 def format_alert_message(

@@ -12,8 +12,8 @@ from typing import Any
 
 from saqa.analytics import analyze_records
 from saqa.evidence import EvidenceRecord, utc_now
-from saqa.jira import JiraClient, JiraConfig, JiraIssueResult, JiraServiceUnavailableError
 from saqa.i18n import get_all_summary_variants, get_issue_summaries, normalize_lang
+from saqa.jira import JiraClient, JiraConfig, JiraIssueResult, JiraServiceUnavailableError
 from saqa.jira_sync import (
     DOMAIN_PRIORITIES,
     DOMAIN_TIMELINE_OFFSETS,
@@ -26,6 +26,14 @@ from saqa.jira_sync import (
     _resolve_stale_auto_bugs,
     build_environment_adf,
 )
+from saqa.methodology import (
+    build_rtm_matrix,
+    compute_waterfall_timeline_window,
+    evaluate_methodology_governance,
+    normalize_methodology,
+    render_release_signoff_markdown,
+)
+from saqa.pdf_report import render_pdf_report
 from saqa.reporting import render_markdown_report
 from saqa.visual_evidence import render_scorecard_png
 
@@ -195,9 +203,12 @@ def certification_overall(current_results: dict[str, str], contract_result: str)
 
 
 def transition_targets(result: str) -> tuple[str, ...]:
-    if result == "PASS": return ("Done", "Closed")
-    if result == "FAIL": return ("In Progress", "Reopened")
-    if result == "BLOCKED": return ("Blocked", "In Progress")
+    if result == "PASS":
+        return ("Done", "Closed")
+    if result == "FAIL":
+        return ("In Progress", "Reopened")
+    if result == "BLOCKED":
+        return ("Blocked", "In Progress")
     return ("In Progress", "Open", "To Do")
 
 
@@ -287,18 +298,31 @@ def sync_issue(
     *,
     epic_key: str | None = None,
     assignee_id: str | None = None,
+    lang: str = "en",
+    methodology: str = "agile",
+    timeline_window: tuple[str, str] | None = None,
+    existing_issues: dict[str, JiraIssueResult] | None = None,
 ) -> None:
+    code = normalize_lang(lang)
+    meth = normalize_methodology(methodology)
     state = client.get_issue_state(issue.key)
     label = run_label(result)
     remove = tuple(existing for existing in STATUS_LABELS if existing in state.labels and existing != label)
-    add = tuple(label_name for label_name in ("saqa-automation", f"saqa-{key.lower()}", label) if label_name not in state.labels)
+    add = tuple(
+        label_name
+        for label_name in ("saqa-automation", f"saqa-{key.lower()}", f"saqa-lang-{code}", f"saqa-{meth}", label)
+        if label_name not in state.labels
+    )
     if add or remove:
         client.update_labels(issue.key, add=add, remove=remove)
 
     today = datetime.now(WIB)
-    start_off, due_off = DOMAIN_TIMELINE_OFFSETS.get(key, (-7, 7))
-    start_date = (today + timedelta(days=start_off)).strftime("%Y-%m-%d")
-    due_date = (today + timedelta(days=due_off)).strftime("%Y-%m-%d")
+    if timeline_window is not None:
+        start_date, due_date = timeline_window
+    else:
+        start_off, due_off = DOMAIN_TIMELINE_OFFSETS.get(key, (-7, 7))
+        start_date = (today + timedelta(days=start_off)).strftime("%Y-%m-%d")
+        due_date = (today + timedelta(days=due_off)).strftime("%Y-%m-%d")
 
     if hasattr(client, "update_issue_fields"):
         priority_name = "Highest" if result == "FAIL" else DOMAIN_PRIORITIES.get(key, "High")
@@ -310,6 +334,7 @@ def sync_issue(
                 target_display=run.url or f"github:{run.branch}",
                 suite_name=run.name,
                 manifest_sha256=run.head_sha,
+                lang=code,
             ),
         }
         if epic_key:
@@ -334,9 +359,11 @@ def sync_issue(
             suite_name=run.name,
             manifest_sha256=run.head_sha,
             today_str=today.strftime("%Y-%m-%d"),
+            lang=code,
+            existing_issues=existing_issues,
         )
     print(
-        f"JIRA {key} ({issue.key}): result={result} timeline={start_date}..{due_date} "
+        f"JIRA {key} ({issue.key}): result={result} lang={code} sdlc={meth} timeline={start_date}..{due_date} "
         f"comment={'added' if added else 'exists'} transition={transitioned or 'unchanged'} "
         f"defect={defect.key if defect else 'none'} resolved_bugs={len(resolved_bugs)}"
     )
@@ -421,15 +448,31 @@ def main() -> None:
         domain_results = {"QA-1": "PASS", "QA-3": run.result, "QA-9": overall}
 
     workflow_body = (f"SAQA automated CI synchronization\nWorkflow: {run.name}\nRun: #{run.run_number} ({run.run_id})\nResult: {run.result}\nCommit: {run.head_sha}\nBranch: {run.branch}\nURL: {run.url}\nCertification aggregate for {run.head_sha}: {overall}\nNo PASS is inferred when evidence is missing.")
+    lang_code = normalize_lang(os.environ.get("SAQA_LANG") or os.environ.get("JIRA_LANG"))
+    meth_mode = normalize_methodology(os.environ.get("SAQA_METHODOLOGY"))
+    localized_summaries = get_issue_summaries(lang_code)
     fail_on_unavailable = os.environ.get("SAQA_JIRA_FAIL_ON_UNAVAILABLE", "true").strip().lower() not in {"0", "false", "no"}
     try:
         with JiraClient(JiraConfig.from_env()) as client:
             project = client.verify_access()
-            print(f"JIRA project verified: {project.key} / {project.name}")
+            print(f"JIRA project verified: {project.key} / {project.name} (lang={lang_code}, sdlc={meth_mode})")
             managed = ensure_managed_issues(client)
             today = datetime.now(WIB)
             assignee_id = client.get_myself_account_id() if hasattr(client, "get_myself_account_id") else None
-            _, epic_key_by_domain, _ = _ensure_epics_and_issues(client, today=today, assignee_id=assignee_id)
+            epic_dates: dict[str, tuple[str, str]] | None = None
+            domain_dates: dict[str, tuple[str, str]] = {}
+            if meth_mode == "waterfall":
+                epic_dates, domain_dates = compute_waterfall_timeline_window(today=today)
+            cached_issues = client.find_project_issues()
+            _, epic_key_by_domain, _ = _ensure_epics_and_issues(
+                client,
+                today=today,
+                assignee_id=assignee_id,
+                epic_dates=epic_dates,
+                lang=lang_code,
+                methodology=meth_mode,
+                existing_issues=cached_issues,
+            )
             for key, result_value in domain_results.items():
                 issue = managed[key]
                 marker = f"[SAQA-AUTO-SYNC:{run.run_id}:{key}]"
@@ -438,18 +481,22 @@ def main() -> None:
                     key,
                     issue,
                     result_value,
-                    f"{workflow_body}\nDomain issue: {ISSUE_SUMMARIES[key]}\n{marker}",
+                    f"{workflow_body}\nDomain issue: {localized_summaries.get(key, ISSUE_SUMMARIES[key])}\n{marker}",
                     marker,
                     run,
                     epic_key=epic_key_by_domain.get(key),
                     assignee_id=assignee_id,
+                    lang=lang_code,
+                    methodology=meth_mode,
+                    timeline_window=domain_dates.get(key),
+                    existing_issues=cached_issues,
                 )
 
-            # Attach visual CI scorecard PNG and Markdown executive report to QA-1, QA-8, QA-9
+            # Attach visual CI scorecard PNG, PDF executive report, Release Sign-Off & Markdown to QA-1, QA-8, QA-9
             if hasattr(client, "upload_attachment"):
                 ci_records = [
                     EvidenceRecord(
-                        test_id=f"{dom}-{ISSUE_SUMMARIES[dom]}",
+                        test_id=f"{dom}-{localized_summaries.get(dom, ISSUE_SUMMARIES[dom])}",
                         status=res if res in {"PASS", "FAIL", "BLOCKED", "UNVERIFIED"} else "UNVERIFIED",
                         observed_at=utc_now(),
                         target=run.url or f"https://github.com/commit/{run.head_sha}",
@@ -458,22 +505,54 @@ def main() -> None:
                     for dom, res in sorted(domain_results.items())
                 ]
                 ci_analytics = analyze_records(ci_records, manifest_sha256=run.head_sha)
+                ci_gov = evaluate_methodology_governance(domain_results, ci_analytics, methodology=meth_mode, lang=lang_code)
+                ci_rtm = build_rtm_matrix(ci_records, manifest_sha256=run.head_sha, lang=lang_code)
                 with tempfile.TemporaryDirectory(prefix="saqa-ci-jira-") as tmp_dir:
                     scorecard_png = render_scorecard_png(
                         ci_analytics,
                         ci_records,
                         Path(tmp_dir) / "qa-ci-scorecard.png",
                         title=f"SAQA CI | {run.name}",
+                        lang=lang_code,
                     )
                     ci_md = Path(tmp_dir) / "qa-ci-report.md"
                     ci_md.write_text(
-                        render_markdown_report(ci_analytics, title=f"SAQA CI Report — {run.name} ({run.head_sha[:7]})"),
+                        render_markdown_report(
+                            ci_analytics,
+                            title=f"SAQA CI Report — {run.name} ({run.head_sha[:7]})",
+                            lang=lang_code,
+                        ),
+                        encoding="utf-8",
+                    )
+                    ci_pdf = Path(tmp_dir) / "qa-executive-report.pdf"
+                    render_pdf_report(
+                        ci_analytics,
+                        ci_records,
+                        ci_pdf,
+                        manifest_sha256=run.head_sha,
+                        title=f"SAQA CI Executive Report — {run.name} ({run.head_sha[:7]})",
+                        methodology=meth_mode,
+                        governance=ci_gov,
+                        lang=lang_code,
+                    )
+                    ci_signoff = Path(tmp_dir) / "release-signoff.md"
+                    ci_signoff.write_text(
+                        render_release_signoff_markdown(
+                            ci_gov,
+                            ci_rtm,
+                            ci_analytics,
+                            suite_name=run.name,
+                            manifest_sha256=run.head_sha,
+                            lang=lang_code,
+                        ),
                         encoding="utf-8",
                     )
                     for attach_key in ("QA-1", "QA-8", "QA-9"):
                         if attach_key in managed:
                             client.upload_attachment(managed[attach_key].key, scorecard_png)
                             client.upload_attachment(managed[attach_key].key, ci_md)
+                            client.upload_attachment(managed[attach_key].key, ci_pdf)
+                            client.upload_attachment(managed[attach_key].key, ci_signoff)
     except JiraServiceUnavailableError as exc:
         diagnostic = {
             "status": "BLOCKED",

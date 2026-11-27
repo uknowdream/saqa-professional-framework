@@ -1,6 +1,14 @@
 """Run a local k6 gate and compare measured percentiles to a versioned guardrail."""
 from __future__ import annotations
-import hashlib, json, math, os, re, shutil, subprocess, time
+
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -160,7 +168,7 @@ def validate_script_thresholds(script_text: str, policy: dict[str, Any]) -> None
         remainder = re.sub(r'"(?:[^"\\]|\\.)*"', "", body)
         if re.sub(r"[\s,]", "", remainder) or len(values) != len(required_values):
             raise ValueError(f"k6 script threshold {key} does not match the versioned policy")
-        for value, (label, operator, expected_value) in zip(values, required_values):
+        for value, (label, operator, expected_value) in zip(values, required_values, strict=True):
             match = re.fullmatch(re.escape(operator) + r"([0-9.eE+-]+)", value)
             if not match or not math.isclose(float(match.group(1)), expected_value, rel_tol=0.0, abs_tol=1e-12):
                 raise ValueError(f"k6 script threshold {label} does not match the versioned policy")
@@ -223,7 +231,8 @@ def main() -> int:
             evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
         finally:
             try:
-                subprocess.run(["docker","rm","-f",CONTAINER],capture_output=True,text=True,timeout=15,check=False)
+                docker_bin = shutil.which("docker") or "docker"
+                subprocess.run([docker_bin, "rm", "-f", CONTAINER], capture_output=True, text=True, timeout=15, check=False)
             except (OSError, subprocess.TimeoutExpired) as exc:
                 evidence["details"]["cleanup_error"] = f"{type(exc).__name__}: {exc}"
     shutil.rmtree(scratch, ignore_errors=True)

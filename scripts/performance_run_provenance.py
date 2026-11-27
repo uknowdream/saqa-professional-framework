@@ -1,5 +1,6 @@
 """Validate provenance of GitHub Actions performance sample artifacts."""
 from __future__ import annotations
+
 import re
 from typing import Any
 

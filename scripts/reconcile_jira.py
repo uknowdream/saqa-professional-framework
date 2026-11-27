@@ -9,9 +9,9 @@ import sys
 import tempfile
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 from urllib.parse import urlparse
-import zipfile
 
 from saqa.jira import JiraClient, JiraConfig, JiraServiceUnavailableError
 
@@ -48,7 +48,7 @@ def gh_get(path: str) -> object:
         "https://api.github.com" + path,
         headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
         return json.load(response)
 
 
@@ -132,7 +132,7 @@ def contract_evidence_path(run_id: int, expected_sha: str, directory: str) -> st
         f"https://api.github.com/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100",
         headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}"},
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=30) as response:  # noqa: S310
         payload = json.load(response)
     artifacts = payload.get("artifacts", []) if isinstance(payload, dict) else []
     matches = [

@@ -1,7 +1,9 @@
 """Safe application-security regression checks for authorized loopback targets."""
 from __future__ import annotations
+
 import os
 from urllib.parse import urlparse
+
 import httpx
 
 BASE = os.getenv("SAQA_SECURITY_TARGET", "http://127.0.0.1:3000").rstrip("/")

@@ -1,9 +1,7 @@
 import json
 
 import pytest
-
 from scripts.validate_pip_audit_report import main, validate_report
-
 
 DEPENDENCY = {
     "name": "demo-package",

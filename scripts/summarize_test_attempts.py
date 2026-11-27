@@ -109,7 +109,7 @@ def load_shards(input_dir: Path) -> list[dict[str, Any]]:
                 "duration_seconds": float(duration),
                 "worker_id": worker_id,
             })
-        loaded.append({**{key: value for key, value in zip(("run_id", "run_attempt", "commit_sha", "python_version", "worker_id"), metadata)}, "attempts": normalized})
+        loaded.append({**{key: value for key, value in zip(("run_id", "run_attempt", "commit_sha", "python_version", "worker_id"), metadata, strict=True)}, "attempts": normalized})
     return loaded
 
 

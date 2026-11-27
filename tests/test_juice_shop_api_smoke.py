@@ -1,5 +1,4 @@
 import pytest
-
 from scripts.juice_shop_api_smoke import OUTPUT, _assert_loopback_http
 
 

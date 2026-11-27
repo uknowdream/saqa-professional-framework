@@ -125,12 +125,21 @@ def test_pdf_executive_report_multipage_and_valid_pdf_header(tmp_path: Path) -> 
     ]
     stats = analyze_records(recs, manifest_sha256="a" * 64)
     pdf_file = tmp_path / "exec-id.pdf"
+    import re
+    import zlib
+
     pdf_bytes = render_pdf_report(stats, recs, pdf_file, manifest_sha256="a" * 64, hmac_sha256="b" * 64, lang="id")
     assert pdf_file.is_file()
     assert pdf_bytes.startswith(b"%PDF-1.4")
     assert pdf_bytes.rstrip().endswith(b"%%EOF")
+    assert b"/Filter /FlateDecode" in pdf_bytes
     assert b"/Count 2" in pdf_bytes
-    assert b"Pilar 2 - Audit Header Keamanan OWASP" in pdf_bytes
+    decompressed = b"\n".join(
+        zlib.decompress(m.group(1))
+        for m in re.finditer(rb"stream\n(.*?)\nendstream", pdf_bytes, flags=re.DOTALL)
+    )
+    assert b"Pilar 2 - Audit Header Keamanan OWASP" in decompressed
+    assert b"Halaman 1 dari 2" in decompressed
 
 
 def test_load_test_loopback_remote_guard_and_sla_enforcement(tmp_path: Path) -> None:

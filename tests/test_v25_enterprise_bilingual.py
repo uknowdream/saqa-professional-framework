@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import httpx
@@ -242,8 +241,10 @@ def test_junit_xml_sarif_and_indonesian_reports() -> None:
     ]
     stats = analyze_records(recs, manifest_sha256="f" * 64)
 
+    from saqa.ssrf import safe_parse_xml
+
     xml_str = render_junit_xml(stats, recs, suite_name="client-suite")
-    root = ET.fromstring(xml_str)
+    root = safe_parse_xml(xml_str)
     suite_el = root.find("testsuite")
     assert suite_el is not None
     assert suite_el.attrib["tests"] == "3"
@@ -490,6 +491,7 @@ def test_responsive_audit_cwv_and_browser_journey_handling(tmp_path: Path, monke
 def test_playwright_spa_responsive_and_interactive_journey_full_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
     from types import ModuleType
+
     from saqa.spa_audit import inspect_responsive_viewports, inspect_spa_runtime
 
     class FakePage:

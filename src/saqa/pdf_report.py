@@ -1,6 +1,15 @@
-"""Zero-dependency ISO 32000 PDF 1.4 Executive QA Report & Client UAT Sign-Off Certificate Generator (EN/ID)."""
+"""Zero-dependency ISO 32000 PDF 1.4 Executive QA Report & Client UAT Sign-Off Certificate Generator (EN/ID).
+
+Features:
+- FlateDecode (zlib) compressed content streams for compact enterprise PDFs
+- Multi-line word wrapping for long scenario names, findings, and recommendations
+- Automatic multi-page pagination with page numbers ('Page X of Y' / 'Halaman X dari Y')
+- Agile DoD & Waterfall Stage-Gate Go/No-Go governance badges + HMAC-SHA256 provenance
+"""
 from __future__ import annotations
 
+import textwrap
+import zlib
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -27,6 +36,17 @@ def _pdf_escape(text: str) -> str:
     )
     encoded = safe.encode("latin-1", errors="replace").decode("latin-1")
     return encoded.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _wrap_lines(text: str, width: int, max_lines: int = 3) -> list[str]:
+    wrapped = textwrap.wrap(str(text).strip(), width=width, break_long_words=True, break_on_hyphens=False)
+    if not wrapped:
+        return [""]
+    if len(wrapped) > max_lines:
+        trimmed = wrapped[:max_lines]
+        trimmed[-1] = trimmed[-1][: max(1, width - 3)] + "..."
+        return trimmed
+    return wrapped
 
 
 def _record_dict(item: EvidenceRecord | Mapping[str, Any]) -> dict[str, Any]:
@@ -82,8 +102,8 @@ class _PdfPageStream:
         return "\n".join(self.ops).encode("latin-1")
 
 
-def _assemble_pdf(page_streams: list[bytes]) -> bytes:
-    """Assemble valid PDF 1.4 binary bytes with catalog, pages tree, 3 standard Type1 fonts, and xref table."""
+def _assemble_pdf(page_streams: list[bytes], *, compress: bool = True) -> bytes:
+    """Assemble valid PDF 1.4 binary bytes with FlateDecode stream compression and xref table."""
     objects: list[bytes] = []
 
     def add_obj(body: bytes) -> int:
@@ -94,13 +114,17 @@ def _assemble_pdf(page_streams: list[bytes]) -> bytes:
     font_bold = add_obj(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>")
     font_mono = add_obj(b"<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>")
 
-    pages_tree_placeholder_idx = add_obj(b"")  # Reserved for /Pages
+    pages_tree_placeholder_idx = add_obj(b"")
     page_obj_ids: list[int] = []
 
     for stream in page_streams:
-        content_id = add_obj(
-            f"<< /Length {len(stream)} >>\nstream\n".encode("latin-1") + stream + b"\nendstream"
-        )
+        if compress:
+            payload = zlib.compress(stream, level=6)
+            header = f"<< /Length {len(payload)} /Filter /FlateDecode >>\nstream\n".encode("latin-1")
+        else:
+            payload = stream
+            header = f"<< /Length {len(payload)} >>\nstream\n".encode("latin-1")
+        content_id = add_obj(header + payload + b"\nendstream")
         page_dict = (
             f"<< /Type /Page /Parent {pages_tree_placeholder_idx} 0 R "
             f"/MediaBox [0 0 595 842] "
@@ -146,10 +170,14 @@ def render_pdf_report(
     manifest_sha256: str | None = None,
     hmac_sha256: str | None = None,
     title: str | None = None,
+    methodology: str = "agile",
+    governance: Mapping[str, Any] | None = None,
     lang: str = "en",
+    compress: bool = True,
 ) -> bytes:
-    """Render an executive multi-page A4 PDF QA report & UAT Sign-Off Certificate (EN/ID)."""
+    """Render a compressed, word-wrapped, paginated A4 PDF QA report & UAT Sign-Off Certificate (EN/ID)."""
     code = normalize_lang(lang)
+    meth = str(methodology or "agile").upper()
     norm_records = [_record_dict(r) for r in records]
     counts = analytics["status_counts"]
     lat = analytics["latency"]
@@ -161,9 +189,9 @@ def render_pdf_report(
         "LAPORAN EKSEKUTIF AUDIT QA & SERTIFIKAT UAT" if code == "id" else "EXECUTIVE QA AUDIT & UAT SIGN-OFF REPORT"
     )
     subtitle = (
-        f"SAQA Professional Framework v{__version__}  |  Tanggal: {now_wib}  |  Bahasa: Indonesia (ID)"
+        f"SAQA v{__version__} | Metodologi: {meth} | Tanggal: {now_wib} | Bahasa: ID"
         if code == "id"
-        else f"SAQA Professional Framework v{__version__}  |  Generated: {now_wib}  |  Language: English (EN)"
+        else f"SAQA v{__version__} | Methodology: {meth} | Generated: {now_wib} | Lang: EN"
     )
 
     c_navy = (0.06, 0.09, 0.16)
@@ -175,14 +203,14 @@ def render_pdf_report(
     c_amber = (0.85, 0.47, 0.02)
     badge_rgb = c_green if overall == "PASS" else (c_red if overall == "FAIL" else c_amber)
 
-    pages: list[bytes] = []
+    page_builders: list[_PdfPageStream] = []
     first = _PdfPageStream()
 
     # Top Navy Header Banner
     first.rect_fill(0, 760, 595, 82, c_navy)
     first.rect_fill(0, 756, 595, 4, badge_rgb)
-    first.text(36, 804, doc_title[:58], font="F2", size=14.5, rgb=(1.0, 1.0, 1.0))
-    first.text(36, 784, subtitle[:88], font="F1", size=8.5, rgb=(0.72, 0.78, 0.88))
+    first.text(36, 804, doc_title[:56], font="F2", size=14.0, rgb=(1.0, 1.0, 1.0))
+    first.text(36, 784, subtitle[:88], font="F1", size=8.3, rgb=(0.72, 0.78, 0.88))
     first.rect_fill(472, 782, 87, 28, badge_rgb)
     first.text(493, 792, overall[:8], font="F2", size=11.0, rgb=(1.0, 1.0, 1.0))
 
@@ -210,22 +238,24 @@ def render_pdf_report(
         first.text(kx + 8, 701, k_val[:18], font="F2", size=10.5, rgb=c_navy)
 
     # Provenance & Integrity Bar
-    first.rect_fill(36, 640, 523, 36, c_card)
-    first.rect_stroke(36, 640, 523, 36, c_border)
+    first.rect_fill(36, 634, 523, 42, c_card)
+    first.rect_stroke(36, 634, 523, 42, c_border)
     sha_lbl = "Sidik Jari Bukti SHA-256:" if code == "id" else "Evidence SHA-256 Digest:"
-    first.text(44, 661, f"{sha_lbl} {sha[:64]}", font="F3", size=7.3, rgb=c_navy)
-    sig_line = (
-        f"HMAC-SHA256 Signature: {hmac_sha256[:48]}..."
-        if hmac_sha256
-        else (
+    first.text(44, 661, f"{sha_lbl} {sha[:64]}", font="F3", size=7.2, rgb=c_navy)
+    if hmac_sha256:
+        first.text(44, 649, f"HMAC-SHA256 Signed Provenance: {hmac_sha256[:54]}", font="F3", size=7.0, rgb=c_green)
+    else:
+        dist_line = (
             f"Distribusi: PASS={counts['PASS']} | FAIL={counts['FAIL']} | BLOCKED={counts['BLOCKED']} | UNVERIFIED={counts['UNVERIFIED']}"
             if code == "id"
             else f"Distribution: PASS={counts['PASS']} | FAIL={counts['FAIL']} | BLOCKED={counts['BLOCKED']} | UNVERIFIED={counts['UNVERIFIED']}"
         )
-    )
-    first.text(44, 647, sig_line, font="F1", size=7.8, rgb=c_slate)
+        first.text(44, 649, dist_line, font="F1", size=7.6, rgb=c_slate)
+    if governance and governance.get("decision"):
+        dec_lbl = "Keputusan Rilis:" if code == "id" else "Release Gate Decision:"
+        dec_rgb = c_green if governance.get("approved") else c_red
+        first.text(44, 638, f"{dec_lbl} {governance['decision']}", font="F2", size=7.6, rgb=dec_rgb)
 
-    # Table Header helper
     def draw_table_header(stream: _PdfPageStream, y_top: float) -> float:
         sec_title = (
             "MATRIKS EKSEKUSI PENGUJIAN OTOMATIS"
@@ -237,60 +267,68 @@ def render_pdf_report(
         stream.rect_fill(36, hy, 523, 18, c_navy)
         stream.text(42, hy + 5, "#", font="F2", size=8.0, rgb=(1, 1, 1))
         stream.text(62, hy + 5, "ID UJI / SKENARIO" if code == "id" else "TEST ID / SCENARIO", font="F2", size=8.0, rgb=(1, 1, 1))
-        stream.text(330, hy + 5, "TARGET", font="F2", size=8.0, rgb=(1, 1, 1))
+        stream.text(332, hy + 5, "TARGET", font="F2", size=8.0, rgb=(1, 1, 1))
         stream.text(452, hy + 5, "LATENSI" if code == "id" else "LATENCY", font="F2", size=8.0, rgb=(1, 1, 1))
         stream.text(508, hy + 5, "STATUS", font="F2", size=8.0, rgb=(1, 1, 1))
-        return hy - 20
+        return hy - 14
 
     curr_stream = first
-    row_y = draw_table_header(curr_stream, 614)
+    row_y = draw_table_header(curr_stream, 608)
 
     for idx, rec in enumerate(norm_records, start=1):
-        if row_y < 145:
-            # Footer page number & open new page
-            pages.append(curr_stream.build())
+        det = rec["details"]
+        raw_case = str(det.get("case_name") or rec["test_id"])
+        loc_case = translate_case_name(raw_case, code)
+        case_lines = _wrap_lines(loc_case, width=48, max_lines=2)
+
+        failures = det.get("failure_reasons") or []
+        if failures:
+            sub_raw = translate_finding_or_reason(str(failures[0]), code)
+        else:
+            chk_cnt = len(det.get("checks_passed") or [])
+            sub_raw = f"{rec['test_id']} ({chk_cnt} {'cek lulus' if code == 'id' else 'checks ok'})"
+        sub_lines = _wrap_lines(sub_raw, width=54, max_lines=2)
+
+        row_height = max(24, (len(case_lines) * 9) + (len(sub_lines) * 8) + 8)
+        if row_y - row_height < 135:
+            page_builders.append(curr_stream)
             curr_stream = _PdfPageStream()
             curr_stream.rect_fill(0, 796, 595, 46, c_navy)
             curr_stream.text(36, 814, doc_title[:60], font="F2", size=11.0, rgb=(1, 1, 1))
             row_y = draw_table_header(curr_stream, 764)
 
-        det = rec["details"]
-        raw_case = str(det.get("case_name") or rec["test_id"])
-        loc_case = translate_case_name(raw_case, code)
         ms = det.get("elapsed_ms", det.get("duration_ms", "-"))
         ms_str = f"{ms:.1f} ms" if isinstance(ms, (int, float)) else "-"
         st = rec["status"]
         st_color = c_green if st == "PASS" else (c_red if st == "FAIL" else c_amber)
 
+        row_bottom = row_y - row_height
         if idx % 2 == 0:
-            curr_stream.rect_fill(36, row_y - 4, 523, 22, c_card)
-        curr_stream.line(36, row_y - 4, 559, row_y - 4, c_border, 0.5)
+            curr_stream.rect_fill(36, row_bottom, 523, row_height, c_card)
+        curr_stream.line(36, row_bottom, 559, row_bottom, c_border, 0.5)
 
-        curr_stream.text(42, row_y + 7, str(idx), font="F1", size=8.0, rgb=c_navy)
-        curr_stream.text(62, row_y + 9, loc_case[:48], font="F2", size=8.0, rgb=c_navy)
+        curr_stream.text(42, row_y - 10, str(idx), font="F1", size=8.0, rgb=c_navy)
+        text_cursor = row_y - 10
+        for cl in case_lines:
+            curr_stream.text(62, text_cursor, cl, font="F2", size=8.0, rgb=c_navy)
+            text_cursor -= 9.5
+        for sl in sub_lines:
+            curr_stream.text(62, text_cursor, sl, font="F1", size=7.0, rgb=c_slate)
+            text_cursor -= 8.0
 
-        failures = det.get("failure_reasons") or []
-        if failures:
-            sub_detail = translate_finding_or_reason(str(failures[0]), code)[:58]
-        else:
-            chk_cnt = len(det.get("checks_passed") or [])
-            sub_detail = f"{rec['test_id'][:34]} ({chk_cnt} {'cek lulus' if code == 'id' else 'checks ok'})"
-        curr_stream.text(62, row_y - 1, sub_detail, font="F1", size=7.0, rgb=c_slate)
+        curr_stream.text(332, row_y - 11, rec["target"][:24], font="F3", size=7.2, rgb=c_slate)
+        curr_stream.text(452, row_y - 11, ms_str, font="F3", size=7.5, rgb=c_navy)
+        curr_stream.text(508, row_y - 11, st[:10], font="F2", size=8.2, rgb=st_color)
+        row_y = row_bottom - 2
 
-        curr_stream.text(330, row_y + 5, rec["target"][:24], font="F3", size=7.2, rgb=c_slate)
-        curr_stream.text(452, row_y + 5, ms_str, font="F3", size=7.5, rgb=c_navy)
-        curr_stream.text(508, row_y + 5, st[:10], font="F2", size=8.2, rgb=st_color)
-        row_y -= 24
-
-    # Recommendations & Formal UAT Sign-Off Block at bottom of final page
-    if row_y < 185:
-        pages.append(curr_stream.build())
+    if row_y < 195:
+        page_builders.append(curr_stream)
         curr_stream = _PdfPageStream()
         curr_stream.rect_fill(0, 796, 595, 46, c_navy)
         curr_stream.text(36, 814, doc_title[:60], font="F2", size=11.0, rgb=(1, 1, 1))
         row_y = 760
 
-    rec_y = row_y - 10
+    rec_y = row_y - 12
     curr_stream.text(
         36,
         rec_y,
@@ -299,13 +337,14 @@ def render_pdf_report(
         size=9.5,
         rgb=c_navy,
     )
-    rec_y -= 14
+    rec_y -= 13
     for r_item in list(analytics.get("recommendations") or [])[:3]:
-        curr_stream.text(44, rec_y, "- " + translate_recommendation(str(r_item), code)[:86], font="F1", size=8.0, rgb=c_slate)
-        rec_y -= 12
+        for line in _wrap_lines(translate_recommendation(str(r_item), code), width=92, max_lines=2):
+            curr_stream.text(44, rec_y, "- " + line, font="F1", size=8.0, rgb=c_slate)
+            rec_y -= 10.5
 
     # Sign-off signature boxes
-    sign_y = 52
+    sign_y = 54
     curr_stream.rect_stroke(36, sign_y, 250, 68, c_border)
     curr_stream.rect_stroke(309, sign_y, 250, 68, c_border)
     curr_stream.text(
@@ -316,7 +355,7 @@ def render_pdf_report(
         size=8.0,
         rgb=c_navy,
     )
-    curr_stream.text(46, sign_y + 36, f"SAQA Engine v{__version__} (Fail-Closed Gate)", font="F1", size=8.0, rgb=c_slate)
+    curr_stream.text(46, sign_y + 36, f"SAQA Engine v{__version__} ({meth} Gate)", font="F1", size=8.0, rgb=c_slate)
     curr_stream.text(46, sign_y + 12, f"Status: {overall}  |  {now_wib}", font="F2", size=8.0, rgb=badge_rgb)
 
     curr_stream.text(
@@ -337,8 +376,22 @@ def render_pdf_report(
         rgb=c_slate,
     )
 
-    pages.append(curr_stream.build())
-    pdf_bytes = _assemble_pdf(pages)
+    page_builders.append(curr_stream)
+
+    # Stamp consistent page numbers on every page
+    total_pages = len(page_builders)
+    final_streams: list[bytes] = []
+    for p_num, builder in enumerate(page_builders, start=1):
+        footer_text = (
+            f"Halaman {p_num} dari {total_pages}  |  SAQA Professional Framework v{__version__}"
+            if code == "id"
+            else f"Page {p_num} of {total_pages}  |  SAQA Professional Framework v{__version__}"
+        )
+        builder.line(36, 36, 559, 36, c_border, 0.5)
+        builder.text(36, 23, footer_text, font="F1", size=7.5, rgb=c_slate)
+        final_streams.append(builder.build())
+
+    pdf_bytes = _assemble_pdf(final_streams, compress=compress)
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(pdf_bytes)

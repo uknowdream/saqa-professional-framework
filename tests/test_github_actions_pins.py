@@ -2,7 +2,6 @@ import pytest
 from scripts import validate_github_actions_pins as validator
 from scripts.validate_github_actions_pins import PINNED_REFERENCE, USES_START
 
-
 SHA = "11d5960a326750d5838078e36cf38b85af677262"
 DIGEST = "a" * 64
 

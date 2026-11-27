@@ -9,6 +9,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from saqa.ssrf import safe_parse_xml
+
 POLICY_SCHEMA = "saqa.test-quarantine-policy.v1"
 REPORT_SCHEMA = "saqa.test-quality-report.v1"
 STATUSES = {"failure", "error", "skipped"}
@@ -51,8 +53,8 @@ def summarize_junit(xml_path: Path, policy: Any, *, today: date | None = None,
     if isinstance(slow_test_limit, bool) or not isinstance(slow_test_limit, int) or slow_test_limit < 1:
         raise ValueError("slow_test_limit must be a positive integer")
     try:
-        root = ET.parse(xml_path).getroot()
-    except (OSError, ET.ParseError) as exc:
+        root = safe_parse_xml(xml_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, ET.ParseError) as exc:
         raise ValueError(f"cannot parse JUnit XML: {exc}") from exc
     suites = [root] if root.tag == "testsuite" else list(root.iter("testsuite"))
     if root.tag not in {"testsuite", "testsuites"} or not suites:

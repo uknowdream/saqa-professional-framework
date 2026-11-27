@@ -1,6 +1,7 @@
 import json
 
 from scripts.validate_native_mobile_evidence import main
+
 from saqa.native_mobile import SCHEMA
 
 

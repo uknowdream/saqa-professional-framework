@@ -40,7 +40,7 @@ jobs:
         run: python -m compileall -q src tests
       - name: Static lint and type checking (Ruff & Mypy)
         run: |
-          python -m ruff check src/saqa
+          python -m ruff check src scripts tests
           python -m mypy src/saqa
       - name: Tests with retry-aware per-attempt telemetry
         shell: bash

@@ -534,14 +534,27 @@ def _run_multipage_crawl(
     visited: set[str] = {urldefrag(start_url)[0].rstrip("/") or start_url}
     queue: deque[str] = deque()
 
-    # Seed from sitemap.xml <loc> entries first, then landing page & SPA-rendered internal links
-    for loc in _SITEMAP_LOC_RE.findall(sitemap_xml):
-        clean_u = urldefrag(loc.strip())[0]
-        up = urlparse(clean_u)
-        if up.scheme in {"http", "https"} and up.hostname and up.hostname.lower() == origin_host:
-            key = clean_u.rstrip("/") or clean_u
-            if key not in visited:
-                queue.append(clean_u)
+    # Expand nested <sitemapindex> child sitemaps (up to 5) before extracting <loc> entries
+    sitemap_sources = [sitemap_xml]
+    if "<sitemapindex" in sitemap_xml.lower():
+        child_maps = [u.strip() for u in _SITEMAP_LOC_RE.findall(sitemap_xml) if u.strip().endswith(".xml")][:5]
+        for child_u in child_maps:
+            cup = urlparse(child_u)
+            if cup.scheme in {"http", "https"} and cup.hostname and cup.hostname.lower() == origin_host:
+                c_resp = requester(child_u, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+                if c_resp.status_code == 200:
+                    sitemap_sources.append(c_resp.text)
+
+    for sm_text in sitemap_sources:
+        for loc in _SITEMAP_LOC_RE.findall(sm_text):
+            clean_u = urldefrag(loc.strip())[0]
+            if clean_u.lower().endswith(".xml"):
+                continue
+            up = urlparse(clean_u)
+            if up.scheme in {"http", "https"} and up.hostname and up.hostname.lower() == origin_host:
+                key = clean_u.rstrip("/") or clean_u
+                if key not in visited and clean_u not in queue:
+                    queue.append(clean_u)
 
     raw_hrefs = [lnk["href"] for lnk in initial_dom.links] + list(extra_seed_links or [])
     for href in raw_hrefs:
@@ -560,52 +573,66 @@ def _run_multipage_crawl(
     findings: list[dict[str, Any]] = []
     latencies: list[float] = []
 
-    while queue and len(crawled_pages) < max(1, max_pages - 1):
-        page_url = queue.popleft()
-        norm_key = page_url.rstrip("/") or page_url
-        if norm_key in visited:
-            continue
-        visited.add(norm_key)
-
-        safe_page_ref = f"{redact_url(page_url)}{urlparse(page_url).path}"
-        resp = requester(page_url, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
-        latencies.append(round(resp.elapsed_ms, 2))
-        ctype = (resp.header("content-type") or "").lower()
-        if resp.status_code == 0 or resp.status_code >= 400:
-            failures.append(f"Subpage {safe_page_ref} returned HTTP {resp.status_code}")
-            crawled_pages.append({"url": safe_page_ref, "status_code": resp.status_code, "a11y_status": "FAIL"})
-            continue
-
-        if "html" not in ctype and "<html" not in resp.text[:500].lower():
-            continue
-
-        sub_dom = _DomAuditParser()
-        sub_dom.feed(resp.text)
-        a11y_st, _, a11y_fail, _ = _audit_dom_accessibility(sub_dom)
-        if a11y_fail:
-            failures.append(f"Subpage {safe_page_ref} WCAG failure: {a11y_fail[0]}")
-        if not sub_dom.meta_by_name.get("description"):
-            findings.append({"severity": "LOW", "pillar": "Multi-Page SEO", "message": f"Subpage {safe_page_ref} missing meta description"})
-
-        crawled_pages.append({
-            "url": safe_page_ref,
-            "status_code": resp.status_code,
-            "elapsed_ms": round(resp.elapsed_ms, 2),
-            "a11y_status": a11y_st,
-            "title": "".join(sub_dom.title_parts).strip()[:80],
-        })
-
-        # Discover deeper links (BFS)
-        for lnk in sub_dom.links:
-            href = lnk["href"]
-            if not href or href.startswith(("data:", "javascript:", "mailto:", "tel:", "#")):
+    target_budget = max(1, max_pages - 1)
+    while queue and len(crawled_pages) < target_budget:
+        batch_urls: list[str] = []
+        while queue and len(batch_urls) < min(4, target_budget - len(crawled_pages)):
+            cand = queue.popleft()
+            norm_key = cand.rstrip("/") or cand
+            if norm_key in visited:
                 continue
-            next_u = urldefrag(urljoin(page_url, href))[0]
-            nup = urlparse(next_u)
-            if nup.scheme in {"http", "https"} and nup.hostname and nup.hostname.lower() == origin_host:
-                nkey = next_u.rstrip("/") or next_u
-                if nkey not in visited and next_u not in queue:
-                    queue.append(next_u)
+            visited.add(norm_key)
+            batch_urls.append(cand)
+        if not batch_urls:
+            break
+
+        def _fetch_subpage(u: str) -> tuple[str, ApiResponse]:
+            return u, requester(u, method="GET", headers=default_headers, timeout=timeout, follow_redirects=True, use_environment_proxies=False)
+
+        if len(batch_urls) == 1:
+            batch_results = [_fetch_subpage(batch_urls[0])]
+        else:
+            with ThreadPoolExecutor(max_workers=len(batch_urls)) as pool:
+                batch_results = list(pool.map(_fetch_subpage, batch_urls))
+
+        for page_url, resp in batch_results:
+            safe_page_ref = f"{redact_url(page_url)}{urlparse(page_url).path}"
+            latencies.append(round(resp.elapsed_ms, 2))
+            ctype = (resp.header("content-type") or "").lower()
+            if resp.status_code == 0 or resp.status_code >= 400:
+                failures.append(f"Subpage {safe_page_ref} returned HTTP {resp.status_code}")
+                crawled_pages.append({"url": safe_page_ref, "status_code": resp.status_code, "a11y_status": "FAIL"})
+                continue
+
+            if "html" not in ctype and "<html" not in resp.text[:500].lower():
+                continue
+
+            sub_dom = _DomAuditParser()
+            sub_dom.feed(resp.text)
+            a11y_st, _, a11y_fail, _ = _audit_dom_accessibility(sub_dom)
+            if a11y_fail:
+                failures.append(f"Subpage {safe_page_ref} WCAG failure: {a11y_fail[0]}")
+            if not sub_dom.meta_by_name.get("description"):
+                findings.append({"severity": "LOW", "pillar": "Multi-Page SEO", "message": f"Subpage {safe_page_ref} missing meta description"})
+
+            crawled_pages.append({
+                "url": safe_page_ref,
+                "status_code": resp.status_code,
+                "elapsed_ms": round(resp.elapsed_ms, 2),
+                "a11y_status": a11y_st,
+                "title": "".join(sub_dom.title_parts).strip()[:80],
+            })
+
+            for lnk in sub_dom.links:
+                href = lnk["href"]
+                if not href or href.startswith(("data:", "javascript:", "mailto:", "tel:", "#")):
+                    continue
+                next_u = urldefrag(urljoin(page_url, href))[0]
+                nup = urlparse(next_u)
+                if nup.scheme in {"http", "https"} and nup.hostname and nup.hostname.lower() == origin_host:
+                    nkey = next_u.rstrip("/") or next_u
+                    if nkey not in visited and next_u not in queue:
+                        queue.append(next_u)
 
     checks = [f"subpages_audited:{len(crawled_pages)}", f"total_pages_covered:{1 + len(crawled_pages)}"]
     if not failures:
@@ -642,6 +669,7 @@ def run_deep_web_audit(
     include_modern_security: bool = False,
     include_responsive_audit: bool = False,
     crawl_max_pages: int = 1,
+    crawl_spa: bool = False,
     extra_headers: Mapping[str, str] | None = None,
     cookies: str | Mapping[str, str] | None = None,
     lang: str = "en",
@@ -668,6 +696,7 @@ def run_deep_web_audit(
             include_modern_security=include_modern_security,
             include_responsive_audit=include_responsive_audit,
             crawl_max_pages=crawl_max_pages,
+            crawl_spa=crawl_spa,
             extra_headers=extra_headers,
             cookies=cookies,
             lang=lang,
@@ -688,6 +717,7 @@ def _run_deep_web_audit_impl(
     include_modern_security: bool,
     include_responsive_audit: bool,
     crawl_max_pages: int,
+    crawl_spa: bool,
     extra_headers: Mapping[str, str] | None,
     cookies: str | Mapping[str, str] | None,
     lang: str,
@@ -1148,6 +1178,33 @@ def _run_deep_web_audit_impl(
             default_headers=default_headers,
             timeout=timeout,
         )
+        if crawl_spa:
+            from .spa_audit import inspect_spa_subpages
+
+            sub_urls = [
+                urljoin(base_url, urlparse(str(p.get("url", ""))).path or "/")
+                for p in (crawl_rec.details.get("pages") or [])
+                if p.get("url")
+            ]
+            if sub_urls:
+                spa_subs = inspect_spa_subpages(sub_urls, timeout_s=int(max(15, timeout)), extra_headers=extra_headers)
+                if spa_subs:
+                    spa_sub_errors = [
+                        f"{redact_url(s['url'])}: {'; '.join(s['page_errors'] or s['console_errors'])}"
+                        for s in spa_subs
+                        if s.get("page_errors") or s.get("console_errors")
+                    ]
+                    crawl_rec.details["spa_subpages_rendered"] = len(spa_subs)
+                    crawl_rec.details["checks_passed"].append(f"spa_subpages_rendered:{len(spa_subs)}")
+                    if spa_sub_errors:
+                        crawl_rec.details["failure_reasons"].extend(spa_sub_errors)
+                        crawl_rec = EvidenceRecord(
+                            test_id=crawl_rec.test_id,
+                            status="FAIL",
+                            observed_at=crawl_rec.observed_at,
+                            target=crawl_rec.target,
+                            details=crawl_rec.details,
+                        )
         records.append(crawl_rec)
         findings.extend(crawl_findings)
 
@@ -1161,10 +1218,15 @@ def _run_deep_web_audit_impl(
     manifest_sha: str | None = None
     summary_path: Path | None = None
 
+    hmac_sig: str | None = None
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = output_dir / "evidence-manifest.json"
         manifest_sha = write_manifest(records, manifest_path)
+        try:
+            hmac_sig = json.loads(manifest_path.read_text(encoding="utf-8")).get("hmac_sha256")
+        except Exception:  # noqa: S110
+            hmac_sig = None
 
     analytics = analyze_records(records, manifest_sha256=manifest_sha)
 
@@ -1199,6 +1261,7 @@ def _run_deep_web_audit_impl(
             records,
             output_dir / "qa-executive-report.pdf",
             manifest_sha256=manifest_sha,
+            hmac_sha256=hmac_sig,
             title=report_title,
             lang=code,
         )

@@ -72,7 +72,11 @@ def write_manifest(
     canonical_bytes = canonical_json(payload)
     digest = hashlib.sha256(canonical_bytes).hexdigest()
     manifest_doc: dict[str, Any] = {"records": payload, "sha256": digest}
-    active_key = signing_key if signing_key is not None else os.getenv("SAQA_EVIDENCE_SIGNING_KEY", "")
+    active_key = (
+        signing_key
+        if signing_key is not None
+        else (os.getenv("SAQA_EVIDENCE_SIGNING_KEY") or os.getenv("SAQA_MANIFEST_SIGNING_KEY") or "")
+    )
     if active_key:
         manifest_doc["hmac_sha256"] = compute_hmac_sha256(canonical_bytes, active_key)
     output.write_text(json.dumps(manifest_doc, indent=2, allow_nan=False), encoding="utf-8")
@@ -117,7 +121,11 @@ def verify_manifest(path: Path, *, signing_key: str | None = None, require_signa
     if actual != expected:
         return False
 
-    active_key = signing_key if signing_key is not None else os.getenv("SAQA_EVIDENCE_SIGNING_KEY", "")
+    active_key = (
+        signing_key
+        if signing_key is not None
+        else (os.getenv("SAQA_EVIDENCE_SIGNING_KEY") or os.getenv("SAQA_MANIFEST_SIGNING_KEY") or "")
+    )
     recorded_hmac = data.get("hmac_sha256")
     if require_signature and (not active_key or not isinstance(recorded_hmac, str)):
         return False

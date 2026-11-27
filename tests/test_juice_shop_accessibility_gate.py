@@ -1,5 +1,5 @@
-from pathlib import Path
 import importlib.util
+from pathlib import Path
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "juice_shop_accessibility_gate.py"
 spec = importlib.util.spec_from_file_location("juice_shop_accessibility_gate", SCRIPT)

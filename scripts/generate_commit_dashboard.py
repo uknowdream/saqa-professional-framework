@@ -1,7 +1,10 @@
 """Generate a static commit certification dashboard payload from release evidence."""
 from __future__ import annotations
-import json, os
+
+import json
+import os
 from pathlib import Path
+
 
 def main() -> int:
     report=Path(os.getenv("SAQA_RELEASE_REPORT","artifacts/release-certification.json"))

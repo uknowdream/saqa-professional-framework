@@ -1,9 +1,8 @@
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import pytest
-
 from scripts.test_stability_history import SCHEMA, build_history, parse_junit
 
 

@@ -435,15 +435,23 @@ saqa audit-openapi contracts/juice-shop.openapi.json --base-url http://127.0.0.1
 saqa verify-manifest artifacts/deep-audit-id/evidence-manifest.json
 saqa diff baseline-manifest.json artifacts/deep-audit-id/evidence-manifest.json --fail-on-regression
 saqa generate-data pairwise --seed 42
+
+# v2.7.0 Dual-Methodology SDLC (Agile Scrum/DoD vs Waterfall V-Model Stage-Gate & RTM):
+# Waterfall mode (sequential non-overlapping Stage 1 -> Stage 2 -> Stage 3 Epics, RTM CSV, BAST Go/No-Go Sign-Off & Compressed PDF):
+saqa deep-audit https://www.dreamex.tech/ --spa --modern-security --responsive --crawl-pages 5 --crawl-spa --screenshot --lang id --methodology waterfall --sprint-start 2026-11-10 --sprint-end 2026-12-01 --sync-jira
+
+# Agile mode (Scrum Active Sprint sync, DoD checklist, dynamic Story Points & Defect SLA P0-P3):
+saqa sync-jira artifacts/deep-audit/evidence-manifest.json --lang en --methodology agile
 ```
 
-Key v2.5 modules under `src/saqa/`:
+Key v2.7 modules under `src/saqa/`:
 
-- **`saqa.i18n` & `saqa.jira_sync`** — Bilingual (`id` Bahasa Indonesia & `en` English) Jira Cloud control-plane sync with Timeline Epics, custom Sprint windows, Active Agile Scrum Sprint auto-assignment (`/rest/agile/1.0`), Two-Way Governance Waivers (`accepted-risk`/`wontfix`/`saqa-waived`), Rich ADF tables, and deduplicated parallel attachment uploads.
-- **`saqa.web_audit` & `saqa.spa_audit`** — 9-Pillar Web/API/App-Link auditor (TLS, OWASP headers, WCAG 2.2 DOM, SEO/JSON-LD, parallel broken-link crawler, dotfile exposure, keep-alive performance, live SPA DOM + Core Web Vitals `FCP`/`LCP`/`CLS`, CORS/SRI/`security.txt`/Android+iOS Universal Links/GraphQL introspection), Multi-Viewport Responsive Matrix, Sitemap+BFS Multi-Page Crawler, and Declarative Browser UI Journeys.
-- **`saqa.visual_diff` & `saqa.visual_evidence`** — Pure-Python PNG visual regression engine with bounding-box region masking (`--mask x,y,w,h`), subpixel anti-aliasing tolerance, CSS animation-frozen screenshots, PNG scorecards, SVG charts, and CSV matrices.
-- **`saqa.reporting`** — Localized (`id`/`en`) offline HTML5 dashboard, Markdown summary, **JUnit XML**, and **SARIF v2.1.0** exporters.
-- **`saqa.runner` & `saqa.test_design`** — Chained variable-extraction & parallel HTTP suite runner plus ISTQB BVA, Equivalence Partitioning, 100%-coverage Pairwise IPO, Decision Tables, and State Transition generators.
+- **`saqa.methodology` & `saqa.jira_sync`** — Dual-methodology **Agile (Scrum/Kanban DoD, Story Points, P0–P3 SLA)** & **Waterfall (Sequential V-Model Stage 1–3 Exit Gates, Formal RTM `rtm-matrix.csv`, Release Sign-Off Certificate `release-signoff.md`)** engine with single-scan Jira Cloud sync, zero-duplicate cross-methodology/cross-language (`en`/`id`) Epics, Two-Way Waivers, and `429 Retry-After` attachment retry.
+- **`saqa.ssrf` & `saqa.http_pool`** — Hop-by-hop Anti-SSRF redirect validation (blocks public-to-private/loopback/`169.254.169.254` redirects, strips `Authorization`/`Cookie` cross-origin), webhook IP guards + Telegram token redaction, and safe XML parsing blocking `<!DOCTYPE`/`<!ENTITY` XXE attacks.
+- **`saqa.mobile_audit`** — Native Android (`.apk`/`.aab`) & iOS (`.ipa`/`.app.zip`) package auditor featuring a true struct-level **Android Binary XML (`AXML`, UTF-8 + UTF-16LE)** parser detecting binary `debuggable`, `usesCleartextTraffic`, `allowBackup`, unprotected `android:exported="true"` components, code signing, hardcoded secrets, 64-bit ABI, and optional Maestro E2E flows.
+- **`saqa.web_audit` & `saqa.spa_audit`** — 9-Pillar Web/API/App-Link auditor (TLS, OWASP headers, WCAG 2.2 DOM + computed **WCAG 2.2 AA Color Contrast**, SEO/JSON-LD, parallel broken-link crawler, dotfile exposure, keep-alive performance, live SPA DOM + init-script `PerformanceObserver` Core Web Vitals `FCP`/`LCP`/`CLS`, CORS/SRI/`security.txt`/Android+iOS Universal Links/GraphQL introspection), Multi-Viewport Responsive Matrix, nested `<sitemapindex>` + SPA-rendered Multi-Page Crawler, and Declarative Browser UI Journeys.
+- **`saqa.pdf_report`, `saqa.visual_diff` & `saqa.visual_evidence`** — Pure-Python ISO 32000 **FlateDecode-compressed** multi-page PDF executive UAT report (word-wrapping, page numbers, Agile/Waterfall Go/No-Go banner, HMAC-SHA256 provenance), PNG visual regression comparator with region masking & anti-aliasing tolerance, animation-frozen screenshots, PNG scorecards, SVG charts, and CSV matrices.
+- **`saqa.load_test`, `saqa.reporting`, `saqa.runner` & `saqa.test_design`** — Bounded concurrent HTTP load/SLA tester, localized (`id`/`en`) HTML5/Markdown/JUnit XML/SARIF v2.1.0 exporters, chained/parallel HTTP runner, HMAC-SHA256 evidence manifests, and ISTQB BVA/EP/Pairwise/Decision-Table/State-Transition generators.
 
 ## 🛡️ Safe Adversarial Testing
 

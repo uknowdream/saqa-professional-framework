@@ -1,8 +1,6 @@
 import json
-from pathlib import Path
 
 import pytest
-
 from scripts.summarize_trivy_report import SCHEMA, summarize_file, summarize_report
 
 

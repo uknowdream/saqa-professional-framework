@@ -1,5 +1,8 @@
-import hashlib, plistlib, zipfile
+import hashlib
+import plistlib
+import zipfile
 from pathlib import Path
+
 import pytest
 from scripts.run_native_ios_smoke import extract_app_bundle, run_smoke
 
@@ -139,7 +142,7 @@ def test_extraction_restores_executable_mode_and_ignores_nested_companion_apps(t
     nested.mkdir(parents=True)
     executable = app / "MainExecutable"
     executable.write_text("binary-placeholder", encoding="utf-8")
-    os.chmod(executable, 0o755)
+    os.chmod(executable, 0o700)
     (app / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.example.app"}))
     (nested / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.example.watch"}))
     archive = tmp_path / "nested-apps.zip"
@@ -158,8 +161,6 @@ def test_extraction_restores_executable_mode_and_ignores_nested_companion_apps(t
 
 def test_missing_xcrun_writes_blocked_native_evidence(tmp_path, monkeypatch):
     import hashlib
-    import json
-    import subprocess
     archive = make_archive(tmp_path)
     def missing_tool(*args, **kwargs):
         raise FileNotFoundError("xcrun is unavailable")

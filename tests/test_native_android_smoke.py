@@ -1,10 +1,8 @@
 import hashlib
 import json
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from scripts import run_native_android_smoke as runner
 
 

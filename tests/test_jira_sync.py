@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import pytest
-
 from scripts.sync_jira_ci import (
     ISSUE_SUMMARIES,
     MONITORED_WORKFLOWS,
     RunSummary,
-    ensure_managed_issues,
     aggregate_performance_result,
-    contract_evidence_result,
     certification_overall,
+    contract_evidence_result,
+    ensure_managed_issues,
     job_result,
     run_label,
     transition_targets,
 )
+
 from saqa.jira import JiraIssueResult, JiraIssueState
 
 
@@ -223,8 +223,8 @@ def test_qa5_security_job_pattern_matches_sbom_job_name() -> None:
 
 
 def test_sync_jira_handles_service_unavailable_with_structured_blocked_diagnostic(tmp_path, monkeypatch, capsys) -> None:
-    import json
     import scripts.sync_jira_ci as sync_mod
+
     from saqa.jira import JiraServiceUnavailableError
 
     summary_file = tmp_path / "step-summary.md"

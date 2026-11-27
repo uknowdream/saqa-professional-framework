@@ -3,7 +3,6 @@ import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
-
 from scripts.audit_artifact_retention import MANDATORY, audit_artifacts, main
 
 NOW = datetime(2026, 10, 21, 15, 0, tzinfo=timezone.utc)

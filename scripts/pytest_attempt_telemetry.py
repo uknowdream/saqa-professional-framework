@@ -91,4 +91,4 @@ def pytest_configure(config: pytest.Config) -> None:
     if not hasattr(config, "_saqa_attempt_telemetry_registered"):
         plugin = AttemptTelemetryPlugin(config)
         config.pluginmanager.register(plugin, "saqa-attempt-telemetry")
-        setattr(config, "_saqa_attempt_telemetry_registered", True)
+        config._saqa_attempt_telemetry_registered = True

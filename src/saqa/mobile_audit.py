@@ -10,6 +10,7 @@ import json
 import plistlib
 import re
 import shutil
+import struct
 import subprocess
 import time
 import zipfile
@@ -22,6 +23,7 @@ from .evidence import EvidenceRecord, sha256_file, utc_now, write_manifest
 from .i18n import normalize_lang
 from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
+from .ssrf import safe_parse_xml
 from .visual_evidence import export_csv_matrix, render_analytics_svg, render_scorecard_png
 
 MAX_ARCHIVE_UNCOMPRESSED_BYTES = 600 * 1024 * 1024  # 600 MB zip-bomb safety ceiling
@@ -73,10 +75,178 @@ class MobileAuditResult:
 
 
 def _extract_printable_strings(raw: bytes) -> str:
-    """Extract both ASCII/UTF-8 and UTF-16LE strings (used by Android Binary XML AXML string pools)."""
+    """Extract both ASCII/UTF-8 and UTF-16LE strings from binaries/DEX/bundles."""
     ascii_hits = [m.group(0).decode("latin-1") for m in _ASCII_STR_RE.finditer(raw)]
     utf16_hits = [m.group(0).decode("utf-16le", errors="ignore") for m in _UTF16LE_STR_RE.finditer(raw)]
     return "\n".join(ascii_hits + utf16_hits)
+
+
+def _decode_axml_string_pool(raw: bytes, chunk_start: int, chunk_size: int) -> list[str]:
+    """Decode an Android RES_STRING_POOL_TYPE (0x0001) chunk supporting both UTF-8 and UTF-16LE."""
+    if chunk_size < 28 or chunk_start + chunk_size > len(raw):
+        return []
+    str_count, _, flags, strings_start, _ = struct.unpack_from("<IIIII", raw, chunk_start + 8)
+    is_utf8 = bool(flags & 0x00000100)
+    offsets_base = chunk_start + 28
+    pool_data_base = chunk_start + strings_start
+    strings: list[str] = []
+    for i in range(min(str_count, 50000)):
+        if offsets_base + (i + 1) * 4 > chunk_start + chunk_size:
+            break
+        rel_off = struct.unpack_from("<I", raw, offsets_base + i * 4)[0]
+        pos = pool_data_base + rel_off
+        if pos >= chunk_start + chunk_size:
+            strings.append("")
+            continue
+        if is_utf8:
+            # Skip UTF-16 length (1 or 2 bytes) then read UTF-8 byte length (1 or 2 bytes)
+            b0 = raw[pos]
+            pos += 2 if (b0 & 0x80) else 1
+            if pos >= chunk_start + chunk_size:
+                strings.append("")
+                continue
+            l0 = raw[pos]
+            if l0 & 0x80:
+                byte_len = ((l0 & 0x7F) << 8) | raw[pos + 1]
+                pos += 2
+            else:
+                byte_len = l0
+                pos += 1
+            strings.append(raw[pos : pos + byte_len].decode("utf-8", errors="replace"))
+        else:
+            if pos + 2 > chunk_start + chunk_size:
+                strings.append("")
+                continue
+            char_len = struct.unpack_from("<H", raw, pos)[0]
+            pos += 2
+            if char_len & 0x8000:
+                char_len = ((char_len & 0x7FFF) << 16) | struct.unpack_from("<H", raw, pos)[0]
+                pos += 2
+            strings.append(raw[pos : pos + char_len * 2].decode("utf-16le", errors="replace"))
+    return strings
+
+
+def parse_android_axml_manifest(raw: bytes) -> dict[str, Any]:
+    """Parse AndroidManifest.xml whether compiled binary AXML (0x00080003) or plaintext XML.
+
+    Accurately extracts package_name, binary boolean flags (debuggable, usesCleartextTraffic,
+    allowBackup), declared permissions, and unprotected exported components.
+    """
+    result: dict[str, Any] = {
+        "format": "unknown",
+        "package_name": None,
+        "debuggable": False,
+        "uses_cleartext_traffic": False,
+        "allow_backup": False,
+        "permissions": [],
+        "unprotected_exported_components": [],
+    }
+    if len(raw) >= 8 and struct.unpack_from("<HH", raw, 0) == (0x0003, 0x0008):
+        # True Android Binary XML (AXML) struct-level chunk walker
+        result["format"] = "axml-binary"
+        strings: list[str] = []
+        pos = 8
+        end = len(raw)
+        while pos + 8 <= end:
+            chunk_type, hdr_size, chunk_size = struct.unpack_from("<HHI", raw, pos)
+            if chunk_size < 8 or pos + chunk_size > end:
+                break
+            if chunk_type == 0x0001:  # RES_STRING_POOL_TYPE
+                strings = _decode_axml_string_pool(raw, pos, chunk_size)
+            elif chunk_type == 0x0102 and chunk_size >= 36:  # RES_XML_START_ELEMENT_TYPE
+                name_idx = struct.unpack_from("<i", raw, pos + 20)[0]
+                attr_start, attr_size, attr_count = struct.unpack_from("<HHH", raw, pos + 24)
+                tag_name = strings[name_idx] if 0 <= name_idx < len(strings) else ""
+                attrs_map: dict[str, Any] = {}
+                attr_pos = pos + hdr_size + max(0, attr_start - 20)
+                if attr_pos < pos + 36:
+                    attr_pos = pos + 36
+                step = max(20, attr_size)
+                for _ in range(min(attr_count, 100)):
+                    if attr_pos + 20 > pos + chunk_size:
+                        break
+                    _, a_name_idx, a_raw_idx = struct.unpack_from("<iii", raw, attr_pos)
+                    data_type = raw[attr_pos + 15]
+                    data_val = struct.unpack_from("<I", raw, attr_pos + 16)[0]
+                    a_name = strings[a_name_idx] if 0 <= a_name_idx < len(strings) else ""
+                    if data_type == 0x03 and 0 <= data_val < len(strings):  # TYPE_STRING
+                        val: Any = strings[data_val]
+                    elif data_type == 0x12:  # TYPE_INT_BOOLEAN (0xFFFFFFFF == True, 0 == False)
+                        val = data_val != 0
+                    elif data_type in {0x10, 0x11}:  # TYPE_INT_DEC / HEX
+                        val = int(data_val)
+                    elif 0 <= a_raw_idx < len(strings):
+                        val = strings[a_raw_idx]
+                    else:
+                        val = data_val
+                    if a_name:
+                        attrs_map[a_name] = val
+                    attr_pos += step
+
+                if tag_name == "manifest" and isinstance(attrs_map.get("package"), str):
+                    result["package_name"] = attrs_map["package"]
+                elif tag_name == "application":
+                    if attrs_map.get("debuggable") is True or str(attrs_map.get("debuggable", "")).lower() == "true":
+                        result["debuggable"] = True
+                    if attrs_map.get("usesCleartextTraffic") is True or str(attrs_map.get("usesCleartextTraffic", "")).lower() == "true":
+                        result["uses_cleartext_traffic"] = True
+                    if attrs_map.get("allowBackup") is True or str(attrs_map.get("allowBackup", "")).lower() == "true":
+                        result["allow_backup"] = True
+                elif tag_name == "uses-permission":
+                    perm_name = attrs_map.get("name")
+                    if isinstance(perm_name, str) and perm_name:
+                        result["permissions"].append(perm_name)
+                elif tag_name in {"activity", "service", "receiver", "provider"}:
+                    if attrs_map.get("exported") is True and not attrs_map.get("permission"):
+                        comp_name = str(attrs_map.get("name") or tag_name)
+                        if "MainActivity" not in comp_name and "Launcher" not in comp_name:
+                            result["unprotected_exported_components"].append(f"{tag_name}:{comp_name}")
+            pos += chunk_size
+        return result
+
+    # Plaintext XML fallback (safe XXE-protected ElementTree parser)
+    try:
+        text_xml = raw.decode("utf-8", errors="replace").strip()
+        # Normalize unbound 'android:' prefix in minimal fixture XML so ElementTree parses cleanly
+        if "android:" in text_xml and "xmlns:android=" not in text_xml:
+            text_xml = text_xml.replace("<manifest", '<manifest xmlns:android="http://schemas.android.com/apk/res/android"', 1)
+        root = safe_parse_xml(text_xml)
+        result["format"] = "xml-plaintext"
+        pkg = root.attrib.get("package")
+        if pkg:
+            result["package_name"] = pkg
+
+        def _local_attrs(el) -> dict[str, str]:
+            return {k.split("}", 1)[-1]: v for k, v in el.attrib.items()}
+
+        for elem in root.iter():
+            tag = elem.tag.split("}", 1)[-1]
+            la = _local_attrs(elem)
+            if tag == "application":
+                if la.get("debuggable", "").lower() == "true":
+                    result["debuggable"] = True
+                if la.get("usesCleartextTraffic", "").lower() == "true":
+                    result["uses_cleartext_traffic"] = True
+                if la.get("allowBackup", "").lower() == "true":
+                    result["allow_backup"] = True
+            elif tag == "uses-permission" and la.get("name"):
+                result["permissions"].append(la["name"])
+            elif tag in {"activity", "service", "receiver", "provider"}:
+                if la.get("exported", "").lower() == "true" and not la.get("permission"):
+                    comp = la.get("name") or tag
+                    if "MainActivity" not in comp and "Launcher" not in comp:
+                        result["unprotected_exported_components"].append(f"{tag}:{comp}")
+        return result
+    except Exception:
+        # Final fallback: printable string heuristic (never crashes on partial/corrupted binaries)
+        result["format"] = "strings-fallback"
+        mf_str = _extract_printable_strings(raw)
+        low_mf = mf_str.lower()
+        result["debuggable"] = 'android:debuggable="true"' in low_mf or "debuggable=true" in low_mf
+        result["uses_cleartext_traffic"] = 'usescleartexttraffic="true"' in low_mf
+        result["allow_backup"] = 'allowbackup="true"' in low_mf
+        result["permissions"] = [p for p in _DANGEROUS_ANDROID_PERMS if p in mf_str]
+        return result
 
 
 def _detect_platform(app_path: Path, names: list[str]) -> str:
@@ -215,34 +385,38 @@ def audit_mobile_package(
                 (n for n in names if n == "AndroidManifest.xml" or n.endswith("/manifest/AndroidManifest.xml")),
                 None,
             )
-            manifest_text = ""
             if manifest_entry is None:
                 m2_failures.append("Missing AndroidManifest.xml inside Android package")
             else:
                 raw_mf = zf.read(manifest_entry)[:MAX_SINGLE_SCAN_BYTES]
-                manifest_text = _extract_printable_strings(raw_mf)
-                m2_checks.append("android_manifest_parsed")
+                parsed_mf = parse_android_axml_manifest(raw_mf)
+                m2_checks.append(f"android_manifest_parsed:{parsed_mf['format']}")
+                if parsed_mf.get("package_name"):
+                    metadata["package_name"] = parsed_mf["package_name"]
+                    m2_checks.append(f"package:{parsed_mf['package_name']}")
 
-                pkg_match = re.search(r"\b([a-zA-Z][a-zA-Z0-9_]*(?:\.[a-zA-Z][a-zA-Z0-9_]*){2,})\b", manifest_text)
-                if pkg_match:
-                    metadata["package_name"] = pkg_match.group(1)
-                    m2_checks.append(f"package:{pkg_match.group(1)}")
-
-                low_mf = manifest_text.lower()
-                if 'android:debuggable="true"' in low_mf or "debuggable=true" in low_mf:
+                if parsed_mf["debuggable"]:
                     m2_failures.append("CRITICAL: android:debuggable=true enabled in AndroidManifest.xml")
                 else:
                     m2_checks.append("debuggable_disabled")
 
-                if 'usescleartexttraffic="true"' in low_mf or "cleartexttrafficpermitted=\"true\"" in low_mf:
+                if parsed_mf["uses_cleartext_traffic"]:
                     m2_failures.append("Insecure Cleartext HTTP traffic explicitly enabled (usesCleartextTraffic=true)")
                 else:
                     m2_checks.append("cleartext_traffic_restricted")
 
-                if 'allowbackup="true"' in low_mf:
+                if parsed_mf["allow_backup"]:
                     m2_warnings.append("android:allowBackup=true allows ADB backup extraction unless restricted")
 
-                detected_perms = [p for p in _DANGEROUS_ANDROID_PERMS if p in manifest_text]
+                unprotected_comps = parsed_mf.get("unprotected_exported_components") or []
+                if unprotected_comps:
+                    m2_warnings.append(
+                        f"{len(unprotected_comps)} exported Android component(s) without permission guard: "
+                        + ", ".join(unprotected_comps[:4])
+                    )
+
+                declared_perms = set(parsed_mf.get("permissions") or [])
+                detected_perms = [p for p in _DANGEROUS_ANDROID_PERMS if p in declared_perms]
                 metadata["dangerous_permissions"] = detected_perms
                 if detected_perms:
                     m3_warnings.append(

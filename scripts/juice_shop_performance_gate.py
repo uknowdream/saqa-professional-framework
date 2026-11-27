@@ -2,10 +2,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import statistics
 import time
-import math
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 
 from saqa.url_safety import redact_url
+
 _redact_url = redact_url
 
 BASE_URL = os.getenv("SAQA_API_BASE_URL", "http://127.0.0.1:3000").rstrip("/")

@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from scripts.k6_gate import evaluate_summary, repo_path, validate_script_thresholds
 
 ROOT = Path(__file__).resolve().parents[1]

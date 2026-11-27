@@ -3,8 +3,7 @@ import json
 from pathlib import Path
 
 from jsonschema import Draft4Validator
-
-from scripts.contract_gate import CONTRACT, _schema
+from scripts.contract_gate import _schema
 
 CONTRACT = Path("contracts/juice-shop.openapi.json")
 

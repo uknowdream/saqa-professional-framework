@@ -3,7 +3,6 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-
 from scripts.audit_branch_protection import audit
 
 ROOT = Path(__file__).resolve().parents[1]

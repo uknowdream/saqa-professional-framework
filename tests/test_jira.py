@@ -32,7 +32,7 @@ def test_jira_config_normalizes_base_url_without_exposing_token(monkeypatch: pyt
     config = JiraConfig.from_env()
     assert config.base_url == "https://jira.example"
     assert config.project_key == "QA"
-    assert config.api_token == "runtime-only-token"
+    assert config.api_token == "runtime-only-token"  # noqa: S105
 
 
 def test_jira_create_task_uses_safe_payload_and_returns_issue() -> None:

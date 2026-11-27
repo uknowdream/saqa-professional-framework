@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 COMPOSE = Path(__file__).parents[1] / "docker-compose.qa-targets.yml"
 
 

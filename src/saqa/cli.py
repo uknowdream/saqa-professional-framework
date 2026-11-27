@@ -22,6 +22,7 @@ from .evidence import verify_manifest
 from .history import append_history
 from .i18n import normalize_lang
 from .load_test import run_load_test
+from .methodology import normalize_methodology
 from .mobile_audit import audit_mobile_package
 from .notifications import dispatch_notifications
 from .openapi_audit import audit_openapi_spec, generate_suite_from_openapi, load_openapi_spec
@@ -97,6 +98,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--history", type=Path, default=None, help="Optional hash-chained history JSONL file.")
     run_parser.add_argument("--commit-sha", default=None, help="Commit SHA recorded when appending to --history.")
     run_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' (English) or 'id' (Bahasa Indonesia).")
+    run_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' (Scrum/DoD) or 'waterfall' (V-Model Stage-Gate & RTM).")
     run_parser.add_argument(
         "--sync-jira",
         action="store_true",
@@ -128,6 +130,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sync_jira_parser.add_argument("manifest", type=Path, help="Path to verified evidence manifest JSON.")
     sync_jira_parser.add_argument("--suite-name", default=None, help="Optional suite name override.")
     sync_jira_parser.add_argument("--lang", default=None, help="Jira & report language: 'en' (English) or 'id' (Bahasa Indonesia).")
+    sync_jira_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' or 'waterfall'.")
     sync_jira_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
     sync_jira_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
     sync_jira_parser.add_argument("--no-waivers", action="store_true", help="Ignore two-way Jira governance waiver labels.")
@@ -172,9 +175,12 @@ def _build_parser() -> argparse.ArgumentParser:
     deep_parser.add_argument("--modern-security", action="store_true", help="Enable Pillar 9 CORS, SRI, RFC 9116 security.txt, Mobile App-Links & GraphQL audit.")
     deep_parser.add_argument("--responsive", action="store_true", help="Enable Desktop/Tablet/Mobile multi-viewport layout overflow & tap-target audit.")
     deep_parser.add_argument("--crawl-pages", type=int, default=1, help="Crawl and audit up to N internal pages via Sitemap + BFS (>1 enables multi-page crawler).")
+    deep_parser.add_argument("--crawl-spa", action="store_true", help="Render crawled subpages with Playwright headless browser to catch post-JS errors.")
+    deep_parser.add_argument("--baseline", type=Path, default=None, help="Optional baseline evidence manifest for regression diff.")
     deep_parser.add_argument("--header", action="append", default=[], help="Custom HTTP header 'Key: Value' (repeatable, e.g. for staging auth).")
     deep_parser.add_argument("--cookies", default=None, help="Optional Cookie header string for authenticated web sessions.")
     deep_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' (English) or 'id' (Bahasa Indonesia).")
+    deep_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' (Scrum/DoD) or 'waterfall' (V-Model Stage-Gate & RTM).")
     deep_parser.add_argument("--screenshot", action="store_true", help="Capture animation-frozen Desktop, Tablet & Mobile screenshots.")
     deep_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync deep audit results, photos, and reports to Jira.")
     deep_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
@@ -191,6 +197,7 @@ def _build_parser() -> argparse.ArgumentParser:
     journey_parser.add_argument("journey", type=Path, help="Path to declarative browser journey JSON file.")
     journey_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/journey"), help="Directory for journey evidence and screenshots.")
     journey_parser.add_argument("--lang", default=None, help="Jira & report language: 'en' (English) or 'id' (Bahasa Indonesia).")
+    journey_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' or 'waterfall'.")
     journey_parser.add_argument("--sync-jira", action="store_true", help="Synchronize journey evidence & step screenshots to Jira.")
     journey_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
@@ -202,6 +209,7 @@ def _build_parser() -> argparse.ArgumentParser:
     mobile_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/mobile-audit"), help="Output directory for mobile audit reports.")
     mobile_parser.add_argument("--maestro-flow", type=Path, default=None, help="Optional Maestro YAML flow to execute on emulator/device.")
     mobile_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' or 'id'.")
+    mobile_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' or 'waterfall'.")
     mobile_parser.add_argument("--sprint-start", default=None, help="Custom Jira Timeline sprint start date (YYYY-MM-DD).")
     mobile_parser.add_argument("--sprint-end", default=None, help="Custom Jira Timeline sprint due date (YYYY-MM-DD).")
     mobile_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync mobile audit reports (PDF/HTML/PNG/SARIF) to Jira.")
@@ -219,6 +227,7 @@ def _build_parser() -> argparse.ArgumentParser:
     load_parser.add_argument("--allow-remote", action="store_true", help="Allow authorized non-loopback target URL.")
     load_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/load-test"), help="Output directory for load reports.")
     load_parser.add_argument("--lang", default=None, help="Client language for Jira & reports: 'en' or 'id'.")
+    load_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' or 'waterfall'.")
     load_parser.add_argument("--sync-jira", action="store_true", help="Automatically sync load test SLA evidence & PDF report to Jira.")
     load_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
@@ -255,6 +264,7 @@ def _build_parser() -> argparse.ArgumentParser:
     openapi_parser.add_argument("--export-suite", type=Path, default=None, help="Export generated SAQA suite JSON without executing.")
     openapi_parser.add_argument("--output-dir", type=Path, default=Path("artifacts/openapi-audit"), help="Directory for execution evidence.")
     openapi_parser.add_argument("--lang", default=None, help="Jira & report language: 'en' or 'id'.")
+    openapi_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode: 'agile' or 'waterfall'.")
     openapi_parser.add_argument("--sync-jira", action="store_true", help="Synchronize audit results directly to Jira.")
     openapi_parser.add_argument("--json", action="store_true", dest="as_json", help="Emit JSON output.")
 
@@ -298,6 +308,7 @@ def _build_parser() -> argparse.ArgumentParser:
     report_parser.add_argument("--baseline", type=Path, default=None, help="Optional baseline manifest for comparison.")
     report_parser.add_argument("--history", type=Path, default=None, help="Optional history JSONL for flakiness panel.")
     report_parser.add_argument("--lang", default=None, help="Report language: 'en' (English) or 'id' (Bahasa Indonesia).")
+    report_parser.add_argument("--methodology", choices=("agile", "waterfall"), default=None, help="SDLC governance mode for PDF certificate: 'agile' or 'waterfall'.")
     report_parser.add_argument("--title", default="SAQA Quality Report", help="Report title.")
 
     gen_parser = subparsers.add_parser(
@@ -442,6 +453,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "run-suite":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         suite = load_suite_file(args.suite)
         result = run_suite(suite, output_dir=args.output_dir, workers=args.workers)
 
@@ -490,6 +502,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.pdf,
                 manifest_sha256=result.manifest_sha256,
                 title=r_title,
+                methodology=meth_mode,
                 lang=lang_code,
             )
         if args.junit is not None:
@@ -524,6 +537,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sprint_start=args.sprint_start,
                 sprint_end=args.sprint_end,
                 lang=lang_code,
+                methodology=meth_mode,
             )
 
         dispatch_notifications(
@@ -565,6 +579,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sprint_start=args.sprint_start,
             sprint_end=args.sprint_end,
             lang=args.lang,
+            methodology=args.methodology,
             respect_waivers=not bool(args.no_waivers),
         )
         if args.as_json:
@@ -573,6 +588,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(
                 f"JIRA_SYNC_PASS: project={jira_summary['project_key']} "
                 f"lang={jira_summary['language'].upper()} "
+                f"methodology={str(jira_summary.get('methodology', 'agile')).upper()} "
                 f"suite={jira_summary['suite_name']} status={jira_summary['overall_status']} "
                 f"epics_synced={len(jira_summary.get('synced_epics', []))} "
                 f"issues_synced={len(jira_summary['synced_issues'])} "
@@ -609,6 +625,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "deep-audit":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         extra_hdrs = _parse_header_kv(args.header) if args.header else None
         deep_res = run_deep_web_audit(
             args.url,
@@ -619,10 +636,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             include_modern_security=bool(args.modern_security),
             include_responsive_audit=bool(args.responsive),
             crawl_max_pages=int(args.crawl_pages),
+            crawl_spa=bool(args.crawl_spa),
             extra_headers=extra_hdrs,
             cookies=args.cookies,
             lang=lang_code,
         )
+        diff = None
+        if args.baseline is not None and deep_res.manifest_path is not None:
+            diff = compare_manifests(args.baseline, deep_res.manifest_path)
+
         captured: list[Path] = []
         if args.screenshot:
             captured = capture_viewport_matrix(args.url, args.output_dir, freeze_animations=True)
@@ -639,6 +661,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sprint_start=args.sprint_start,
                 sprint_end=args.sprint_end,
                 lang=lang_code,
+                methodology=meth_mode,
             )
 
         dispatch_notifications(
@@ -650,25 +673,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
         if args.as_json:
-            print(json.dumps({"analytics": deep_res.analytics, "findings": list(deep_res.findings), "jira": jira_summary}, indent=2))
+            print(json.dumps({"analytics": deep_res.analytics, "diff": diff, "findings": list(deep_res.findings), "jira": jira_summary}, indent=2))
         else:
             a = deep_res.analytics
             jira_msg = (
-                f" | Jira {jira_summary['project_key']} [{jira_summary['language'].upper()}] "
+                f" | Jira {jira_summary['project_key']} [{jira_summary['language'].upper()}/{str(jira_summary.get('methodology', meth_mode)).upper()}] "
                 f"({len(jira_summary['synced_issues'])} issues, {len(jira_summary.get('uploaded_attachments', []))} attachments)"
                 if jira_summary
                 else ""
             )
+            diff_msg = f" | Diff {diff['verdict']}" if diff else ""
             print(
                 f"DEEP_AUDIT {deep_res.target_url}: {a['overall_status']} | "
                 f"Health {a['health_score']}/100 ({a['health_grade']}) | "
                 f"Pass {a['pass_rate_pct']}% ({a['status_counts']['PASS']}/{a['total_records']}) | "
-                f"Findings {len(deep_res.findings)} | Lang {lang_code.upper()} | Out {args.output_dir}{jira_msg}"
+                f"Findings {len(deep_res.findings)} | Lang {lang_code.upper()} | SDLC {meth_mode.upper()} | Out {args.output_dir}{diff_msg}{jira_msg}"
             )
         return 0 if deep_res.passed else 1
 
     if args.command == "run-journey":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         spec = load_journey_file(args.journey)
         j_records, j_analytics = run_browser_journey(spec, output_dir=args.output_dir)
         jira_summary = None
@@ -677,7 +702,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             from .jira_sync import sync_manifest_to_jira
 
             shots = sorted(args.output_dir.glob("*.png"))
-            jira_summary = sync_manifest_to_jira(manifest_file, attachments=shots, lang=lang_code)
+            jira_summary = sync_manifest_to_jira(manifest_file, attachments=shots, lang=lang_code, methodology=meth_mode)
         if args.as_json:
             print(json.dumps({"analytics": j_analytics, "jira": jira_summary}, indent=2))
         else:
@@ -689,6 +714,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "audit-mobile":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         mob_res = audit_mobile_package(
             args.app,
             output_dir=args.output_dir,
@@ -704,6 +730,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 sprint_start=args.sprint_start,
                 sprint_end=args.sprint_end,
                 lang=lang_code,
+                methodology=meth_mode,
             )
         if args.as_json:
             print(
@@ -737,6 +764,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "load-test":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         load_res = run_load_test(
             args.url,
             total_requests=args.requests,
@@ -751,7 +779,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.sync_jira and load_res.get("manifest_path"):
             from .jira_sync import sync_manifest_to_jira
 
-            jira_summary = sync_manifest_to_jira(Path(load_res["manifest_path"]), lang=lang_code)
+            jira_summary = sync_manifest_to_jira(Path(load_res["manifest_path"]), lang=lang_code, methodology=meth_mode)
         if args.as_json:
             print(json.dumps({**load_res, "jira": jira_summary}, indent=2))
         else:
@@ -823,7 +851,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.sync_jira and result.manifest_path is not None:
             from .jira_sync import sync_manifest_to_jira
 
-            jira_summary = sync_manifest_to_jira(result.manifest_path, auto_generate_visuals=True, lang=args.lang)
+            jira_summary = sync_manifest_to_jira(
+                result.manifest_path,
+                auto_generate_visuals=True,
+                lang=args.lang,
+                methodology=args.methodology,
+            )
         if args.as_json:
             print(json.dumps({"analytics": result.analytics, "jira": jira_summary}, indent=2))
         else:
@@ -886,6 +919,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "report":
         lang_code = normalize_lang(args.lang)
+        meth_mode = normalize_methodology(args.methodology)
         records, sha = load_verified_manifest(args.manifest)
         stats = analyze_manifest(args.manifest)
         diff = compare_manifests(args.baseline, args.manifest) if args.baseline is not None else None
@@ -894,7 +928,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(render_markdown_report(stats, diff=diff, history=history_stats, title=args.title, lang=lang_code))
             return 0
         if args.pdf is not None:
-            render_pdf_report(stats, records, args.pdf, manifest_sha256=sha, title=args.title, lang=lang_code)
+            render_pdf_report(stats, records, args.pdf, manifest_sha256=sha, title=args.title, methodology=meth_mode, lang=lang_code)
             print(f"PDF_REPORT: {args.pdf}")
         if args.html is not None:
             args.html.parent.mkdir(parents=True, exist_ok=True)

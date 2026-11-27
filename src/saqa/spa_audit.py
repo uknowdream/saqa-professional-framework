@@ -22,6 +22,31 @@ from .url_safety import redact_url
 from .visual_evidence import DEFAULT_VIEWPORTS, _find_chromium_binary
 from .web_audit import _audit_dom_accessibility, _DomAuditParser
 
+_LCP_CLS_OBSERVER_INIT_JS = """(() => {
+    window.__saqaVitals = { lcp_ms: null, cls: 0.0 };
+    try {
+        const lcpObs = new PerformanceObserver((list) => {
+            const entries = list.getEntries();
+            if (entries.length) {
+                window.__saqaVitals.lcp_ms = Math.round(entries[entries.length - 1].startTime);
+            }
+        });
+        lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
+        window.__saqaLcpObs = lcpObs;
+    } catch (e) {}
+    try {
+        const clsObs = new PerformanceObserver((list) => {
+            for (const entry of list.getEntries()) {
+                if (!entry.hadRecentInput && typeof entry.value === 'number') {
+                    window.__saqaVitals.cls += entry.value;
+                }
+            }
+        });
+        clsObs.observe({ type: 'layout-shift', buffered: true });
+        window.__saqaClsObs = clsObs;
+    } catch (e) {}
+})();"""
+
 _CWV_AND_BUDGET_JS = """() => {
     const nav = performance.getEntriesByType('navigation')[0];
     const navTiming = nav ? {
@@ -30,18 +55,37 @@ _CWV_AND_BUDGET_JS = """() => {
         load_event_ms: Math.round(nav.loadEventEnd)
     } : {};
 
+    if (window.__saqaLcpObs && typeof window.__saqaLcpObs.takeRecords === 'function') {
+        const pendingLcp = window.__saqaLcpObs.takeRecords() || [];
+        if (pendingLcp.length) {
+            window.__saqaVitals.lcp_ms = Math.round(pendingLcp[pendingLcp.length - 1].startTime);
+        }
+    }
+    if (window.__saqaClsObs && typeof window.__saqaClsObs.takeRecords === 'function') {
+        for (const entry of (window.__saqaClsObs.takeRecords() || [])) {
+            if (!entry.hadRecentInput && typeof entry.value === 'number') {
+                window.__saqaVitals.cls += entry.value;
+            }
+        }
+    }
     const fcpEntry = performance.getEntriesByName('first-contentful-paint')[0];
     const lcpEntries = performance.getEntriesByType('largest-contentful-paint') || [];
     const clsEntries = performance.getEntriesByType('layout-shift') || [];
-    let clsScore = 0.0;
-    for (const entry of clsEntries) {
-        if (!entry.hadRecentInput && typeof entry.value === 'number') {
-            clsScore += entry.value;
+    let clsScore = (window.__saqaVitals && typeof window.__saqaVitals.cls === 'number') ? window.__saqaVitals.cls : 0.0;
+    if (clsScore === 0.0) {
+        for (const entry of clsEntries) {
+            if (!entry.hadRecentInput && typeof entry.value === 'number') {
+                clsScore += entry.value;
+            }
         }
     }
+    const observedLcp = (window.__saqaVitals && window.__saqaVitals.lcp_ms != null)
+        ? window.__saqaVitals.lcp_ms
+        : (lcpEntries.length ? Math.round(lcpEntries[lcpEntries.length - 1].startTime) : null);
+
     const vitals = {
         fcp_ms: fcpEntry ? Math.round(fcpEntry.startTime) : null,
-        lcp_ms: lcpEntries.length ? Math.round(lcpEntries[lcpEntries.length - 1].startTime) : null,
+        lcp_ms: observedLcp,
         cls: Math.round(clsScore * 10000) / 10000
     };
 
@@ -54,6 +98,57 @@ _CWV_AND_BUDGET_JS = """() => {
         else if (r.initiatorType === 'link' || r.initiatorType === 'css') styleBytes += sz;
         else if (r.initiatorType === 'img') imgBytes += sz;
     }
+
+    // WCAG 2.2 AA Color Contrast Audit (4.5:1 normal text, 3.0:1 large text)
+    function parseRgb(str) {
+        const m = String(str || '').match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)/);
+        if (!m) return null;
+        return [Number(m[1]), Number(m[2]), Number(m[3]), m[4] === undefined ? 1 : Number(m[4])];
+    }
+    function relLum(rgb) {
+        const vals = rgb.slice(0, 3).map(v => {
+            const c = v / 255;
+            return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+        });
+        return 0.2126 * vals[0] + 0.7152 * vals[1] + 0.0722 * vals[2];
+    }
+    function effectiveBg(el) {
+        let cur = el;
+        while (cur && cur.nodeType === 1) {
+            const cs = getComputedStyle(cur);
+            if (cs.backgroundImage && cs.backgroundImage !== 'none') return null;
+            const bg = parseRgb(cs.backgroundColor);
+            if (bg && bg[3] > 0.15) return bg;
+            cur = cur.parentElement;
+        }
+        return [255, 255, 255, 1];
+    }
+    let contrastChecked = 0;
+    const lowContrastSamples = [];
+    const textEls = document.querySelectorAll('h1, h2, h3, p, a, button, label');
+    for (const el of textEls) {
+        if (contrastChecked >= 100) break;
+        const txt = (el.textContent || '').trim();
+        if (!txt || txt.length < 2) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 4 || rect.height < 4) continue;
+        const st = getComputedStyle(el);
+        if (st.visibility === 'hidden' || st.display === 'none' || Number(st.opacity) < 0.2) continue;
+        const fg = parseRgb(st.color);
+        if (!fg || fg[3] < 0.2) continue;
+        const bg = effectiveBg(el);
+        if (!bg) continue;
+        const l1 = relLum(fg), l2 = relLum(bg);
+        const ratio = (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+        const fontSize = parseFloat(st.fontSize) || 14;
+        const isBold = parseInt(st.fontWeight, 10) >= 700;
+        const minRatio = (fontSize >= 24 || (fontSize >= 18.66 && isBold)) ? 3.0 : 4.5;
+        contrastChecked += 1;
+        if (ratio < minRatio && lowContrastSamples.length < 5) {
+            lowContrastSamples.push(`${el.tagName.toLowerCase()}("${txt.slice(0, 24)}")=${ratio.toFixed(2)}:1<${minRatio}:1`);
+        }
+    }
+
     return {
         navigation_timing: navTiming,
         web_vitals: vitals,
@@ -63,6 +158,11 @@ _CWV_AND_BUDGET_JS = """() => {
             script_bytes: scriptBytes,
             style_bytes: styleBytes,
             image_bytes: imgBytes
+        },
+        contrast_audit: {
+            checked: contrastChecked,
+            low_contrast_count: lowContrastSamples.length,
+            samples: lowContrastSamples
         }
     };
 }"""
@@ -103,6 +203,8 @@ def inspect_spa_runtime(
                 if storage_state is not None and Path(storage_state).is_file():
                     ctx_kwargs["storage_state"] = str(storage_state)
                 context = browser.new_context(**ctx_kwargs)
+                if hasattr(context, "add_init_script"):
+                    context.add_init_script(_LCP_CLS_OBSERVER_INIT_JS)
                 page = context.new_page()
                 page.on(
                     "console",
@@ -133,6 +235,7 @@ def inspect_spa_runtime(
                     "navigation_timing": perf_payload.get("navigation_timing", {}),
                     "web_vitals": perf_payload.get("web_vitals", {}),
                     "asset_budget": perf_payload.get("asset_budget", {}),
+                    "contrast_audit": perf_payload.get("contrast_audit", {}),
                 }
             finally:
                 browser.close()
@@ -278,6 +381,12 @@ def build_spa_audit_record(
         failures.append(f"{len(info['console_errors'])} browser console.error(s): {info['console_errors'][0]}")
     if info.get("failed_requests"):
         failures.append(f"{len(info['failed_requests'])} failed XHR/asset request(s): {info['failed_requests'][0]}")
+    contrast = info.get("contrast_audit") or {}
+    if int(contrast.get("checked", 0)) > 0:
+        checks_passed.append(f"wcag_contrast_checked:{contrast['checked']}")
+    if int(contrast.get("low_contrast_count", 0)) > 0:
+        samples_txt = ", ".join(contrast.get("samples", [])[:3])
+        warnings.append(f"WCAG 2.2 AA low color contrast detected ({contrast['low_contrast_count']} sample(s)): {samples_txt}")
 
     status = "FAIL" if failures else a11y_status
     return EvidenceRecord(
@@ -304,12 +413,70 @@ def build_spa_audit_record(
             "navigation_timing": info.get("navigation_timing", {}),
             "web_vitals": vitals,
             "asset_budget": info.get("asset_budget", {}),
+            "contrast_audit": contrast,
             "checks_passed": checks_passed,
             "failure_reasons": failures,
             "warnings": warnings,
             "rendered_a11y": a11y_metrics,
         },
     )
+
+
+def inspect_spa_subpages(
+    urls: Sequence[str],
+    *,
+    timeout_s: int = 20,
+    extra_headers: Mapping[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    """Render multiple internal SPA subpages in one shared headless Playwright browser to check post-JS DOM & JS errors."""
+    if not urls:
+        return []
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception:
+        return []
+
+    results: list[dict[str, Any]] = []
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        try:
+            ctx_kwargs: dict[str, Any] = {"viewport": {"width": 1440, "height": 900}}
+            if extra_headers:
+                ctx_kwargs["extra_http_headers"] = dict(extra_headers)
+            context = browser.new_context(**ctx_kwargs)
+            page = context.new_page()
+            active_c_errs: list[str] = []
+            active_p_errs: list[str] = []
+            page.on(
+                "console",
+                lambda msg: active_c_errs.append(msg.text[:180]) if msg.type == "error" else None,
+            )
+            page.on("pageerror", lambda err: active_p_errs.append(str(err)[:180]))
+            for u in urls:
+                _validate_http_url(u, "SPA subpage")
+                active_c_errs.clear()
+                active_p_errs.clear()
+                t0 = time.perf_counter()
+                try:
+                    resp = page.goto(u, wait_until="networkidle", timeout=timeout_s * 1000)
+                    status_code = resp.status if resp is not None else 200
+                    html_str = page.content()
+                except Exception as exc:
+                    status_code = 0
+                    html_str = ""
+                    active_p_errs.append(str(exc)[:180])
+                results.append({
+                    "url": u,
+                    "status_code": status_code,
+                    "elapsed_ms": round((time.perf_counter() - t0) * 1000, 2),
+                    "rendered_html": html_str,
+                    "console_errors": list(active_c_errs[:5]),
+                    "page_errors": list(active_p_errs[:5]),
+                })
+            context.close()
+        finally:
+            browser.close()
+    return results
 
 
 def inspect_responsive_viewports(

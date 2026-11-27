@@ -2,7 +2,6 @@ import copy
 from datetime import date
 
 import pytest
-
 from scripts.evaluate_container_security_policy import evaluate_summary, validate_policy
 
 POLICY = {
@@ -244,6 +243,7 @@ def test_normalized_image_identity_must_match_trivy_artifact():
 
 def test_invalid_input_writes_blocked_policy_evidence(tmp_path):
     import json
+
     from scripts.evaluate_container_security_policy import main
 
     summary_path, policy_path, output = tmp_path / "summary.json", tmp_path / "policy.json", tmp_path / "out" / "policy-result.json"
@@ -280,6 +280,7 @@ def test_raw_trivy_report_digest_is_required_and_format_checked():
 
 def test_policy_cli_rejects_input_output_collision_without_destroying_summary(tmp_path):
     import json
+
     from scripts.evaluate_container_security_policy import main
 
     summary_path = tmp_path / "summary.json"
@@ -293,6 +294,7 @@ def test_policy_cli_rejects_input_output_collision_without_destroying_summary(tm
 
 def test_policy_cli_deeply_nested_json_writes_blocked_decision(tmp_path):
     import json
+
     from scripts.evaluate_container_security_policy import main
 
     summary_path = tmp_path / "summary.json"

@@ -1,12 +1,12 @@
-import json
 import hashlib
-from itertools import count
-from pathlib import Path
+import json
 import subprocess
 import sys
+from itertools import count
+
 import pytest
 from scripts.build_performance_run_set import build_run_set
-from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, verify_source_files, main
+from scripts.compare_performance_baseline import SCHEMA, compare_run_sets, load_run_set, main, verify_source_files
 from scripts.k6_gate import ROOT
 
 K6_SCRIPT = ROOT / "performance/k6/juice-shop.js"
@@ -230,7 +230,7 @@ def test_source_metrics_are_bound_to_raw_k6_summary(tmp_path):
 
     data = run_set()
     sources = []
-    for i, sample in enumerate(data["samples"]):
+    for i, _sample in enumerate(data["samples"]):
         path = tmp_path / f"raw-{i}.json"
         raw = json.dumps(raw_summary()).encode("utf-8")
         path.write_bytes(raw)

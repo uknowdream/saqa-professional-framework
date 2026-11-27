@@ -1,9 +1,7 @@
 import json
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 import pytest
-
 from scripts.validate_accessibility_manual_evidence import (
     KEYBOARD_IDS,
     SCHEMA,

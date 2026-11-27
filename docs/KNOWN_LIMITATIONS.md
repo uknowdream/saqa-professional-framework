@@ -1,7 +1,7 @@
 # SAQA Professional Framework — Known Limitations and Next Priorities
 
-Last reviewed: 2026-11-25 (v2.6.0 Enterprise & Bilingual Release)
-Main-branch certified baseline: Commit-scoped fail-closed verification across Web, API, SPA/CWV, Mobile Package (`.apk`/`.aab`/`.ipa`), Load/SLA, PDF/JUnit/SARIF, and Bilingual (`EN`/`ID`) Jira Cloud synchronization.
+Last reviewed: 2026-11-27 (v2.7.0 Agile/Waterfall SDLC Governance, Binary AXML & Anti-SSRF Hardening Release)
+Main-branch certified baseline: Commit-scoped fail-closed verification across Web, API, SPA/CWV (LCP/CLS/WCAG 2.2 AA Contrast), Native Mobile Package (`.apk`/`.aab`/`.ipa` with true Android Binary XML `AXML` struct decoder), Anti-SSRF/XXE guards, Concurrent Load/SLA, FlateDecode Compressed PDF/RTM/Release Sign-Off, and Bilingual (`EN`/`ID`) Dual-Methodology (`Agile` & `Waterfall`) Jira Cloud synchronization.
 
 ## Current verified baseline
 

@@ -1,4 +1,5 @@
 import json
+
 import pytest
 from scripts.validate_spdx_sbom import SCHEMA, validate_file, validate_spdx
 

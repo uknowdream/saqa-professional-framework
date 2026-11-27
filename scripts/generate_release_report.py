@@ -1,8 +1,12 @@
 """Generate a commit-bound release certification report from canonical evidence."""
 from __future__ import annotations
-import json, os, re
+
+import json
+import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 from saqa.evidence import verify_manifest
 
 CANONICAL_STATUSES = {"PASS","FAIL","BLOCKED","UNVERIFIED","NOT_APPLICABLE"}

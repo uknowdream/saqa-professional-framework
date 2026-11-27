@@ -7,7 +7,6 @@ import json
 import os
 import plistlib
 import re
-import shutil
 import stat
 import subprocess
 import tempfile

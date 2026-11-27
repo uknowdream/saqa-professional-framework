@@ -1,9 +1,7 @@
 import json
 from datetime import date, datetime, timezone
-from pathlib import Path
 
 import pytest
-
 from scripts.test_quality_report import POLICY_SCHEMA, summarize_junit, validate_quarantine_policy
 
 
@@ -95,7 +93,6 @@ def test_default_quarantine_expiry_uses_utc_calendar_date(monkeypatch):
 
 
 def test_cli_persists_blocked_report_for_deeply_nested_policy(tmp_path):
-    import json
     from scripts.test_quality_report import main
 
     junit_path = junit(tmp_path)
@@ -109,7 +106,6 @@ def test_cli_persists_blocked_report_for_deeply_nested_policy(tmp_path):
 
 
 def test_cli_refuses_to_overwrite_junit_or_policy_inputs(tmp_path):
-    import json
     from scripts.test_quality_report import main
 
     junit_path = junit(tmp_path)

@@ -1,6 +1,8 @@
 """Read-only accessibility readiness smoke for the local OWASP Juice Shop target."""
+
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from datetime import datetime, timezone
@@ -13,13 +15,26 @@ OUTPUT = Path("artifacts/targets/juice-shop-accessibility.json")
 ALLOWED_BROWSERS = {"chromium", "firefox", "webkit"}
 AXE_CORE_PATH = Path(os.getenv("SAQA_AXE_CORE_PATH", "node_modules/axe-core/axe.min.js"))
 AXE_RULES = ["aria-input-field-name", "button-name", "link-name"]
-AXE_DIAGNOSTIC_RULES = AXE_RULES + ["document-title", "html-has-lang", "image-alt", "heading-order", "landmark-one-main", "color-contrast"]
+AXE_DIAGNOSTIC_RULES = AXE_RULES + [
+    "document-title",
+    "html-has-lang",
+    "image-alt",
+    "heading-order",
+    "landmark-one-main",
+    "color-contrast",
+]
 ORACLE_CONFIRMATION_STATUS = "CONFIRMED_ORACLE"
 
 
 def _assert_loopback_http(url: str) -> None:
     parsed = urlparse(url)
-    if parsed.scheme != "http" or parsed.hostname != "127.0.0.1" or parsed.username or parsed.password or parsed.port is None:
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username
+        or parsed.password
+        or parsed.port is None
+    ):
         raise ValueError("accessibility target must be credential-free HTTP on 127.0.0.1 with a port")
 
 
@@ -64,46 +79,43 @@ def _guard_request(route) -> None:
 
 def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) -> dict[str, object]:
     """Summarize keyboard focus observations; all findings are diagnostic only."""
+
     def identity(item):
         return (item.get("tag"), item.get("id"), item.get("role"), item.get("text"))
 
     identities = {identity(item) for item in sequence}
     target_ids = [identity(item) for item in sequence]
     repeated_consecutive_targets = sum(
-        1 for previous, current in zip(target_ids, target_ids[1:])
-        if previous == current
+        1 for previous, current in zip(target_ids, target_ids[1:], strict=False) if previous == current
     )
     repeated_cycle_periods = []
     # Flag repeated A/B/A/B and longer repeated cycles, not just adjacent identical nodes.
     max_period = min(5, len(target_ids) // 2)
     for period in range(2, max_period + 1):
         for offset in range(0, len(target_ids) - (2 * period) + 1):
-            first = target_ids[offset:offset + period]
-            second = target_ids[offset + period:offset + (2 * period)]
+            first = target_ids[offset : offset + period]
+            second = target_ids[offset + period : offset + (2 * period)]
             if first == second and len(set(first)) > 1:
                 repeated_cycle_periods.append(period)
                 break
 
     def legacy_indicator_heuristic(item):
         return (
-            (item.get("outline_style") not in {None, "", "none"}
-             and item.get("outline_width") not in {None, "", "0px"})
+            (item.get("outline_style") not in {None, "", "none"} and item.get("outline_width") not in {None, "", "0px"})
             or item.get("box_shadow") not in {None, "", "none"}
             or item.get("outline_offset") not in {None, "", "0px"}
         )
 
     indicator_steps = sum(
-        1 for item in sequence
+        1
+        for item in sequence
         if (
             bool(item.get("focus_indicator_visible"))
             if "focus_indicator_visible" in item
             else bool(legacy_indicator_heuristic(item))
         )
     )
-    trap_suspected = (
-        (len(identities) > 1 and repeated_consecutive_targets >= 2)
-        or bool(repeated_cycle_periods)
-    )
+    trap_suspected = (len(identities) > 1 and repeated_consecutive_targets >= 2) or bool(repeated_cycle_periods)
     return {
         "method": "keyboard Tab only",
         "requested_steps": steps,
@@ -117,6 +129,7 @@ def _summarize_keyboard_sequence(sequence: list[dict[str, object]], steps: int) 
         "sequence": sequence,
         "scope_note": "diagnostic smoke only; computed CSS indicators and repeated focus targets are heuristics, not proof of WCAG conformance. Manual focus-order, keyboard-trap, and visible-indicator verification remains required",
     }
+
 
 def _keyboard_focus_sequence(page, steps: int = 10) -> dict[str, object]:
     """Record keyboard-only Tab traversal without claiming full WCAG conformance."""
@@ -214,6 +227,7 @@ def main() -> int:
         if BROWSER not in ALLOWED_BROWSERS:
             raise ValueError(f"unsupported browser: {BROWSER}")
         from playwright.sync_api import sync_playwright
+
         axe_source = _load_axe_source()
         with sync_playwright() as playwright:
             browser = None
@@ -249,14 +263,31 @@ def main() -> int:
                 keyboard = _keyboard_focus_sequence(page)
                 evidence["details"]["keyboard_navigation"] = keyboard
                 if not response or response.status < 200 or response.status >= 400:
-                    raise AssertionError(f"expected successful page response, got {response.status if response else None}")
+                    raise AssertionError(
+                        f"expected successful page response, got {response.status if response else None}"
+                    )
                 page.add_script_tag(content=axe_source)
-                oracle = page.evaluate("""async rules => {
+                oracle = page.evaluate(
+                    """async rules => {
                   const r = await axe.run(document, {runOnly: {type: 'rule', values: rules}});
                   return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n=>({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))}));
-                }""", AXE_RULES)
-                diagnostic_oracle = page.evaluate("""async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""", AXE_DIAGNOSTIC_RULES)
-                evidence["details"]["independent_oracle"] = {"engine":"axe-core","gated_rules":AXE_RULES,"diagnostic_rules":AXE_DIAGNOSTIC_RULES,"violation_count":len(oracle),"violations":oracle,"diagnostic_violation_count":len(diagnostic_oracle),"diagnostic_violations":diagnostic_oracle,"status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS"}
+                }""",
+                    AXE_RULES,
+                )
+                diagnostic_oracle = page.evaluate(
+                    """async rules => { const r = await axe.run(document, {runOnly: {type: "rule", values: rules}}); return r.violations.map(v => ({id:v.id,impact:v.impact,help:v.help,nodes:v.nodes.map(n => ({target:n.target,html:n.html.slice(0,300),failure_summary:n.failureSummary}))})); }""",
+                    AXE_DIAGNOSTIC_RULES,
+                )
+                evidence["details"]["independent_oracle"] = {
+                    "engine": "axe-core",
+                    "gated_rules": AXE_RULES,
+                    "diagnostic_rules": AXE_DIAGNOSTIC_RULES,
+                    "violation_count": len(oracle),
+                    "violations": oracle,
+                    "diagnostic_violation_count": len(diagnostic_oracle),
+                    "diagnostic_violations": diagnostic_oracle,
+                    "status": ORACLE_CONFIRMATION_STATUS if oracle else "NO_ORACLE_VIOLATIONS",
+                }
                 # Repeat keyboard-only traversal after a fresh load at a narrow mobile viewport.
                 # This remains diagnostic smoke evidence, not a claim of native mobile or WCAG certification.
                 page.set_viewport_size({"width": 390, "height": 844})
@@ -273,31 +304,43 @@ def main() -> int:
                 disposition = _classify_heuristic_finding(metrics["unnamed_control_details"])
                 evidence["details"]["heuristic_disposition"] = disposition
                 failures = []
-                if keyboard["unique_focus_targets"] == 0: failures.append("keyboard Tab sequence did not reach a focusable target")
-                if not mobile_response or mobile_response.status < 200 or mobile_response.status >= 400: failures.append("mobile viewport page reload did not return a successful response")
-                if mobile_keyboard["unique_focus_targets"] == 0: failures.append("mobile viewport keyboard Tab sequence did not reach a focusable target")
-                if not metrics["lang_present"]: failures.append("document language is missing")
-                if not metrics["title_present"]: failures.append("document title is missing")
-                if metrics["images_missing_alt"]: failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
-                if oracle: failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
+                if keyboard["unique_focus_targets"] == 0:
+                    failures.append("keyboard Tab sequence did not reach a focusable target")
+                if not mobile_response or mobile_response.status < 200 or mobile_response.status >= 400:
+                    failures.append("mobile viewport page reload did not return a successful response")
+                if mobile_keyboard["unique_focus_targets"] == 0:
+                    failures.append("mobile viewport keyboard Tab sequence did not reach a focusable target")
+                if not metrics["lang_present"]:
+                    failures.append("document language is missing")
+                if not metrics["title_present"]:
+                    failures.append("document title is missing")
+                if metrics["images_missing_alt"]:
+                    failures.append(f"{metrics['images_missing_alt']} rendered image(s) lack alt")
+                if oracle:
+                    failures.append(f"axe-core found {len(oracle)} selected rule violation(s)")
                 if disposition == "INCONCLUSIVE":
-                    evidence["details"]["heuristic_note"] = "unnamed keyboard-operable control(s) detected; independent axe result is authoritative for the selected rules until deterministic node correlation is implemented"
+                    evidence["details"]["heuristic_note"] = (
+                        "unnamed keyboard-operable control(s) detected; independent axe result is authoritative for the selected rules until deterministic node correlation is implemented"
+                    )
                     evidence["details"]["heuristic_authority"] = "independent_axe"
                 if disposition == "INCONCLUSIVE":
                     failures = [item for item in failures if item != "heuristic accessibility finding is inconclusive"]
-                if failures: raise AssertionError("; ".join(failures))
-                context.close(); context = None
-                browser.close(); browser = None
+                if failures:
+                    raise AssertionError("; ".join(failures))
+                context.close()
+                context = None
+                browser.close()
+                browser = None
                 evidence["status"] = "PASS"
             except Exception as exc:
                 evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
             finally:
                 if context is not None:
-                    try: context.close()
-                    except Exception: pass
+                    with contextlib.suppress(Exception):
+                        context.close()
                 if browser is not None:
-                    try: browser.close()
-                    except Exception: pass
+                    with contextlib.suppress(Exception):
+                        browser.close()
     except Exception as exc:
         evidence["details"]["error"] = f"{type(exc).__name__}: {exc}"
     finally:

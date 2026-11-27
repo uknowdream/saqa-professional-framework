@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from saqa.result_aggregation import aggregate, load_results
 from saqa.evidence import EvidenceRecord, verify_manifest, write_manifest
+from saqa.result_aggregation import aggregate, load_results
 
 
 def test_aggregate_multiple_executor_results(tmp_path: Path) -> None:
@@ -46,8 +46,7 @@ def test_aggregate_rejects_scalar_json(tmp_path: Path) -> None:
 @pytest.mark.parametrize("observed_at", ["unknown", " UNKNOWN ", "   "])
 def test_aggregate_rejects_invalid_observed_at_variants(tmp_path: Path, observed_at: str) -> None:
     (tmp_path / "bad.json").write_text(
-        '{"test_id":"T-001","status":"PASS","target":"local","observed_at":%s,"details":{}}'
-        % json.dumps(observed_at),
+        f'{{"test_id":"T-001","status":"PASS","target":"local","observed_at":{json.dumps(observed_at)},"details":{{}}}}',
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="missing observed_at"):
@@ -97,6 +96,7 @@ def test_verify_manifest_rejects_tampered_records(tmp_path: Path) -> None:
 
 def test_verify_manifest_rejects_invalid_record_even_with_matching_digest(tmp_path: Path) -> None:
     import hashlib
+
     from saqa.evidence import canonical_json
 
     records = [{"test_id": "T-001", "status": ["PASS"], "observed_at": "now",

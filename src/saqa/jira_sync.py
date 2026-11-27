@@ -15,6 +15,7 @@ from .i18n import (
     DOMAIN_DESCRIPTIONS_I18N,
     EPIC_TEXT_I18N,
     ISSUE_SUMMARIES_I18N,
+    SUPPORTED_LANGUAGES,
     get_all_epic_summary_variants,
     get_all_summary_variants,
     normalize_lang,
@@ -24,6 +25,16 @@ from .i18n import (
     translate_recommendation,
 )
 from .jira import JiraClient, JiraConfig, JiraIssueResult
+from .methodology import (
+    WATERFALL_EPIC_TEXT_I18N,
+    build_rtm_matrix,
+    classify_defect_severity,
+    compute_waterfall_timeline_window,
+    evaluate_methodology_governance,
+    export_rtm_csv,
+    normalize_methodology,
+    render_release_signoff_markdown,
+)
 from .pdf_report import render_pdf_report
 from .reporting import render_html_report, render_junit_xml, render_markdown_report, render_sarif_report
 from .visual_evidence import (
@@ -191,6 +202,16 @@ def _adf_row(cells: list[dict[str, Any]]) -> dict[str, Any]:
     return {"type": "tableRow", "content": cells}
 
 
+def _get_all_epic_variants(phase_id: str) -> tuple[str, ...]:
+    """Return all Agile & Waterfall localized Epic summary variants so switching modes never duplicates Epics."""
+    variants = list(get_all_epic_summary_variants(phase_id))
+    for lang_code in SUPPORTED_LANGUAGES:
+        wf = WATERFALL_EPIC_TEXT_I18N.get(lang_code, {}).get(phase_id, {}).get("summary")
+        if wf and wf not in variants:
+            variants.append(wf)
+    return tuple(variants)
+
+
 def build_domain_adf_document(
     *,
     domain_key: str,
@@ -208,9 +229,15 @@ def build_domain_adf_document(
     lang: str = "en",
     active_sprint_name: str | None = None,
     waiver_labels: Sequence[str] = (),
+    methodology: str = "agile",
+    governance: Mapping[str, Any] | None = None,
+    rtm_rows: Sequence[Mapping[str, Any]] = (),
+    hmac_sha256: str | None = None,
+    defect_info: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a rich localized (EN/ID) enterprise Atlassian Document Format (ADF) report for Jira."""
     code = normalize_lang(lang)
+    meth = normalize_methodology(methodology)
     now_utc = datetime.now(timezone.utc)
     now_wib = now_utc.astimezone(WIB)
     lat = analytics["latency"]
@@ -287,11 +314,26 @@ def build_domain_adf_document(
         ]),
         _adf_row([
             _adf_cell([_adf_paragraph(_adf_text(tr("active_sprint", code), bold=True))]),
-            _adf_cell([_adf_paragraph(_adf_text(active_sprint_name or "Timeline / Kanban", code=True))]),
+            _adf_cell([_adf_paragraph(_adf_text(active_sprint_name or ("Waterfall Stage-Gate" if meth == "waterfall" else "Timeline / Kanban"), code=True))]),
             _adf_cell([_adf_paragraph(_adf_text(tr("report_language", code), bold=True))]),
             _adf_cell([_adf_paragraph(_adf_text(tr("lang_label", code), code=True))]),
         ]),
+        _adf_row([
+            _adf_cell([_adf_paragraph(_adf_text(tr("methodology_mode", code), bold=True))]),
+            _adf_cell([_adf_paragraph(_adf_text(meth.upper(), bold=True))]),
+            _adf_cell([_adf_paragraph(_adf_text(tr("governance_gate", code), bold=True))]),
+            _adf_cell([_adf_paragraph(_adf_status_lozenge(str(governance["decision"]) if governance else domain_status))]),
+        ]),
     ]
+    if hmac_sha256:
+        kpi_rows.append(
+            _adf_row([
+                _adf_cell([_adf_paragraph(_adf_text(tr("hmac_signature", code), bold=True))]),
+                _adf_cell([_adf_paragraph(_adf_text(f"{hmac_sha256[:28]}...", code=True))]),
+                _adf_cell([_adf_paragraph(_adf_text("Provenance", bold=True))]),
+                _adf_cell([_adf_paragraph(_adf_status_lozenge("CERTIFIED"))]),
+            ])
+        )
 
     kpi_table = {
         "type": "table",
@@ -372,6 +414,63 @@ def build_domain_adf_document(
         _adf_heading(3, tr("sec_3_findings", code)),
         {"type": "bulletList", "content": rec_items or [{"type": "listItem", "content": [_adf_paragraph(_adf_text(tr("all_gates_ok", code)))]}]},
     ]
+
+    if governance or defect_info or (rtm_rows and domain_key in {"QA-1", "QA-8", "QA-9"}):
+        content.append(_adf_heading(3, tr("sec_4_governance", code, methodology=meth.upper())))
+        if governance:
+            gov_panel_type = "success" if governance.get("approved") else "warning"
+            gov_nodes: list[dict[str, Any]] = [
+                _adf_paragraph(
+                    _adf_text(f"{meth.upper()} — {governance['decision']}  ", bold=True),
+                    _adf_status_lozenge("PASS" if governance.get("approved") else "FAIL"),
+                )
+            ]
+            for chk in governance.get("checklist", []):
+                gov_nodes.append(
+                    _adf_paragraph(
+                        _adf_status_lozenge(str(chk.get("status", "PASS"))),
+                        _adf_text(f"  {chk['item']}"),
+                    )
+                )
+            content.append({"type": "panel", "attrs": {"panelType": gov_panel_type}, "content": gov_nodes})
+        if defect_info and domain_status == "FAIL":
+            content.append(
+                _adf_paragraph(
+                    _adf_text("Severity / SLA: " if code == "en" else "Keparahan / SLA: ", bold=True),
+                    _adf_text(
+                        f"{defect_info['severity']} | Priority={defect_info['priority']} | "
+                        f"Story Points={defect_info['story_points']} | SLA={defect_info['sla']}",
+                        code=True,
+                    ),
+                )
+            )
+        if rtm_rows and domain_key in {"QA-1", "QA-8", "QA-9"}:
+            rtm_table_rows = [
+                _adf_row([
+                    _adf_cell([_adf_paragraph(_adf_text("ID Kebutuhan" if code == "id" else "Req ID", bold=True))], header=True),
+                    _adf_cell([_adf_paragraph(_adf_text("Kebutuhan" if code == "id" else "Requirement", bold=True))], header=True),
+                    _adf_cell([_adf_paragraph(_adf_text("Domain", bold=True))], header=True),
+                    _adf_cell([_adf_paragraph(_adf_text("Keparahan" if code == "id" else "Severity", bold=True))], header=True),
+                    _adf_cell([_adf_paragraph(_adf_text("Uji" if code == "id" else "Tests", bold=True))], header=True),
+                    _adf_cell([_adf_paragraph(_adf_text("Status", bold=True))], header=True),
+                ])
+            ]
+            for row in rtm_rows:
+                rtm_table_rows.append(
+                    _adf_row([
+                        _adf_cell([_adf_paragraph(_adf_text(str(row["req_id"]), code=True))]),
+                        _adf_cell([_adf_paragraph(_adf_text(str(row["requirement"])))]),
+                        _adf_cell([_adf_paragraph(_adf_text(str(row["jira_domain"]), code=True))]),
+                        _adf_cell([_adf_paragraph(_adf_text(str(row["severity"]), code=True))]),
+                        _adf_cell([_adf_paragraph(_adf_text(str(row["test_count"])))]),
+                        _adf_cell([_adf_paragraph(_adf_status_lozenge(str(row["status"])))]),
+                    ])
+                )
+            content.append({
+                "type": "table",
+                "attrs": {"isNumberColumnEnabled": False, "layout": "default"},
+                "content": rtm_table_rows,
+            })
 
     if marker:
         content.append(_adf_paragraph(_adf_text(marker, code=True)))
@@ -528,18 +627,22 @@ def _ensure_epics_and_issues(
     assignee_id: str | None,
     epic_dates: Mapping[str, tuple[str, str]] | None = None,
     lang: str = "en",
+    methodology: str = "agile",
+    existing_issues: Mapping[str, JiraIssueResult] | None = None,
 ) -> tuple[dict[str, JiraIssueResult], dict[str, str], dict[str, JiraIssueResult]]:
-    """Ensure 3 Phase Epics and 9 Domain Tasks exist without creating duplicates across EN/ID switches."""
+    """Ensure 3 Phase Epics and 9 Domain Tasks exist without creating duplicates across EN/ID or Agile/Waterfall switches."""
     code = normalize_lang(lang)
-    existing = client.find_project_issues()
+    meth = normalize_methodology(methodology)
+    epic_text_catalog = WATERFALL_EPIC_TEXT_I18N if meth == "waterfall" else EPIC_TEXT_I18N
+    existing = dict(existing_issues) if existing_issues is not None else client.find_project_issues()
     epics_by_phase: dict[str, JiraIssueResult] = {}
     epic_key_by_domain: dict[str, str] = {}
 
     if hasattr(client, "create_epic"):
         for epic_def in EPIC_DEFINITIONS:
             phase_id = epic_def["phase_id"]
-            target_summary = EPIC_TEXT_I18N[code][phase_id]["summary"]
-            target_desc = EPIC_TEXT_I18N[code][phase_id]["description"]
+            target_summary = epic_text_catalog[code][phase_id]["summary"]
+            target_desc = epic_text_catalog[code][phase_id]["description"]
             if epic_dates and phase_id in epic_dates:
                 start_d, due_d = epic_dates[phase_id]
             else:
@@ -559,10 +662,12 @@ def _ensure_epics_and_issues(
                         _adf_text(f"{start_d} -> {due_d}", code=True),
                         _adf_text(tr("covered_domains", code), bold=True),
                         _adf_text(", ".join(epic_def["domains"]), code=True),
+                        _adf_text(" | SDLC: ", bold=True),
+                        _adf_text(meth.upper(), code=True),
                     ),
                 ],
             }
-            epic_issue = next((existing[v] for v in get_all_epic_summary_variants(phase_id) if v in existing), None)
+            epic_issue = next((existing[v] for v in _get_all_epic_variants(phase_id) if v in existing), None)
             if epic_issue is None and hasattr(client, "find_project_issues_by_label"):
                 phase_lbl = f"saqa-{phase_id.lower()}"
                 by_lbl = client.find_project_issues_by_label(phase_lbl)
@@ -573,7 +678,7 @@ def _ensure_epics_and_issues(
                 epic_issue = client.create_epic(
                     summary=target_summary,
                     description_adf=desc_adf,
-                    labels=list(epic_def["labels"]),
+                    labels=[*epic_def["labels"], f"saqa-{meth}"],
                     start_date=start_d,
                     due_date=due_d,
                     assignee_id=assignee_id,
@@ -588,6 +693,9 @@ def _ensure_epics_and_issues(
                 if assignee_id:
                     update_fields["assignee"] = {"accountId": assignee_id}
                 client.update_issue_fields(epic_issue.key, update_fields)
+                if hasattr(client, "update_labels"):
+                    other_meth = "agile" if meth == "waterfall" else "waterfall"
+                    client.update_labels(epic_issue.key, add=(f"saqa-{meth}",), remove=(f"saqa-{other_meth}",))
             epics_by_phase[phase_id] = epic_issue
             for dom in epic_def["domains"]:
                 epic_key_by_domain[dom] = epic_issue.key
@@ -618,16 +726,20 @@ def _resolve_stale_auto_bugs(
     manifest_sha256: str | None,
     today_str: str,
     lang: str = "en",
+    existing_issues: Mapping[str, JiraIssueResult] | None = None,
 ) -> list[str]:
     """Auto-close open [SAQA-AUTO] Bug tickets for a domain once it passes verification."""
     code = normalize_lang(lang)
     resolved_keys: list[str] = []
-    try:
-        existing_issues = client.find_project_issues()
-    except Exception:
-        return resolved_keys
+    if existing_issues is not None:
+        issue_map = existing_issues
+    else:
+        try:
+            issue_map = client.find_project_issues()
+        except Exception:
+            return resolved_keys
 
-    for summary, issue in existing_issues.items():
+    for summary, issue in issue_map.items():
         if not summary.startswith("[SAQA-AUTO]"):
             continue
         if (
@@ -699,6 +811,7 @@ def sync_records_to_jira(
     *,
     suite_name: str = "saqa-suite",
     manifest_sha256: str | None = None,
+    hmac_sha256: str | None = None,
     attachments: Sequence[Path] = (),
     artifact_dir: Path | None = None,
     auto_generate_visuals: bool = True,
@@ -708,12 +821,14 @@ def sync_records_to_jira(
     sprint_end: str | None = None,
     skip_unchanged_attachments: bool = True,
     lang: str | None = None,
+    methodology: str | None = None,
     respect_waivers: bool = True,
     sync_agile_sprint: bool = True,
     client: JiraClient | None = None,
 ) -> dict[str, Any]:
-    """Synchronize SAQA evidence, Bilingual (EN/ID) Rich ADF, Two-Way Waivers, Agile Sprints, Photos & Reports to Jira."""
+    """Synchronize SAQA evidence, Agile/Waterfall Governance, RTM, Bilingual (EN/ID) ADF, Waivers, Photos & Reports to Jira."""
     code = normalize_lang(lang)
+    meth = normalize_methodology(methodology)
     norm_records = [_normalize_record(r) for r in records]
     analytics = analyze_records(norm_records, manifest_sha256=manifest_sha256)
     domain_map = _compute_domain_results(norm_records, analytics)
@@ -741,8 +856,8 @@ def sync_records_to_jira(
         work_dir = Path(temp_ctx.name)
 
     try:
-        # Discover active Scrum sprint if Agile board is present
-        if sync_agile_sprint and hasattr(active_client, "find_active_sprint"):
+        # Discover active Scrum sprint if Agile methodology is active and Scrum board is present
+        if meth == "agile" and sync_agile_sprint and hasattr(active_client, "find_active_sprint"):
             active_sprint = active_client.find_active_sprint()
             if active_sprint and not (sprint_start and sprint_end):
                 sp_start = str(active_sprint.get("startDate") or "")[:10]
@@ -750,11 +865,73 @@ def sync_records_to_jira(
                 if len(sp_start) == 10 and len(sp_end) == 10:
                     sprint_start, sprint_end = sp_start, sp_end
 
-        epic_dates, domain_dates = _compute_timeline_window(
+        if meth == "waterfall":
+            epic_dates, domain_dates = compute_waterfall_timeline_window(
+                today=today,
+                sprint_start=sprint_start,
+                sprint_end=sprint_end,
+            )
+        else:
+            epic_dates, domain_dates = _compute_timeline_window(
+                today=today,
+                sprint_start=sprint_start,
+                sprint_end=sprint_end,
+            )
+
+        project = active_client.verify_access()
+        assignee_id = active_client.get_myself_account_id() if hasattr(active_client, "get_myself_account_id") else None
+
+        # Fetch all project issues ONCE and reuse across Epics, Tasks, Bug dedup, and Auto-Recovery
+        cached_project_issues: dict[str, JiraIssueResult] = dict(active_client.find_project_issues())
+        managed, epic_key_by_domain, epics_by_phase = _ensure_epics_and_issues(
+            active_client,
             today=today,
-            sprint_start=sprint_start,
-            sprint_end=sprint_end,
+            assignee_id=assignee_id,
+            epic_dates=epic_dates,
+            lang=code,
+            methodology=meth,
+            existing_issues=cached_project_issues,
         )
+
+        # Assign managed issues into Active Agile Sprint when Agile mode & Scrum sprint are active
+        if meth == "agile" and active_sprint and hasattr(active_client, "move_issues_to_sprint"):
+            active_client.move_issues_to_sprint(
+                int(active_sprint["id"]),
+                [iss.key for iss in managed.values()],
+            )
+
+        target_summaries = ISSUE_SUMMARIES_I18N[code]
+        effective_domain_status: dict[str, str] = {}
+        domain_waivers: dict[str, tuple[str, ...]] = {}
+        domain_states: dict[str, Any] = {}
+
+        leaf_domains = ("QA-2", "QA-3", "QA-4", "QA-5", "QA-6", "QA-7", "QA-8")
+        for domain_key in sorted(ISSUE_SUMMARIES):
+            issue = managed[domain_key]
+            raw_status, _ = domain_map[domain_key]
+            state = active_client.get_issue_state(issue.key)
+            domain_states[domain_key] = state
+            matched_waivers = tuple(sorted(set(state.labels) & WAIVER_LABELS)) if respect_waivers else ()
+            domain_waivers[domain_key] = matched_waivers
+            if raw_status == "FAIL" and matched_waivers:
+                effective_domain_status[domain_key] = "PASS"
+                waived_domains.append(domain_key)
+            else:
+                effective_domain_status[domain_key] = raw_status
+
+        if waived_domains:
+            rollup_after_waivers = _aggregate_statuses([effective_domain_status[d] for d in leaf_domains])
+            for rollup_key in ("QA-1", "QA-9"):
+                if not domain_waivers[rollup_key]:
+                    effective_domain_status[rollup_key] = rollup_after_waivers
+
+        governance = evaluate_methodology_governance(
+            effective_domain_status,
+            analytics,
+            methodology=meth,
+            lang=code,
+        )
+        rtm_rows = build_rtm_matrix(norm_records, manifest_sha256=manifest_sha256, lang=code)
 
         all_attachments: list[Path] = [Path(p) for p in attachments if Path(p).is_file()]
         existing_names = {p.name for p in all_attachments}
@@ -778,6 +955,28 @@ def sync_records_to_jira(
             if csv_matrix.name not in existing_names:
                 all_attachments.append(csv_matrix)
                 existing_names.add(csv_matrix.name)
+
+            rtm_csv = work_dir / "rtm-matrix.csv"
+            export_rtm_csv(rtm_rows, rtm_csv, lang=code)
+            if rtm_csv.name not in existing_names:
+                all_attachments.append(rtm_csv)
+                existing_names.add(rtm_csv.name)
+
+            signoff_md = work_dir / "release-signoff.md"
+            signoff_md.write_text(
+                render_release_signoff_markdown(
+                    governance,
+                    rtm_rows,
+                    analytics,
+                    suite_name=suite_name,
+                    manifest_sha256=manifest_sha256,
+                    lang=code,
+                ),
+                encoding="utf-8",
+            )
+            if signoff_md.name not in existing_names:
+                all_attachments.append(signoff_md)
+                existing_names.add(signoff_md.name)
 
             report_title = f"{'Laporan Kualitas SAQA' if code == 'id' else 'SAQA Report'} — {suite_name}"
             if "report.html" not in existing_names:
@@ -804,16 +1003,20 @@ def sync_records_to_jira(
                 all_attachments.append(md_path)
                 existing_names.add(md_path.name)
 
-            if "qa-executive-report.pdf" not in existing_names:
-                pdf_path = work_dir / "qa-executive-report.pdf"
-                render_pdf_report(
-                    analytics,
-                    norm_records,
-                    pdf_path,
-                    manifest_sha256=manifest_sha256,
-                    title=report_title,
-                    lang=code,
-                )
+            # Always refresh Executive PDF with active methodology, governance gate & HMAC provenance
+            pdf_path = work_dir / "qa-executive-report.pdf"
+            render_pdf_report(
+                analytics,
+                norm_records,
+                pdf_path,
+                manifest_sha256=manifest_sha256,
+                hmac_sha256=hmac_sha256,
+                title=report_title,
+                methodology=meth,
+                governance=governance,
+                lang=code,
+            )
+            if pdf_path.name not in existing_names:
                 all_attachments.append(pdf_path)
                 existing_names.add(pdf_path.name)
 
@@ -855,56 +1058,23 @@ def sync_records_to_jira(
         photo_attachments = [p for p in all_attachments if p.suffix.lower() in photo_exts]
         attachment_names = [p.name for p in all_attachments]
 
-        project = active_client.verify_access()
-        assignee_id = active_client.get_myself_account_id() if hasattr(active_client, "get_myself_account_id") else None
-        managed, epic_key_by_domain, epics_by_phase = _ensure_epics_and_issues(
-            active_client,
-            today=today,
-            assignee_id=assignee_id,
-            epic_dates=epic_dates,
-            lang=code,
-        )
+        # Transition Epics based on Agile child statuses or strict sequential Waterfall Stage Gates
+        stage_gate_by_phase: dict[str, str] = {}
+        if meth == "waterfall":
+            for sg in governance.get("stage_gates", []):
+                stage_num = str(sg["stage"]).split("-")[-1]
+                stage_gate_by_phase[f"PHASE-{stage_num}"] = str(sg["status"])
 
-        # Assign managed issues into Active Agile Sprint when present
-        if active_sprint and hasattr(active_client, "move_issues_to_sprint"):
-            active_client.move_issues_to_sprint(
-                int(active_sprint["id"]),
-                [iss.key for iss in managed.values()],
-            )
-
-        target_summaries = ISSUE_SUMMARIES_I18N[code]
-        effective_domain_status: dict[str, str] = {}
-        domain_waivers: dict[str, tuple[str, ...]] = {}
-        domain_states: dict[str, Any] = {}
-
-        leaf_domains = ("QA-2", "QA-3", "QA-4", "QA-5", "QA-6", "QA-7", "QA-8")
-        for domain_key in sorted(ISSUE_SUMMARIES):
-            issue = managed[domain_key]
-            raw_status, _ = domain_map[domain_key]
-            state = active_client.get_issue_state(issue.key)
-            domain_states[domain_key] = state
-            matched_waivers = tuple(sorted(set(state.labels) & WAIVER_LABELS)) if respect_waivers else ()
-            domain_waivers[domain_key] = matched_waivers
-            if raw_status == "FAIL" and matched_waivers:
-                effective_domain_status[domain_key] = "PASS"
-                waived_domains.append(domain_key)
-            else:
-                effective_domain_status[domain_key] = raw_status
-
-        if waived_domains:
-            rollup_after_waivers = _aggregate_statuses([effective_domain_status[d] for d in leaf_domains])
-            for rollup_key in ("QA-1", "QA-9"):
-                if not domain_waivers[rollup_key]:
-                    effective_domain_status[rollup_key] = rollup_after_waivers
-
-        # Transition Epics based on effective aggregate status of their child domains
         for epic_def in EPIC_DEFINITIONS:
             phase_id = epic_def["phase_id"]
             if phase_id not in epics_by_phase:
                 continue
             epic_issue = epics_by_phase[phase_id]
-            child_statuses = [effective_domain_status[d] for d in epic_def["domains"]]
-            epic_status = _aggregate_statuses(child_statuses)
+            if meth == "waterfall" and phase_id in stage_gate_by_phase:
+                epic_status = stage_gate_by_phase[phase_id]
+            else:
+                child_statuses = [effective_domain_status[d] for d in epic_def["domains"]]
+                epic_status = _aggregate_statuses(child_statuses)
             epic_transition = active_client.transition_to_any(epic_issue.key, _transition_targets(epic_status))
             synced_epics.append({
                 "phase_id": phase_id,
@@ -915,22 +1085,25 @@ def sync_records_to_jira(
             })
 
         sprint_display = str(active_sprint["name"]) if active_sprint else None
+        other_meth = "agile" if meth == "waterfall" else "waterfall"
 
         for domain_key in sorted(ISSUE_SUMMARIES):
             issue = managed[domain_key]
             _, domain_records = domain_map[domain_key]
             domain_status = effective_domain_status[domain_key]
             waiver_lbls = domain_waivers[domain_key]
+            defect_info = classify_defect_severity(domain_key, domain_records, lang=code)
             label = _status_label(domain_status)
             phase_label = "saqa-phase-1" if domain_key in {"QA-1", "QA-2", "QA-3"} else (
                 "saqa-phase-2" if domain_key in {"QA-4", "QA-5", "QA-6"} else "saqa-phase-3"
             )
             state = domain_states[domain_key]
             stale_labels = tuple(sorted((set(state.labels) & STATUS_LABELS) - {label}))
+            remove_set = set(stale_labels) | ({f"saqa-lang-{'en' if code == 'id' else 'id'}", f"saqa-{other_meth}"} & set(state.labels))
             active_client.update_labels(
                 issue.key,
-                add=("saqa-automation", f"saqa-{domain_key.lower()}", phase_label, f"saqa-lang-{code}", label),
-                remove=tuple(sorted(set(stale_labels) | ({f"saqa-lang-{'en' if code == 'id' else 'id'}"} & set(state.labels)))),
+                add=("saqa-automation", f"saqa-{domain_key.lower()}", phase_label, f"saqa-lang-{code}", f"saqa-{meth}", label),
+                remove=tuple(sorted(remove_set)),
             )
 
             start_date, due_date = domain_dates.get(
@@ -962,10 +1135,15 @@ def sync_records_to_jira(
                 lang=code,
                 active_sprint_name=sprint_display,
                 waiver_labels=waiver_lbls,
+                methodology=meth,
+                governance=governance,
+                rtm_rows=rtm_rows,
+                hmac_sha256=hmac_sha256,
+                defect_info=defect_info,
             )
 
             if hasattr(active_client, "update_issue_fields"):
-                priority_name = "Highest" if domain_status == "FAIL" else DOMAIN_PRIORITIES.get(domain_key, "High")
+                priority_name = str(defect_info["priority"]) if domain_status == "FAIL" else DOMAIN_PRIORITIES.get(domain_key, "High")
                 field_payload: dict[str, Any] = {
                     "summary": target_summaries[domain_key],
                     "description": rich_description_adf,
@@ -990,7 +1168,7 @@ def sync_records_to_jira(
                 _transition_targets(domain_status),
             )
 
-            marker = f"[SAQA-ADF-SYNC:{suite_name}:{sha_short}:{domain_key}:{code}]"
+            marker = f"[SAQA-ADF-SYNC:{suite_name}:{sha_short}:{domain_key}:{code}:{meth}]"
             comment_adf = build_domain_adf_document(
                 domain_key=domain_key,
                 domain_status=domain_status,
@@ -1007,6 +1185,11 @@ def sync_records_to_jira(
                 lang=code,
                 active_sprint_name=sprint_display,
                 waiver_labels=waiver_lbls,
+                methodology=meth,
+                governance=governance,
+                rtm_rows=rtm_rows,
+                hmac_sha256=hmac_sha256,
+                defect_info=defect_info,
             )
             if hasattr(active_client, "add_adf_comment_once"):
                 commented = active_client.add_adf_comment_once(issue.key, comment_adf, marker)
@@ -1036,15 +1219,37 @@ def sync_records_to_jira(
                 bug_summary_en = tr("auto_bug_prefix", "en", suite=suite_name, domain=domain_key, target=target_display)
                 bug_summary_id = tr("auto_bug_prefix", "id", suite=suite_name, domain=domain_key, target=target_display)
                 bug_summary = bug_summary_id if code == "id" else bug_summary_en
-                existing_map = active_client.find_project_issues()
-                if bug_summary_en not in existing_map and bug_summary_id not in existing_map:
+                if bug_summary_en not in cached_project_issues and bug_summary_id not in cached_project_issues:
+                    sev_tag = str(defect_info["severity"]).lower().split("-", 1)[0]
+                    bug_desc = (
+                        tr("auto_bug_desc", code, domain=domain_key, suite=suite_name, target=target_display, sha=manifest_sha256)
+                        + f"\nSDLC: {meth.upper()} | Severity: {defect_info['severity']} | "
+                        f"Story Points: {defect_info['story_points']} | SLA: {defect_info['sla']}"
+                    )
                     bug = active_client.create_bug(
                         bug_summary,
-                        tr("auto_bug_desc", code, domain=domain_key, suite=suite_name, target=target_display, sha=manifest_sha256),
-                        ["saqa-automation", "saqa-auto-defect", f"saqa-{domain_key.lower()}", f"saqa-lang-{code}"],
+                        bug_desc,
+                        [
+                            "saqa-automation",
+                            "saqa-auto-defect",
+                            f"saqa-{domain_key.lower()}",
+                            f"saqa-lang-{code}",
+                            f"saqa-{meth}",
+                            f"saqa-{sev_tag}",
+                        ],
                     )
+                    cached_project_issues[bug_summary] = bug
                     created_bugs.append(bug.key)
-                    if active_sprint and hasattr(active_client, "move_issues_to_sprint"):
+                    if hasattr(active_client, "update_issue_fields"):
+                        active_client.update_issue_fields(
+                            bug.key,
+                            {
+                                "priority": {"name": str(defect_info["priority"])},
+                                "customfield_10015": today_str,
+                                "duedate": due_date,
+                            },
+                        )
+                    if meth == "agile" and active_sprint and hasattr(active_client, "move_issues_to_sprint"):
                         active_client.move_issues_to_sprint(int(active_sprint["id"]), [bug.key])
             elif domain_status == "PASS" and auto_resolve_bugs and not waiver_lbls:
                 resolved_bugs.extend(
@@ -1055,6 +1260,7 @@ def sync_records_to_jira(
                         manifest_sha256=manifest_sha256,
                         today_str=today_str,
                         lang=code,
+                        existing_issues=cached_project_issues,
                     )
                 )
 
@@ -1069,6 +1275,8 @@ def sync_records_to_jira(
                     "due_date": due_date,
                     "status": domain_status,
                     "waived": bool(waiver_lbls),
+                    "severity": defect_info["severity"],
+                    "story_points": defect_info["story_points"],
                     "label": label,
                     "transitioned_to": transitioned_to,
                     "comment_added": commented,
@@ -1079,10 +1287,18 @@ def sync_records_to_jira(
             "project_key": project.key,
             "project_name": project.name,
             "language": code,
+            "methodology": meth,
             "suite_name": suite_name,
             "overall_status": analytics["overall_status"],
             "health_score": analytics["health_score"],
             "manifest_sha256": manifest_sha256,
+            "hmac_sha256": hmac_sha256,
+            "governance": governance,
+            "rtm_summary": {
+                "total": len(rtm_rows),
+                "passed": sum(1 for r in rtm_rows if r["status"] == "PASS"),
+                "failed": sum(1 for r in rtm_rows if r["status"] == "FAIL"),
+            },
             "active_sprint": active_sprint,
             "waived_domains": waived_domains,
             "synced_epics": synced_epics,
@@ -1111,12 +1327,19 @@ def sync_manifest_to_jira(
     sprint_end: str | None = None,
     skip_unchanged_attachments: bool = True,
     lang: str | None = None,
+    methodology: str | None = None,
     respect_waivers: bool = True,
     sync_agile_sprint: bool = True,
     client: JiraClient | None = None,
 ) -> dict[str, Any]:
-    """Verify a SAQA evidence manifest file and synchronize its results, timeline, photos, and reports to Jira."""
+    """Verify a SAQA evidence manifest file and synchronize its results, Agile/Waterfall governance, RTM, photos & reports to Jira."""
     records, sha = load_verified_manifest(manifest_path)
+    hmac_sig: str | None = None
+    try:
+        hmac_sig = json.loads(manifest_path.read_text(encoding="utf-8")).get("hmac_sha256")
+    except Exception:  # noqa: S110
+        hmac_sig = None
+
     inferred_suite = suite_name
     if not inferred_suite and records:
         inferred_suite = str(records[0].get("details", {}).get("suite") or manifest_path.stem)
@@ -1128,6 +1351,8 @@ def sync_manifest_to_jira(
             manifest_path,
             parent / "suite-summary.json",
             parent / "qa-executive-report.pdf",
+            parent / "rtm-matrix.csv",
+            parent / "release-signoff.md",
             parent / "report.html",
             parent / "report.md",
             parent / "junit.xml",
@@ -1154,6 +1379,7 @@ def sync_manifest_to_jira(
         records,
         suite_name=inferred_suite or "saqa-suite",
         manifest_sha256=sha,
+        hmac_sha256=hmac_sig,
         attachments=discovered,
         artifact_dir=parent,
         auto_generate_visuals=auto_generate_visuals,
@@ -1163,6 +1389,7 @@ def sync_manifest_to_jira(
         sprint_end=sprint_end,
         skip_unchanged_attachments=skip_unchanged_attachments,
         lang=lang,
+        methodology=methodology,
         respect_waivers=respect_waivers,
         sync_agile_sprint=sync_agile_sprint,
         client=client,

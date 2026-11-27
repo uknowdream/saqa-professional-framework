@@ -1,8 +1,6 @@
-import copy
 from pathlib import Path
 
 import pytest
-
 from scripts.performance_run_provenance import validate_sample_run
 
 REPO = "uknowdream/saqa-professional-framework"

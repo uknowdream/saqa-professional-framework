@@ -3,7 +3,6 @@ from pathlib import Path
 
 from scripts.audit_artifact_retention import MANDATORY
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCERS = {
     ".github/workflows/saqa-ci.yml",

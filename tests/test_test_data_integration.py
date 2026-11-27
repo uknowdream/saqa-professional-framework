@@ -1,5 +1,6 @@
 from saqa.test_data import TestDataScope
 
+
 def test_cross_service_scope_runs_cleanup_in_reverse_order():
     events=[]
     with TestDataScope() as scope:
